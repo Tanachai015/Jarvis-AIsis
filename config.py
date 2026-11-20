@@ -52,6 +52,8 @@ VOICE_COOLDOWN_SECONDS = float(os.getenv("VOICE_COOLDOWN_SECONDS", "1.5"))
 
 # Antigravity Bridge Settings
 ANTIGRAVITY_WINDOW_TITLE = os.getenv("ANTIGRAVITY_WINDOW_TITLE", "Antigravity")
+TASK_FILE_NAME = os.getenv("TASK_FILE_NAME", ".jarvis_task.md")
+TASK_FILE_PATH = PROJECT_ROOT / TASK_FILE_NAME
 RESULT_FILE_NAME = os.getenv("RESULT_FILE_NAME", ".jarvis_result.md")
 RESULT_FILE_PATH = PROJECT_ROOT / RESULT_FILE_NAME
 

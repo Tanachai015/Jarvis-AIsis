@@ -1,11 +1,11 @@
 """
 Static Tool Registry for Jarvis Desktop Assistant.
-Pre-registers all 5 standard tools once at startup for fast execution and minimal token overhead:
-1. delegate_to_antigravity: Hands off coding/refactoring tasks to Antigravity IDE Agent.
+Pre-registers all standard native tools once at startup for fast execution and minimal token overhead:
+1. delegate_to_antigravity: Hands off coding/refactoring tasks to Antigravity IDE Agent via .jarvis_task.md in background.
 2. analyze_current_screen: Captures desktop via screencapture and analyzes with Gemini Vision.
 3. control_mac_system: Controls macOS apps, URLs, audio volume, and inspects system resources.
-4. manage_project_files: Lists directory contents and safely reads project files (up to 15,000 chars).
-5. manage_memory: Stores and retrieves persistent long-term memories across sessions.
+4. manage_memory: Stores and retrieves persistent long-term memories across sessions.
+5. reveal_task_result: Opens files, apps, or displays results of background tasks on-demand when requested by the user.
 """
 
 import os
@@ -282,6 +282,24 @@ def manage_memory(mode: str, content: str = "") -> str:
 
 
 # ============================================================================
+# 5. reveal_task_result
+# ============================================================================
+def reveal_task_result(task_ref: str = "latest") -> str:
+    """
+    Reveals and opens the output, files, app window, or results of a completed background task on screen.
+    CRITICAL: ONLY invoke this tool when the user EXPLICITLY asks to open, view, inspect, or reveal completed work
+    (e.g., 'เปิดดูไฟล์ที่แก้หน่อย', 'เปิดผลงานล่าสุด', 'ขอดูผลหน่อย', 'เปิด Antigravity', 'reveal task').
+    NEVER call this tool automatically right after a task is finished in the background.
+
+    Args:
+        task_ref: Reference to the task ('latest', task_id, or keyword matching task title/file). Defaults to 'latest'.
+    """
+    from core.task_manager import task_manager
+    event_bus.task_log_updated.emit("Reveal Tool", f"กำลังเปิดดูผลงานที่อ้างอิง: '{task_ref}'")
+    return task_manager.reveal_task(task_ref)
+
+
+# ============================================================================
 # Static Registry of Native macOS Tools
 # ============================================================================
 AVAILABLE_TOOLS = [
@@ -289,6 +307,7 @@ AVAILABLE_TOOLS = [
     analyze_current_screen,
     control_mac_system,
     manage_memory,
+    reveal_task_result,
 ]
 
 # Quick dispatch lookup map for native tools

@@ -17,6 +17,7 @@ from watchdog.events import FileSystemEventHandler
 
 import config
 from core.event_bus import event_bus
+from core.task_manager import task_manager
 
 
 def set_clipboard_text(text: str) -> bool:
@@ -223,11 +224,12 @@ class AntigravityBridge:
 
     def delegate_task(self, task_prompt: str) -> str:
         """
-        Sends the task prompt to Antigravity and prepares for result capture.
+        Delegates the task to Antigravity 100% in the background without stealing screen focus.
+        Writes the task instruction to .jarvis_task.md and waits for .jarvis_result.md via Watchdog.
         """
         event_bus.task_log_updated.emit(
-            "Delegating to Antigravity",
-            f"Task: {task_prompt}\nTarget File: {config.RESULT_FILE_PATH}"
+            "Delegating to Antigravity (Stealth Background)",
+            f"Task: {task_prompt}\nTarget File: {config.TASK_FILE_PATH}"
         )
 
         # Clear or prepare previous result file to avoid stale triggers
@@ -237,36 +239,41 @@ class AntigravityBridge:
         except Exception as e:
             print(f"[Bridge] Warning clearing previous result file: {e}")
 
-        # Append instructions for Antigravity to summarize results
-        full_prompt = (
+        # Construct markdown task file content
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        task_markdown = (
+            f"# Jarvis Background Task\n\n"
+            f"- **Dispatched At:** {now_str}\n"
+            f"- **Target Result File:** `{config.RESULT_FILE_NAME}`\n"
+            f"- **Stealth Execution:** ทำงานเบื้องหลัง 100% ไม่แย่งโฟกัสหน้าจอ\n\n"
+            f"## คำสั่ง / Prompt:\n"
             f"{task_prompt.strip()}\n\n"
-            f"[System Notification for Antigravity]:\n"
-            f"Jarvis Desktop Assistant ได้ส่งต่องานนี้ให้คุณ เมื่อคุณดำเนินการเสร็จสิ้น "
-            f"กรุณาเขียนสรุปผลลัพธ์และความคืบหน้าสั้นๆ ลงในไฟล์นี้โดยตรง:\n"
-            f"{config.RESULT_FILE_PATH}"
+            f"---\n"
+            f"### คำแนะนำสำหรับ Antigravity Agent:\n"
+            f"1. ดำเนินการตามคำสั่งข้างต้นใน Workspace ให้เสร็จสมบูรณ์\n"
+            f"2. เมื่อดำเนินการเสร็จสิ้น ให้เขียนสรุปผลลัพธ์และความคืบหน้าลงในไฟล์ `{config.RESULT_FILE_NAME}` โดยตรง เพื่อให้ Jarvis รับทราบผลลัพธ์\n"
         )
 
-        # Copy to clipboard
-        if not set_clipboard_text(full_prompt):
-            msg = "เกิดข้อผิดพลาดในการคัดลอกข้อความลง Clipboard"
-            event_bus.task_log_updated.emit("Bridge Error", msg)
-            return msg
+        try:
+            config.TASK_FILE_PATH.write_text(task_markdown, encoding="utf-8")
+        except Exception as e:
+            err = f"ไม่สามารถเขียนไฟล์งาน {config.TASK_FILE_NAME} ได้: {str(e)}"
+            event_bus.task_log_updated.emit("Bridge Error", err)
+            return err
 
-        # Focus window
-        focused = focus_antigravity_window()
-        if not focused:
-            event_bus.task_log_updated.emit(
-                "Bridge Warning",
-                f"ไม่พบหน้าต่าง '{config.ANTIGRAVITY_WINDOW_TITLE}' อย่างชัดเจน แต่จะพยายามส่งคีย์ลัดต่อไป"
-            )
+        # Record in TaskManager as running background task
+        task_manager.record_task(
+            title=f"งาน Antigravity: {task_prompt[:35]}...",
+            summary=f"ส่งคำสั่งให้ Antigravity ผ่าน {config.TASK_FILE_NAME} กำลังรอผลลัพธ์ในเบื้องหลัง",
+            files_affected=[str(config.TASK_FILE_PATH), str(config.RESULT_FILE_PATH)],
+            app_or_url="Antigravity",
+            command_or_prompt=task_prompt,
+            status="running"
+        )
 
-        # Paste & send
-        success = send_chat_shortcut_and_paste()
-        if success:
-            msg = f"ส่งคำสั่งไปยัง Antigravity เรียบร้อยแล้ว กำลังเฝ้ารอผลลัพธ์ที่ {config.RESULT_FILE_NAME}"
-            event_bus.task_log_updated.emit("Task Dispatched", msg)
-            return msg
-        else:
-            msg = "ส่งคำสั่งคีย์ลัดไปยัง Antigravity ไม่สำเร็จ กรุณาตรวจสอบการอนุญาต Accessibility ใน macOS"
-            event_bus.task_log_updated.emit("Bridge Error", msg)
-            return msg
+        msg = (
+            f"ส่งต่องานไปยัง Antigravity ในเบื้องหลังผ่านไฟล์ {config.TASK_FILE_NAME} เรียบร้อยแล้วครับ "
+            f"โดยไม่รบกวนหน้าจอของบอส ระบบกำลังเฝ้ารอผลลัพธ์ที่ {config.RESULT_FILE_NAME} ครับ"
+        )
+        event_bus.task_log_updated.emit("Task Dispatched", msg)
+        return msg

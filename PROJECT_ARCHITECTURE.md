@@ -14,12 +14,13 @@
    - [3.3 ตัวกลางสื่อสารข้ามเธรด (`core/event_bus.py`)](#33-ตัวกลางสื่อสารข้ามเธรด-coreevent_buspy)
    - [3.4 สมองหลักและการประมวลผล AI (`core/brain.py`)](#34-สมองหลักและการประมวลผล-ai-corebrainpy)
    - [3.5 เครื่องมือระบบ macOS พื้นฐาน (`core/tools.py`)](#35-เครื่องมือระบบ-macos-พื้นฐาน-coretoolspy)
-   - [3.6 ระบบจัดการ MCP มาตรฐานสากล (`core/mcp_manager.py`)](#36-ระบบจัดการ-mcp-มาตรฐานสากล-coremcp_managerpy)
-   - [3.7 ระบบเชื่อมต่อ Antigravity IDE (`integrations/antigravity_bridge.py`)](#37-ระบบเชื่อมต่อ-antigravity-ide-integrationsantigravity_bridgepy)
-   - [3.8 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)](#38-ระบบรับเสียงพูดอัจฉริยะ-voicelistenerpy)
-   - [3.9 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)](#39-ระบบสังเคราะห์เสียงพูด-2-ภาษา-voicespeakerpy)
-   - [3.10 ส่วนติดต่อผู้ใช้ (`ui/`)](#310-ส่วนติดต่อผู้ใช้-ui)
-   - [3.11 หน่วยความจำถาวร (`memory/`)](#311-หน่วยความจำถาวร-memory)
+   - [3.6 ระบบบันทึกผลงานเบื้องหลังและ On-Demand Reveal (`core/task_manager.py`)](#36-ระบบบันทึกผลงานเบื้องหลังและ-on-demand-reveal-coretask_managerpy)
+   - [3.7 ระบบจัดการ MCP มาตรฐานสากล (`core/mcp_manager.py`)](#37-ระบบจัดการ-mcp-มาตรฐานสากล-coremcp_managerpy)
+   - [3.8 ระบบเชื่อมต่อ Antigravity IDE (`integrations/antigravity_bridge.py`)](#38-ระบบเชื่อมต่อ-antigravity-ide-integrationsantigravity_bridgepy)
+   - [3.9 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)](#39-ระบบรับเสียงพูดอัจฉริยะ-voicelistenerpy)
+   - [3.10 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)](#310-ระบบสังเคราะห์เสียงพูด-2-ภาษา-voicespeakerpy)
+   - [3.11 ส่วนติดต่อผู้ใช้ (`ui/`)](#311-ส่วนติดต่อผู้ใช้-ui)
+   - [3.12 หน่วยความจำถาวร (`memory/`)](#312-หน่วยความจำถาวร-memory)
 4. [แผนภาพลำดับการไหลของข้อมูล (System Data Flow)](#4-แผนภาพลำดับการไหลของข้อมูล-system-data-flow)
 5. [ตารางคีย์ลัดและสิทธิ์ของระบบ macOS (Keybindings & Permissions)](#5-ตารางคีย์ลัดและสิทธิ์ของระบบ-macos-keybindings--permissions)
 
@@ -30,8 +31,9 @@
 Jarvis Desktop Assistant ได้รับการออกแบบภายใต้สถาปัตยกรรม **Decoupled Event-Driven Architecture** โดยใช้ **PySide6 (Qt for Python)** เป็นแกนกลางในการจัดการ User Interface และ Event Loop มีจุดเด่นสำคัญดังนี้:
 
 - **AI Engine:** ขับเคลื่อนด้วย **Google GenAI SDK (`google-genai`)** ใช้โมเดลหลัก `gemini-3.5-flash-lite` (ความเร็วตอบสนอง ~1.2 วินาที พร้อมโควต้า Free Tier 500 RPD / 15 RPM) เสริมด้วย **Explicit Fallback Chain** สลับโมเดลสำรองอัตโนมัติหากติด 429/503/504
-- **Hybrid Tool Architecture:** ผสมผสานระหว่าง **Native macOS Tools** (ควบคุมระบบ Mac, ดูหน้าจอด้วย Vision, ส่งงาน Antigravity, จดจำข้อมูล) และ **Official Model Context Protocol (MCP) Servers** (Filesystem, Web Fetch และ Git มาตรฐานสากล) รวม 35 เครื่องมือ พร้อมใช้งานทันทีโดยไม่ต้องโหลดใหม่ในแต่ละรอบสนทนา
-- **Instant Boot Caching:** มีระบบ **Schema Disk Cache** โหลดสเปกเครื่องมือทั้ง 17+ ตัวในเวลาเพียง **0.0017 วินาที** พร้อมระบบตรวจจับการอัปเดตอัตโนมัติด้วย SHA-256
+- **Hybrid Tool Architecture:** ผสมผสานระหว่าง **Native macOS Tools** (ควบคุมระบบ Mac, ดูหน้าจอด้วย Vision, ส่งงาน Antigravity, จดจำข้อมูล, เปิดดูผลงาน On-Demand) และ **Official Model Context Protocol (MCP) Servers** (Filesystem, Web Fetch และ Git มาตรฐานสากล) รวม 36 เครื่องมือ พร้อมใช้งานทันทีโดยไม่ต้องโหลดใหม่ในแต่ละรอบสนทนา
+- **Stealth Background Execution (100% เบื้องหลัง):** ทำงานเงียบสนิทในเบื้องหลัง ไม่แย่งโฟกัสหน้าจอ ไม่เปิดแอปหรือไฟล์ขึ้นมาเองโดยพลการ และบันทึกประวัติผลงานไว้ใน `core/task_manager.py` พร้อมให้ผู้ใช้สั่ง "เปิดดู" (`reveal_task_result`) เมื่อต้องการเท่านั้น
+- **Instant Boot Caching:** มีระบบ **Schema Disk Cache** โหลดสเปกเครื่องมือทั้ง 17+ ตัวในเวลาเพียง **0.005 วินาที** พร้อมระบบตรวจจับการอัปเดตอัตโนมัติด้วย SHA-256
 - **System-level Global Interception:** ใช้ **Quartz `CGEventTapCreate`** ดักจับคีย์ลัดระดับลึกจากทุกหน้าต่างและดูดกลืนคีย์ (Event Swallowing) ไม่ให้ไปรบกวนแอปอื่น
 - **Persistent Mic Session:** สแตนด์บายไมโครโฟนตลอดเวลา ใช้ **CPU 0% ในขณะ Idle** ไม่หน่วงตอนเริ่มอัด และสิทธิ์ไมค์ไม่หลุด
 
@@ -55,12 +57,13 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 │   ├── __init__.py
 │   ├── event_bus.py                    # ตัวกลางส่งสัญญาณ PySide6 Signals (Thread-safe)
 │   ├── brain.py                        # สมอง AI: Fallback Chain, Persistent History, GenAI Client
-│   ├── tools.py                        # Native macOS Tools (Screen Vision, Antigravity, System Control)
+│   ├── tools.py                        # Native macOS Tools (Screen Vision, Antigravity, System Control, Reveal)
+│   ├── task_manager.py                 # ตัวจัดการบันทึกผลงานเบื้องหลังและ On-Demand Reveal (Stealth Mode)
 │   └── mcp_manager.py                  # ตัวจัดการ Official MCP Servers และ Schema Disk Cache
 │
 ├── integrations/                       # การเชื่อมต่อภายนอก
 │   ├── __init__.py
-│   └── antigravity_bridge.py           # ตัวเชื่อม Antigravity IDE (AppleScript + Watchdog Observer)
+│   └── antigravity_bridge.py           # ตัวเชื่อม Antigravity IDE (Background Task File + Watchdog)
 │
 ├── voice/                              # ระบบเสียงพูดและการได้ยิน
 │   ├── __init__.py
@@ -76,7 +79,8 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 └── memory/                             # โฟลเดอร์เก็บข้อมูลถาวรข้ามเซสชัน
     ├── chat_history.json               # ประวัติการสนทนา 10 รอบล่าสุด (Persistent Context)
     ├── jarvis_memory.json              # ความจำระยะยาวของผู้ใช้ (Persistent Facts)
-    └── mcp_tools_cache.json            # แคชสเปกเครื่องมือ MCP ถาวร (Instant Boot 0.001s)
+    ├── background_tasks.json           # ประวัติและผลลัพธ์ของงานเบื้องหลัง (On-Demand Reveal)
+    └── mcp_tools_cache.json            # แคชสเปกเครื่องมือ MCP ถาวร (Instant Boot 0.005s)
 ```
 
 ---
@@ -118,46 +122,53 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **Persistent Chat History:** โหลดประวัติ 10 รอบล่าสุดจาก `memory/chat_history.json` ตอนเปิดโปรแกรม และบันทึกประวัติแบบ Asynchronous หลังจบแต่ละรอบ
 
 ### 3.5 เครื่องมือระบบ macOS พื้นฐาน (`core/tools.py`)
-ประกอบด้วย 4 เครื่องมือหลักที่เขียนด้วย Native Python และคำสั่งของ macOS:
-1. `delegate_to_antigravity(task_prompt)`: ส่งคำสั่งเขียนโค้ดเข้า Antigravity IDE ผ่าน AppleScript
+ประกอบด้วย 5 เครื่องมือหลักที่เขียนด้วย Native Python และคำสั่งของ macOS:
+1. `delegate_to_antigravity(task_prompt)`: ส่งงานเขียนโค้ดไปยัง Antigravity IDE ในเบื้องหลังผ่านไฟล์ `.jarvis_task.md` โดยไม่แย่งโฟกัสหน้าจอ
 2. `analyze_current_screen(question)`: ถ่ายภาพหน้าจอด้วย `screencapture -x /tmp/jarvis_screen.jpg` ส่งให้ Gemini Vision วิเคราะห์ และลบไฟล์ทิ้งทันที
 3. `control_mac_system(action, target)`: ควบคุมระบบ macOS (`open_app`, `open_url`, `set_volume`, `get_system_info`)
 4. `manage_memory(mode, content)`: บันทึกและดึงข้อมูลความจำระยะยาวใน `memory/jarvis_memory.json`
+5. `reveal_task_result(task_ref)`: เปิดไฟล์/หน้าต่างแอป/ผลลัพธ์ของงานเบื้องหลังขึ้นมาบนหน้าจอเฉพาะเมื่อผู้ใช้สั่งเปิดดู (On-Demand Reveal)
 
-### 3.6 ระบบจัดการ MCP มาตรฐานสากล (`core/mcp_manager.py`)
+### 3.6 ระบบบันทึกผลงานเบื้องหลังและ On-Demand Reveal (`core/task_manager.py`)
+- **Stealth Task Registry:** ทุกงานที่รันในเบื้องหลัง (การเขียนไฟล์, การแก้โค้ด, การส่งงาน Antigravity) จะถูกบันทึกประวัติลง `memory/background_tasks.json` อย่างเงียบกริบ
+- **ข้อมูลที่บันทึก:** `task_id`, `title`, `command_or_prompt`, `summary`, `files_affected` (รายชื่อไฟล์ที่สร้างหรือแก้ไข), `app_or_url`, `status`, `completed_at`, และสถานะ `revealed`
+- **On-Demand Reveal:** เมื่อผู้ใช้สั่งให้เปิดดูงาน (เช่น "เปิดดูไฟล์ที่แก้", "เปิดผลลัพธ์ล่าสุด") ตัวจัดการจะสั่งเปิดไฟล์ด้วย `open` บน macOS หรือเปิดเบราว์เซอร์/หน้าต่างแอปที่เกี่ยวข้อง และปรับสถานะ `revealed = True` ทันที โดยระหว่างที่งานยังรันหรือเพิ่งเสร็จจะไม่มีการเด้งหน้าต่างขึ้นมาขัดจังหวะผู้ใช้เด็ดขาด
+
+### 3.7 ระบบจัดการ MCP มาตรฐานสากล (`core/mcp_manager.py`)
 - **Official Servers:** รันและสื่อสารผ่าน Stdio Client กับ:
   - `@modelcontextprotocol/server-filesystem`: จัดการไฟล์ อ่าน เขียน ลิสต์ และค้นหาไฟล์ในโปรเจกต์ (16 เครื่องมือ)
   - `mcp-server-fetch`: ดึงข้อมูลจาก URL และแปลงเป็น Markdown (1 เครื่องมือ)
   - `mcp-server-git`: ตรวจสอบสถานะโค้ด (`git_status`), ประวัติ Commit (`git_log`), ดู Diff ทั้ง staged/unstaged (`git_diff`), สลับ Branch (`git_checkout`), สร้าง Commit และตรวจตรา Git Repository (14 เครื่องมือ)
-  - **สรุปเครื่องมือในระบบ:** MCP Tools รวม 31 เครื่องมือ + Native macOS Tools 4 เครื่องมือ = รวมทั้งสิ้น **35 เครื่องมือ**
+  - **สรุปเครื่องมือในระบบ:** MCP Tools รวม 31 เครื่องมือ + Native macOS Tools 5 เครื่องมือ = รวมทั้งสิ้น **36 เครื่องมือ**
 - **Persistent Schema Disk Cache:** บันทึกโครงสร้างเครื่องมือไว้ใน `memory/mcp_tools_cache.json` ทำให้เปิดโปรแกรมครั้งถัดไปได้ในเวลาเพียง **0.005 วินาที** โดยไม่ต้องรอ Subprocess เริ่มทำงาน
 - **SHA-256 Invalidation:** ตรวจสอบความถูกต้องของคอนฟิก หากไฟล์ `mcp_servers.json` มีการแก้ไข ระบบจะอัปเดตแคชใหม่ให้อัตโนมัติ
 
-### 3.7 ระบบเชื่อมต่อ Antigravity IDE (`integrations/antigravity_bridge.py`)
-- ใช้ **AppleScript (`osascript`)** และ **`pbcopy`** ในการสลับโฟกัสไปยังหน้าต่าง Antigravity IDE และส่งคีย์ลัด `Cmd + L` (เปิดแชท) ➔ `Cmd + V` (วาง Prompt) ➔ `Enter` (ส่งคำสั่ง)
-- ใช้ **`watchdog.observers.Observer`** เฝ้าดูการสร้างไฟล์ `.jarvis_result.md` เมื่อ Agent ทำงานเสร็จ จะส่งเนื้อหากลับมาให้ Jarvis สรุปผลด้วยเสียงทันที
+### 3.8 ระบบเชื่อมต่อ Antigravity IDE (`integrations/antigravity_bridge.py`)
+- **Stealth Background Execution (100% เบื้องหลัง):** เปลี่ยนจากการสั่งสลับหน้าต่างและส่งคีย์ลัด มาเป็นการเขียนไฟล์คำสั่ง `.jarvis_task.md` ลงในพื้นที่โปรเจกต์โดยตรง ทำให้ผู้ใช้สามารถพิมพ์งานหรือใช้งานแอปอื่นบนหน้าจอต่อไปได้โดยไม่ถูกแย่งโฟกัส
+- **Result Watching:** ใช้ **`watchdog.observers.Observer`** เฝ้าดูการสร้างไฟล์ `.jarvis_result.md` เมื่อ Agent ทำงานเสร็จ จะส่งเนื้อหากลับมาให้ Jarvis สรุปผลด้วยเสียงทันที และบันทึกเข้า `task_manager` เพื่อรอให้ผู้ใช้สั่งเปิดดูเมื่อพร้อม
 
-### 3.8 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)
+### 3.9 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)
 - **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
 - **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
 - **Auto-close Timeout & Cooldown:** หากพูดไม่หยุด ระบบจะตัดส่งคำสั่งให้อัตโนมัติเมื่อครบ 15 วินาที (ปรับได้ 10–25s) พร้อม Micro-Debounce (0.6s) และ Post-Session Cooldown (1.5s) ป้องกันการกดทับซ้ำ
 - **Faster-Whisper:** โหลดโมเดลขนาด `small` บน CPU (`compute_type="int8"`) ทำงานใน Background Worker ถอดความได้รวดเร็วและแม่นยำ
 
-### 3.9 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)
+### 3.10 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)
 - ตรวจจับภาษาอัตโนมัติจากชุดตัวอักษรไทย (Unicode Range `\u0E00-\u0E7F`)
 - สลับโทนเสียงระหว่างภาษาไทย (`th-TH-NiwatNeural`, Rate `+6%`, Pitch `-14Hz`, Volume `+40%` สุขุม นุ่มนวล) และภาษาอังกฤษ (`en-GB-RyanNeural`, Rate `+8%`, Pitch `-8Hz`) โดยอัตโนมัติ
 - **Pacing & Clean Speech:** ตัดคำและเว้นจังหวะวรรคตอนภาษาไทย/อังกฤษอย่างเป็นธรรมชาติ (แยกตัวอักษรไทยและอังกฤษ/ตัวเลขด้วยวรรคเพื่อให้ออกเสียงชัดเจน ไม่กลืนคำ) กรองสัญลักษณ์ดิบ, Emoji, Markdown และแท็ก `[SPEAK]` ออกทั้งหมด
 - ขับเสียงผ่านเครื่องเล่นระบบของ macOS (`/usr/bin/afplay`) โดยตรงเพื่อความเสถียรและเสียงคมชัดสูงสุด
 
-### 3.10 ส่วนติดต่อผู้ใช้ (`ui/`)
+### 3.11 ส่วนติดต่อผู้ใช้ (`ui/`)
 - **Dynamic Island (`ui/dynamic_island.py`):** แคปซูลโปร่งแสงลอยอยู่กึ่งกลางด้านบนของหน้าจอ (Always-on-top, กว้าง 300px) แสดงสถานะและจุดสีแอนิเมชันตามสถานะปัจจุบัน และซ่อนตัวอัตโนมัติเมื่อเข้าสู่สถานะ `Idle`
 - **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight / Raycast สำหรับพิมพ์ข้อความ ดูประวัติการแชท และตรวจสอบ System / Tool Logs
 - **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์, ล้างประวัติ หรือออกจากโปรแกรม
 
-### 3.11 หน่วยความจำถาวร (`memory/`)
+### 3.12 หน่วยความจำถาวร (`memory/`)
 - `memory/chat_history.json`: บันทึกประวัติการสนทนา 10 เทิร์นล่าสุด ทำให้เปิดโปรแกรมใหม่แล้วคุยต่อได้ทันที
 - `memory/jarvis_memory.json`: บันทึกข้อมูลสำคัญที่ผู้ใช้สั่งให้จำ (เช่น ความชอบ, ข้อมูลส่วนตัว)
-- `memory/mcp_tools_cache.json`: แคชโครงสร้างเครื่องมือ MCP ทั้งหมด เพื่อการบูตเครื่องใน 0.001 วินาที
+- `memory/background_tasks.json`: บันทึกประวัติและรายการไฟล์ผลลัพธ์ของงานเบื้องหลัง สำหรับการเปิดดูแบบ On-Demand
+- `memory/mcp_tools_cache.json`: แคชโครงสร้างเครื่องมือ MCP ทั้งหมด เพื่อการบูตเครื่องใน 0.005 วินาที
 
 ---
 
@@ -187,9 +198,10 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
                      ├──> Gemini ร้องขอ Function Call (Tools / MCP)
                      │         │
                      │         ├── [Native Tools (core/tools.py)]
+                     │         │     • delegate_to_antigravity (.jarvis_task.md + Watchdog)
+                     │         │     • reveal_task_result (On-Demand Reveal งานเบื้องหลัง)
                      │         │     • analyze_current_screen (screencapture + Vision)
                      │         │     • control_mac_system (open_app, volume, sysinfo)
-                     │         │     • delegate_to_antigravity (AppleScript + Watchdog)
                      │         │     • manage_memory (jarvis_memory.json)
                      │         │
                      │         └── [Official MCP Tools (core/mcp_manager.py)]
@@ -200,6 +212,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
                      └──> ส่งผลลัพธ์ Tool กลับสู่ Gemini จนได้คำตอบสรุปสุดท้าย
                                │
                                ├──> บันทึกประวัติลง memory/chat_history.json (Background)
+                               ├──> บันทึกผลงานลง memory/background_tasks.json (Stealth Mode)
                                │
                                ├──> [Dual-Output Separator (core/brain.py)]
                                │         │
@@ -217,8 +230,12 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
                                │                   ├──> สังเคราะห์เสียงด้วย Edge-TTS (Rate +6%)
                                │                   └──> ขับเสียงผ่าน macOS /usr/bin/afplay
                                │
-                               ▼ (จบการทำงาน)
+                               ▼ (จบการทำงานในเบื้องหลัง - ไม่เปิดหน้าต่างเอง)
                      [Dynamic Island แสดงสถานะ Idle ➔ ซ่อนตัวอัตโนมัติ]
+                               │
+                               │ (เมื่อผู้ใช้สั่ง: "เปิดดูผลงานล่าสุด" / "ขอดูผลหน่อย")
+                               ▼
+                     [reveal_task_result("latest")] ➔ สั่งเปิดไฟล์หรือโฟกัสหน้าต่างเฉพาะเมื่อสั่งเท่านั้น!
 ```
 
 ---

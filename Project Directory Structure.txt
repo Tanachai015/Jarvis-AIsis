@@ -13,7 +13,8 @@ jarvis-desktop/
 │   ├── __init__.py
 │   ├── event_bus.py            # ตัวกลางส่งสัญญาณ PySide6 Signals (Thread-safe) เชื่อมข้ามโมดูล
 │   ├── brain.py                # สมอง AI: Fallback Chain, Persistent History, GenAI Client & Tool Dispatch
-│   ├── tools.py                # Native macOS Tools (Screen Vision, Antigravity, System Control, Memory)
+│   ├── tools.py                # Native macOS Tools (Screen Vision, Antigravity, System Control, Memory, Reveal)
+│   ├── task_manager.py         # ตัวจัดการบันทึกผลงานเบื้องหลังและ On-Demand Reveal (Stealth Execution)
 │   └── mcp_manager.py          # ตัวจัดการ Official MCP Servers พร้อม Schema Disk Cache (Boot 0.001s)
 │
 ├── integrations/               # การเชื่อมต่อภายนอก
@@ -34,4 +35,5 @@ jarvis-desktop/
 └── memory/                     # หน่วยความจำถาวรข้ามเซสชัน (Persistent Storage)
     ├── chat_history.json       # ประวัติการสนทนา 10 รอบล่าสุด (Persistent Context)
     ├── jarvis_memory.json      # ความจำระยะยาวของผู้ใช้ (Persistent Facts)
+    ├── background_tasks.json   # ประวัติและผลลัพธ์ของงานเบื้องหลัง (On-Demand Reveal)
     └── mcp_tools_cache.json    # แคชสเปกเครื่องมือ MCP ถาวร (Instant Boot 0.001s)

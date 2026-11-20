@@ -20,6 +20,7 @@ import config
 from core.event_bus import event_bus
 from core.tools import AVAILABLE_TOOLS, TOOL_MAP, set_genai_client
 from core.mcp_manager import mcp_manager
+from core.task_manager import task_manager
 
 # Persistent paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -46,16 +47,24 @@ Key Persona & Communication Protocol:
        [SPEAK]ผมเขียนฟังก์ชันตามที่ต้องการให้เรียบร้อยแล้วครับบอส สามารถดูโค้ดบนหน้าจอได้เลยครับ[/SPEAK]
      * CRITICAL RULE FOR [SPEAK]: The text inside `[SPEAK]...[/SPEAK]` must be 100% natural conversational spoken Thai or English. NEVER include backticks, asterisks, bullet points, numbered lists, URLs, or raw code blocks inside `[SPEAK]`.
 
+3. Stealth Background Execution Principle (100% Background Execution):
+   - Always perform tasks completely in the background without stealing screen focus or popping up windows unexpectedly.
+   - When files are created, edited, or tasks are delegated to Antigravity, complete the work silently.
+   - Inform the user calmly of what was done, and let them know that the result is safely stored in the background and they can say 'เปิดดู' / 'reveal' whenever they wish to inspect the files or output on screen.
+   - reveal_task_result: ONLY call this tool when the user EXPLICITLY asks to open, view, or inspect completed background work (e.g. 'เปิดดูไฟล์ที่แก้', 'เปิดผลงานล่าสุด', 'ขอดูผลหน่อย', 'เปิด Antigravity', 'reveal task').
+   - NEVER call reveal_task_result automatically upon task completion.
+
 Tools & Capabilities (Choose accurately and execute immediately without asking unnecessary preliminary questions):
 1. Native macOS Tools:
-   - delegate_to_antigravity: Call when user asks to write, edit, refactor code, inspect project structure, or perform software development tasks in Antigravity IDE.
+   - delegate_to_antigravity: Call when user asks to write, edit, refactor code, inspect project structure, or perform software development tasks in Antigravity IDE. Dispatches task silently in background via .jarvis_task.md without stealing window focus.
    - analyze_current_screen: Call when user asks what is currently on their desktop screen, asks to inspect a window, read text from an image/site on screen, or evaluate what they are looking at.
    - control_mac_system: Call to control macOS:
-     * "open_app": Launches or focuses an app (e.g. target="Safari", "Calculator", "Terminal", "Notes")
-     * "open_url": Opens a web URL (e.g. target="google.com", "github.com")
+     * "open_app": Launches or focuses an app ONLY when explicitly requested (e.g. target="Safari", "Calculator", "Terminal", "Notes")
+     * "open_url": Opens a web URL ONLY when explicitly requested (e.g. target="google.com", "github.com")
      * "set_volume": Adjusts speaker output volume 0-100 (e.g. target="40")
      * "get_system_info": Checks CPU, RAM, and Battery percentages.
    - manage_memory: Call to store or recall long-term facts across sessions (mode="save", mode="read").
+   - reveal_task_result: Call ONLY when user explicitly asks to open, view, or inspect completed background work (task_ref="latest", task_id, or keyword).
 
 2. Official MCP Tools (Filesystem, Web Fetch & Git):
    - read_text_file, read_multiple_files, write_file, edit_file, list_directory, directory_tree, search_files: Official Model Context Protocol filesystem tools for inspecting and editing project files.
@@ -364,6 +373,7 @@ class JarvisBrain:
                 # Process potential Function Calls
                 max_iterations = 4
                 current_iter = 0
+                files_modified: List[str] = []
 
                 while response.function_calls and current_iter < max_iterations:
                     current_iter += 1
@@ -380,6 +390,10 @@ class JarvisBrain:
                             f"Tool Calling: {fn_name}",
                             f"Arguments: {fn_args}"
                         )
+
+                        # Track modified files for background task history
+                        if fn_name in ("write_file", "edit_file", "append_file") and fn_args.get("path"):
+                            files_modified.append(str(fn_args.get("path")))
 
                         if fn_name in TOOL_MAP:
                             try:
@@ -415,6 +429,17 @@ class JarvisBrain:
                 # Extract final text
                 final_text = response.text.strip() if response.text else "รับทราบครับ ดำเนินการเรียบร้อยแล้วครับบอส"
                 display_text, spoken_text = split_display_and_spoken_text(final_text)
+
+                # Record task in TaskManager if files were modified in the background
+                if files_modified:
+                    task_manager.record_task(
+                        title=f"จัดการไฟล์: {', '.join([Path(f).name for f in files_modified])}",
+                        summary=display_text[:200],
+                        files_affected=files_modified,
+                        command_or_prompt=user_text,
+                        details=display_text,
+                        status="completed"
+                    )
 
                 self.history.append(
                     types.Content(
@@ -473,6 +498,17 @@ class JarvisBrain:
                 )
                 summary = res.text.strip() if res.text else "งานใน Antigravity ดำเนินการเสร็จสมบูรณ์แล้วครับบอส"
                 display_text, spoken_text = split_display_and_spoken_text(summary)
+
+                # Record completed Antigravity task in background task history
+                task_manager.record_task(
+                    title="งาน Antigravity เสร็จสมบูรณ์",
+                    summary=display_text[:200],
+                    files_affected=[str(config.RESULT_FILE_PATH)],
+                    app_or_url="Antigravity",
+                    details=result_content,
+                    status="completed"
+                )
+
                 event_bus.assistant_reply_ready.emit(display_text)
                 event_bus.assistant_speak_ready.emit(spoken_text)
             except Exception as e:

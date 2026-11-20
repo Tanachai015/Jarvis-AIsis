@@ -12,6 +12,7 @@ __pycache__/
 # IPC Sockets & Temp Result
 *.sock
 .jarvis_result.md
+.jarvis_task.md
 
 # Audio Temp Files
 temp_*.mp3
