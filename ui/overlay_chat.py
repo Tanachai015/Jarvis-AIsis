@@ -3,6 +3,7 @@ Overlay Chat UI for Jarvis Desktop Assistant.
 Spotlight / Raycast style floating window for typing commands and viewing agent logs.
 """
 
+import time
 from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -16,7 +17,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QApplication,
     QPushButton,
-    QSplitter
+    QSplitter,
+    QTabWidget
 )
 
 from core.event_bus import event_bus
@@ -103,18 +105,42 @@ class OverlayChat(QWidget):
         self.input_field.returnPressed.connect(self._on_send_message)
         container_layout.addWidget(self.input_field)
 
-        # Splitter between Chat History and Task Logs
-        splitter = QSplitter(Qt.Vertical, self.container)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: rgba(255, 255, 255, 0.08);
-                height: 1px;
-                margin: 4px 0px;
+        # Tab Widget separating Clean Conversation from Process & Raw Data
+        self.tab_widget = QTabWidget(self.container)
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background-color: transparent;
+                border-radius: 8px;
+            }
+            QTabBar::tab {
+                background-color: rgba(30, 30, 38, 0.85);
+                color: #94A3B8;
+                padding: 6px 14px;
+                margin-right: 4px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QTabBar::tab:selected {
+                background-color: #2563EB;
+                color: #FFFFFF;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: rgba(45, 45, 58, 0.9);
+                color: #F1F5F9;
             }
         """)
 
-        # Chat History Browser
-        self.chat_display = QTextBrowser(splitter)
+        # -------------------------------------------------------------
+        # Tab 1: Clean Conversation (Chat Display)
+        # -------------------------------------------------------------
+        chat_tab = QWidget()
+        chat_tab_layout = QVBoxLayout(chat_tab)
+        chat_tab_layout.setContentsMargins(4, 4, 4, 4)
+
+        self.chat_display = QTextBrowser(chat_tab)
         self.chat_display.setOpenExternalLinks(True)
         self.chat_display.setStyleSheet("""
             QTextBrowser {
@@ -125,38 +151,127 @@ class OverlayChat(QWidget):
                 line-height: 1.6;
             }
         """)
-        splitter.addWidget(self.chat_display)
+        chat_tab_layout.addWidget(self.chat_display)
+        self.tab_widget.addTab(chat_tab, "💬 Conversation")
 
-        # Task & Bridge Log Box
-        self.log_container = QFrame(splitter)
-        log_layout = QVBoxLayout(self.log_container)
-        log_layout.setContentsMargins(0, 6, 0, 0)
-        log_layout.setSpacing(4)
+        # -------------------------------------------------------------
+        # Tab 2: Process & Raw Data Viewer
+        # -------------------------------------------------------------
+        process_tab = QWidget()
+        process_tab_layout = QVBoxLayout(process_tab)
+        process_tab_layout.setContentsMargins(6, 6, 6, 6)
+        process_tab_layout.setSpacing(6)
 
-        log_label = QLabel("TASK & BRIDGE LOGS", self.log_container)
-        log_label.setStyleSheet("font-size: 10px; font-weight: 700; color: #64748B; letter-spacing: 1px;")
-        log_layout.addWidget(log_label)
+        # Process Toolbar
+        process_toolbar = QHBoxLayout()
+        process_title = QLabel("LIVE EXECUTION & RAW PAYLOADS", process_tab)
+        process_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #64748B; letter-spacing: 1px;")
+        process_toolbar.addWidget(process_title)
+        process_toolbar.addStretch()
 
-        self.log_display = QTextBrowser(self.log_container)
+        load_archive_btn = QPushButton("📦 Load Archive", process_tab)
+        load_archive_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(45, 45, 58, 0.8);
+                color: #93C5FD;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-size: 10px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #2563EB;
+                color: #FFFFFF;
+            }
+        """)
+        load_archive_btn.clicked.connect(self._on_load_archive_clicked)
+        process_toolbar.addWidget(load_archive_btn)
+
+        clear_btn = QPushButton("Clear", process_tab)
+        clear_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(45, 45, 58, 0.8);
+                color: #A1A1AA;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: rgba(65, 65, 80, 0.9);
+                color: #FFFFFF;
+            }
+        """)
+        clear_btn.clicked.connect(self._on_clear_process_clicked)
+        process_toolbar.addWidget(clear_btn)
+
+        process_tab_layout.addLayout(process_toolbar)
+
+        # Process Splitter: Top is Task Logs, Bottom is Raw Payloads
+        process_splitter = QSplitter(Qt.Vertical, process_tab)
+        process_splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: rgba(255, 255, 255, 0.08);
+                height: 1px;
+                margin: 2px 0px;
+            }
+        """)
+
+        # Top: Live Task Logs
+        log_box = QFrame(process_splitter)
+        log_box_layout = QVBoxLayout(log_box)
+        log_box_layout.setContentsMargins(0, 0, 0, 0)
+        log_box_layout.setSpacing(2)
+        log_box_title = QLabel("EXECUTION LOGS", log_box)
+        log_box_title.setStyleSheet("font-size: 9px; font-weight: 600; color: #475569;")
+        log_box_layout.addWidget(log_box_title)
+
+        self.log_display = QTextBrowser(log_box)
         self.log_display.setStyleSheet("""
             QTextBrowser {
-                background-color: rgba(18, 18, 22, 0.6);
+                background-color: rgba(18, 18, 22, 0.7);
                 border: 1px solid rgba(255, 255, 255, 0.05);
-                border-radius: 8px;
+                border-radius: 6px;
                 color: #A1A1AA;
                 font-family: Menlo, Monaco, 'Courier New', monospace;
                 font-size: 11px;
                 padding: 6px;
             }
         """)
-        self.log_display.setFixedHeight(95)
-        log_layout.addWidget(self.log_display)
-        splitter.addWidget(self.log_container)
+        log_box_layout.addWidget(self.log_display)
+        process_splitter.addWidget(log_box)
 
-        # Allocate 70% space to chat and 30% to logs
-        splitter.setSizes([260, 110])
-        container_layout.addWidget(splitter)
+        # Bottom: Raw Output & Archive Payloads
+        raw_box = QFrame(process_splitter)
+        raw_box_layout = QVBoxLayout(raw_box)
+        raw_box_layout.setContentsMargins(0, 0, 0, 0)
+        raw_box_layout.setSpacing(2)
+        raw_box_title = QLabel("RAW DATA & TOOL PAYLOADS", raw_box)
+        raw_box_title.setStyleSheet("font-size: 9px; font-weight: 600; color: #475569;")
+        raw_box_layout.addWidget(raw_box_title)
 
+        self.raw_display = QTextBrowser(raw_box)
+        self.raw_display.setStyleSheet("""
+            QTextBrowser {
+                background-color: rgba(15, 15, 18, 0.85);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 6px;
+                color: #CBD5E1;
+                font-family: Menlo, Monaco, 'Courier New', monospace;
+                font-size: 11px;
+                padding: 6px;
+            }
+        """)
+        raw_box_layout.addWidget(self.raw_display)
+        process_splitter.addWidget(raw_box)
+
+        process_splitter.setSizes([140, 200])
+        process_tab_layout.addWidget(process_splitter)
+
+        self.tab_widget.addTab(process_tab, "⚡ Process & Raw")
+
+        container_layout.addWidget(self.tab_widget)
         outer_layout.addWidget(self.container)
 
     def _position_on_screen(self):
@@ -182,6 +297,7 @@ class OverlayChat(QWidget):
         event_bus.user_message_received.connect(self.on_user_message)
         event_bus.assistant_reply_ready.connect(self.on_assistant_reply)
         event_bus.task_log_updated.connect(self.on_task_log)
+        event_bus.raw_data_received.connect(self.on_raw_data)
 
     def toggle_visibility(self):
         """Toggles overlay visibility."""
@@ -247,6 +363,34 @@ class OverlayChat(QWidget):
         log_entry = f"[{title}] {details}"
         self.log_display.append(self._escape_html(log_entry))
         self.log_display.verticalScrollBar().setValue(self.log_display.verticalScrollBar().maximum())
+
+    def on_raw_data(self, title: str, content: str):
+        """Appends raw process data or payload to the Process & Raw tab."""
+        timestamp = time.strftime("%H:%M:%S")
+        html = (
+            f"<div style='margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px;'>"
+            f"<span style='color: #60A5FA; font-weight: bold;'>[{timestamp}] {self._escape_html(title)}</span><br>"
+            f"<pre style='color: #CBD5E1; font-size: 11px; margin: 4px 0 0 0; white-space: pre-wrap; word-break: break-all;'>"
+            f"{self._escape_html(content)}"
+            f"</pre></div>"
+        )
+        self.raw_display.append(html)
+        self.raw_display.verticalScrollBar().setValue(self.raw_display.verticalScrollBar().maximum())
+
+    def _on_clear_process_clicked(self):
+        """Clears both log and raw displays."""
+        self.log_display.clear()
+        self.raw_display.clear()
+
+    def _on_load_archive_clicked(self):
+        """Loads and displays recent historical records from raw archive."""
+        import json
+        from core.raw_archive import raw_archive
+        records = raw_archive.get_recent_records(limit=15)
+        if not records:
+            self.on_raw_data("Archive Inspector", "ยังไม่มีประวัติในคลัง Raw Archive ครับ")
+            return
+        self.on_raw_data(f"Historical Archive ({len(records)} รายการล่าสุด)", json.dumps(records, ensure_ascii=False, indent=2))
 
     @staticmethod
     def _escape_html(text: str) -> str:

@@ -15,12 +15,13 @@
    - [3.4 สมองหลักและการประมวลผล AI (`core/brain.py`)](#34-สมองหลักและการประมวลผล-ai-corebrainpy)
    - [3.5 เครื่องมือระบบ macOS พื้นฐาน (`core/tools.py`)](#35-เครื่องมือระบบ-macos-พื้นฐาน-coretoolspy)
    - [3.6 ระบบบันทึกผลงานเบื้องหลังและ On-Demand Reveal (`core/task_manager.py`)](#36-ระบบบันทึกผลงานเบื้องหลังและ-on-demand-reveal-coretask_managerpy)
-   - [3.7 ระบบจัดการ MCP มาตรฐานสากล (`core/mcp_manager.py`)](#37-ระบบจัดการ-mcp-มาตรฐานสากล-coremcp_managerpy)
-   - [3.8 ระบบเชื่อมต่อ Antigravity IDE (`integrations/antigravity_bridge.py`)](#38-ระบบเชื่อมต่อ-antigravity-ide-integrationsantigravity_bridgepy)
-   - [3.9 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)](#39-ระบบรับเสียงพูดอัจฉริยะ-voicelistenerpy)
-   - [3.10 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)](#310-ระบบสังเคราะห์เสียงพูด-2-ภาษา-voicespeakerpy)
-   - [3.11 ส่วนติดต่อผู้ใช้ (`ui/`)](#311-ส่วนติดต่อผู้ใช้-ui)
-   - [3.12 หน่วยความจำถาวร (`memory/`)](#312-หน่วยความจำถาวร-memory)
+   - [3.7 คลังจัดเก็บข้อมูลดิบระยะยาว 365+ วัน (`core/raw_archive.py`)](#37-คลังจัดเก็บข้อมูลดิบระยะยาว-365-วัน-coreraw_archivepy)
+   - [3.8 ระบบจัดการ MCP มาตรฐานสากล (`core/mcp_manager.py`)](#38-ระบบจัดการ-mcp-มาตรฐานสากล-coremcp_managerpy)
+   - [3.9 ระบบเชื่อมต่อ Antigravity IDE (`integrations/antigravity_bridge.py`)](#39-ระบบเชื่อมต่อ-antigravity-ide-integrationsantigravity_bridgepy)
+   - [3.10 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)](#310-ระบบรับเสียงพูดอัจฉริยะ-voicelistenerpy)
+   - [3.11 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)](#311-ระบบสังเคราะห์เสียงพูด-2-ภาษา-voicespeakerpy)
+   - [3.12 ส่วนติดต่อผู้ใช้แบบแยกแท็บสนทนาและข้อมูลดิบ (`ui/`)](#312-ส่วนติดต่อผู้ใช้แบบแยกแท็บสนทนาและข้อมูลดิบ-ui)
+   - [3.13 หน่วยความจำถาวร (`memory/`)](#313-หน่วยความจำถาวร-memory)
 4. [แผนภาพลำดับการไหลของข้อมูล (System Data Flow)](#4-แผนภาพลำดับการไหลของข้อมูล-system-data-flow)
 5. [ตารางคีย์ลัดและสิทธิ์ของระบบ macOS (Keybindings & Permissions)](#5-ตารางคีย์ลัดและสิทธิ์ของระบบ-macos-keybindings--permissions)
 
@@ -31,8 +32,11 @@
 Jarvis Desktop Assistant ได้รับการออกแบบภายใต้สถาปัตยกรรม **Decoupled Event-Driven Architecture** โดยใช้ **PySide6 (Qt for Python)** เป็นแกนกลางในการจัดการ User Interface และ Event Loop มีจุดเด่นสำคัญดังนี้:
 
 - **AI Engine:** ขับเคลื่อนด้วย **Google GenAI SDK (`google-genai`)** ใช้โมเดลหลัก `gemini-3.5-flash-lite` (ความเร็วตอบสนอง ~1.2 วินาที พร้อมโควต้า Free Tier 500 RPD / 15 RPM) เสริมด้วย **Explicit Fallback Chain** สลับโมเดลสำรองอัตโนมัติหากติด 429/503/504
-- **Hybrid Tool Architecture:** ผสมผสานระหว่าง **Native macOS Tools** (ควบคุมระบบ Mac, ดูหน้าจอด้วย Vision, ส่งงาน Antigravity, จดจำข้อมูล, เปิดดูผลงาน On-Demand) และ **Official Model Context Protocol (MCP) Servers** (Filesystem, Web Fetch และ Git มาตรฐานสากล) รวม 36 เครื่องมือ พร้อมใช้งานทันทีโดยไม่ต้องโหลดใหม่ในแต่ละรอบสนทนา
-- **Stealth Background Execution (100% เบื้องหลัง):** ทำงานเงียบสนิทในเบื้องหลัง ไม่แย่งโฟกัสหน้าจอ ไม่เปิดแอปหรือไฟล์ขึ้นมาเองโดยพลการ และบันทึกประวัติผลงานไว้ใน `core/task_manager.py` พร้อมให้ผู้ใช้สั่ง "เปิดดู" (`reveal_task_result`) เมื่อต้องการเท่านั้น
+- **Hybrid Tool Architecture:** ผสมผสานระหว่าง **Native macOS Tools** (ควบคุมระบบ Mac, ดูหน้าจอด้วย Vision, ส่งงาน Antigravity, จดจำข้อมูล, เปิดดูผลงาน On-Demand, ค้นประวัติ Raw Data 365 วัน) และ **Official Model Context Protocol (MCP) Servers** (Filesystem, Web Fetch และ Git มาตรฐานสากล) รวม **37 เครื่องมือ** พร้อมใช้งานทันทีโดยไม่ต้องโหลดใหม่ในแต่ละรอบสนทนา
+- **Stealth Background Execution & On-Demand Reveal:** ทำงานเบื้องหลัง 100% ไม่แย่งโฟกัสหน้าจอ ไม่เปิดแอปหรือไฟล์ขึ้นมาเองโดยพลการ บันทึกประวัติผลงานใน `task_manager` และเปิดดูเมื่อสั่งเท่านั้น
+- **Dual-Tab UI (Conversation vs. Process & Raw Data):** แยกหน้าต่างแชทสะอาดตาออกจากข้อมูลดิบ (Logs / JSON / Listicles) ป้องกันข้อมูลดิบถมทับบทสนทนา
+- **Long-term Raw Archive (365+ วัน):** แยกประวัติข้อมูลดิบรายเดือน (`memory/raw_archive/YYYY-MM.jsonl`) เก็บย้อนหลังได้ทั้งปีโดยไม่เปลืองโทเคน และค้นหาคืนได้ผ่านเครื่องมือ `search_raw_history`
+- **Clarification & Stateful Continuity:** คิดทบทวนและถามกลับสั้นๆ 1 ประโยคเมื่อคำสั่งกำกวม พร้อมจำลำดับตัวเลือก [1], [2], [3] เพื่อเลือกต่อในเทิร์นถัดไปได้อย่างแม่นยำ
 - **Instant Boot Caching:** มีระบบ **Schema Disk Cache** โหลดสเปกเครื่องมือทั้ง 17+ ตัวในเวลาเพียง **0.005 วินาที** พร้อมระบบตรวจจับการอัปเดตอัตโนมัติด้วย SHA-256
 - **System-level Global Interception:** ใช้ **Quartz `CGEventTapCreate`** ดักจับคีย์ลัดระดับลึกจากทุกหน้าต่างและดูดกลืนคีย์ (Event Swallowing) ไม่ให้ไปรบกวนแอปอื่น
 - **Persistent Mic Session:** สแตนด์บายไมโครโฟนตลอดเวลา ใช้ **CPU 0% ในขณะ Idle** ไม่หน่วงตอนเริ่มอัด และสิทธิ์ไมค์ไม่หลุด
@@ -57,8 +61,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 │   ├── __init__.py
 │   ├── event_bus.py                    # ตัวกลางส่งสัญญาณ PySide6 Signals (Thread-safe)
 │   ├── brain.py                        # สมอง AI: Fallback Chain, Persistent History, GenAI Client
-│   ├── tools.py                        # Native macOS Tools (Screen Vision, Antigravity, System Control, Reveal)
+│   ├── tools.py                        # Native macOS Tools (Vision, Antigravity, System Control, Memory, Reveal, Raw Search)
 │   ├── task_manager.py                 # ตัวจัดการบันทึกผลงานเบื้องหลังและ On-Demand Reveal (Stealth Mode)
+│   ├── raw_archive.py                  # คลังจัดเก็บและค้นหา Raw Data ระยะยาว 365 วัน แยกรายเดือน (YYYY-MM.jsonl)
 │   └── mcp_manager.py                  # ตัวจัดการ Official MCP Servers และ Schema Disk Cache
 │
 ├── integrations/                       # การเชื่อมต่อภายนอก
@@ -80,7 +85,8 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
     ├── chat_history.json               # ประวัติการสนทนา 10 รอบล่าสุด (Persistent Context)
     ├── jarvis_memory.json              # ความจำระยะยาวของผู้ใช้ (Persistent Facts)
     ├── background_tasks.json           # ประวัติและผลลัพธ์ของงานเบื้องหลัง (On-Demand Reveal)
-    └── mcp_tools_cache.json            # แคชสเปกเครื่องมือ MCP ถาวร (Instant Boot 0.005s)
+    ├── mcp_tools_cache.json            # แคชสเปกเครื่องมือ MCP ถาวร (Instant Boot 0.005s)
+    └── raw_archive/                    # คลังเก็บ Raw Data ระยะยาว 365+ วัน แยกไฟล์รายเดือน (YYYY-MM.jsonl)
 ```
 
 ---
@@ -200,8 +206,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
                      │         ├── [Native Tools (core/tools.py)]
                      │         │     • delegate_to_antigravity (.jarvis_task.md + Watchdog)
                      │         │     • reveal_task_result (On-Demand Reveal งานเบื้องหลัง)
+                     │         │     • search_raw_history (ค้นหาประวัติ Raw Archive 365 วัน)
                      │         │     • analyze_current_screen (screencapture + Vision)
-                     │         │     • control_mac_system (open_app, volume, sysinfo)
+                     │         │     • control_mac_system (open_path, browser url, volume, sysinfo)
                      │         │     • manage_memory (jarvis_memory.json)
                      │         │
                      │         └── [Official MCP Tools (core/mcp_manager.py)]
@@ -209,17 +216,21 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
                      │               • mcp-server-fetch (web fetcher)
                      │               • mcp-server-git (status, diff, log)
                      │
+                     ├──> [Raw Data Pipeline]
+                     │         ├──> (emit raw_data_received) ──> [OverlayChat ⚡ Process & Raw Tab]
+                     │         └──> บันทึกลงคลังรายเดือน ───> [memory/raw_archive/YYYY-MM.jsonl] (365+ วัน)
+                     │
                      └──> ส่งผลลัพธ์ Tool กลับสู่ Gemini จนได้คำตอบสรุปสุดท้าย
                                │
-                               ├──> บันทึกประวัติลง memory/chat_history.json (Background)
+                               ├──> บันทึกประวัติ 10 รอบลง memory/chat_history.json (Active History)
                                ├──> บันทึกผลงานลง memory/background_tasks.json (Stealth Mode)
                                │
                                ├──> [Dual-Output Separator (core/brain.py)]
                                │         │
                                │         ├──> (emit assistant_reply_ready)
                                │         │         ▼
-                               │         │   [OverlayChat (ui/overlay_chat.py)]
-                               │         │   (แสดงผลข้อความฉบับเต็ม, โค้ดโปรแกรม, ตาราง, Markdown)
+                               │         │   [OverlayChat 💬 Conversation Tab]
+                               │         │   (แสดงผลสรุปสะอาดตา + ตัวเลือก [1], [2], [3] สำหรับเลือกต่อ)
                                │         │
                                │         └──> (emit assistant_speak_ready)
                                │                   ▼

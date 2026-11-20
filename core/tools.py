@@ -131,24 +131,58 @@ def analyze_current_screen(question: str) -> str:
 # ============================================================================
 # 3. control_mac_system
 # ============================================================================
-def control_mac_system(action: str, target: str = "") -> str:
+def control_mac_system(action: str, target: str = "", app: str = "") -> str:
     """
-    Controls macOS system settings, applications, URLs, or inspects machine hardware status.
+    Controls macOS system settings, applications, URLs, folders/paths, or inspects machine hardware status.
+    Guarantees strict return-code verification with NO false success reporting.
 
     Args:
         action: System operation to perform:
                 - "open_app": Launches or focuses an application (e.g. target="Safari", target="Terminal")
-                - "open_url": Opens a web URL in the default browser (e.g. target="google.com")
+                - "open_url": Opens a web URL (e.g. target="google.com"). Pass app="Firefox" or app="Google Chrome" to specify browser!
+                - "open_path" or "open_folder": Opens a folder or file in macOS Finder (e.g. target="~/Library/Application Support")
                 - "set_volume": Sets speaker output volume 0-100 (e.g. target="50")
                 - "get_system_info": Checks current CPU, RAM, and Battery percentage.
-        target: Parameter for the action (app name, URL, or volume number).
+        target: Parameter for the action (app name, URL, folder/file path, or volume number).
+        app: Optional specific application or browser to launch the target with (e.g. "Firefox", "Google Chrome", "Safari").
     """
     clean_action = action.lower().strip()
     clean_target = target.strip()
+    clean_app = app.strip()
 
     try:
-        # 1. Open Application
-        if clean_action == "open_app":
+        # 1. Open Folder / File Path
+        if clean_action in ("open_path", "open_folder") or (
+            clean_action == "open_app" and (clean_target.startswith("~") or clean_target.startswith("/") or "/" in clean_target)
+        ):
+            if not clean_target:
+                return "กรุณาระบุพาธโฟลเดอร์หรือไฟล์ที่ต้องการเปิดครับบอส"
+
+            expanded_path = os.path.expanduser(clean_target)
+            if not os.path.exists(expanded_path):
+                err = f"เกิดข้อผิดพลาด: ไม่พบโฟลเดอร์หรือไฟล์ตามพาธ '{clean_target}' (ตรวจสอบที่: {expanded_path}) ครับบอส"
+                event_bus.task_log_updated.emit("System Error", err)
+                return err
+
+            if os.path.isdir(expanded_path):
+                # Open directory in Finder
+                res = subprocess.run(["open", "-a", "Finder", expanded_path], capture_output=True, text=True, timeout=5)
+            else:
+                # Open file with specific app or default handler
+                cmd = ["open", "-a", clean_app, expanded_path] if clean_app else ["open", expanded_path]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+
+            if res.returncode == 0:
+                msg = f"เปิด '{expanded_path}' บนหน้าจอให้เรียบร้อยแล้วครับบอส"
+                event_bus.task_log_updated.emit("System Control", msg)
+                return msg
+            else:
+                err = f"ไม่สามารถเปิด '{expanded_path}' ได้: {res.stderr.strip() or 'คำสั่งระบบไม่สำเร็จ'}"
+                event_bus.task_log_updated.emit("System Error", err)
+                return err
+
+        # 2. Open Application
+        elif clean_action == "open_app":
             if not clean_target:
                 return "กรุณาระบุชื่อแอปพลิเคชันที่ต้องการเปิดครับบอส"
             res = subprocess.run(["open", "-a", clean_target], capture_output=True, text=True, timeout=5)
@@ -157,33 +191,54 @@ def control_mac_system(action: str, target: str = "") -> str:
                 event_bus.task_log_updated.emit("System Control", msg)
                 return msg
             else:
-                return f"ไม่สามารถเปิดแอป '{clean_target}' ได้: {res.stderr.strip()}"
+                err = f"ไม่สามารถเปิดแอป '{clean_target}' ได้: {res.stderr.strip() or 'ไม่พบแอปนี้บน macOS'}"
+                event_bus.task_log_updated.emit("System Error", err)
+                return err
 
-        # 2. Open URL
+        # 3. Open URL (Supports specific browser via app parameter)
         elif clean_action == "open_url":
             if not clean_target:
                 return "กรุณาระบุ URL ที่ต้องการเปิดครับบอส"
             url = clean_target if clean_target.startswith(("http://", "https://")) else f"https://{clean_target}"
-            subprocess.run(["open", url], check=True, timeout=5)
-            msg = f"เปิดลิงก์ {url} ในเบราว์เซอร์เรียบร้อยแล้วครับบอส"
-            event_bus.task_log_updated.emit("System Control", msg)
-            return msg
 
-        # 3. Set Volume (0 - 100)
+            if clean_app:
+                res = subprocess.run(["open", "-a", clean_app, url], capture_output=True, text=True, timeout=5)
+                if res.returncode == 0:
+                    msg = f"เปิดเว็บไซต์ {url} ด้วยเบราว์เซอร์ '{clean_app}' เรียบร้อยแล้วครับบอส"
+                    event_bus.task_log_updated.emit("System Control", msg)
+                    return msg
+                else:
+                    err = f"ไม่สามารถเปิดเว็บด้วยเบราว์เซอร์ '{clean_app}' ได้: {res.stderr.strip() or 'ไม่พบเบราว์เซอร์ที่ระบุ'}"
+                    event_bus.task_log_updated.emit("System Error", err)
+                    return err
+            else:
+                res = subprocess.run(["open", url], capture_output=True, text=True, timeout=5)
+                if res.returncode == 0:
+                    msg = f"เปิดลิงก์ {url} ในเบราว์เซอร์เริ่มต้นเรียบร้อยแล้วครับบอส"
+                    event_bus.task_log_updated.emit("System Control", msg)
+                    return msg
+                else:
+                    err = f"ไม่สามารถเปิด URL ได้: {res.stderr.strip()}"
+                    event_bus.task_log_updated.emit("System Error", err)
+                    return err
+
+        # 4. Set Volume (0 - 100)
         elif clean_action == "set_volume":
             try:
-                # Extract digits
                 vol_int = int(''.join(c for c in clean_target if c.isdigit()))
                 vol = max(0, min(100, vol_int))
             except Exception:
                 vol = 50
             cmd = ["osascript", "-e", f"set volume output volume {vol}"]
-            subprocess.run(cmd, check=True, timeout=5)
-            msg = f"ปรับระดับเสียงเป็น {vol}% เรียบร้อยแล้วครับบอส"
-            event_bus.task_log_updated.emit("System Control", msg)
-            return msg
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                msg = f"ปรับระดับเสียงเป็น {vol}% เรียบร้อยแล้วครับบอส"
+                event_bus.task_log_updated.emit("System Control", msg)
+                return msg
+            else:
+                return f"เกิดข้อผิดพลาดในการปรับระดับเสียง: {res.stderr.strip()}"
 
-        # 4. Get System Info (CPU, RAM, Battery)
+        # 5. Get System Info (CPU, RAM, Battery)
         elif clean_action == "get_system_info":
             info_parts = []
             try:
@@ -197,7 +252,6 @@ def control_mac_system(action: str, target: str = "") -> str:
                     plug_str = "กำลังชาร์จ" if batt.power_plugged else "ใช้พลังงานจากแบตเตอรี่"
                     info_parts.append(f"แบตเตอรี่: {batt.percent}% ({plug_str})")
             except Exception:
-                # Fallback to macOS pmset
                 try:
                     batt_out = subprocess.check_output(["pmset", "-g", "batt"], text=True)
                     info_parts.append(batt_out.strip().split("\n")[0])
@@ -300,6 +354,46 @@ def reveal_task_result(task_ref: str = "latest") -> str:
 
 
 # ============================================================================
+# 6. search_raw_history
+# ============================================================================
+def search_raw_history(query: str, days_back: int = 365) -> str:
+    """
+    Searches long-term historical raw archives across months/years for past tasks,
+    modified files, previous code outputs, or historical execution records.
+    CRITICAL: Use this tool ONLY when the user asks about past tasks, previous project work,
+    or historical records (e.g., 'งานเก่าที่เราเคยทำเมื่อเดือนก่อน', 'ประวัติไฟล์ที่เคยแก้').
+
+    Args:
+        query: Keywords or search query to look for in past archives.
+        days_back: How many days back to search across monthly archives (default 365).
+    """
+    from core.raw_archive import raw_archive
+    event_bus.task_log_updated.emit("Raw Archive", f"กำลังค้นหาประวัติย้อนหลัง: '{query}' ({days_back} วัน)")
+
+    records = raw_archive.search_archive(query=query, days_back=days_back, limit=5)
+    if not records:
+        return f"ไม่พบประวัติข้อมูลดิบหรือผลงานเก่าที่ตรงกับคำค้นหา '{query}' ในรอบ {days_back} วันที่ผ่านมาครับบอส"
+
+    # Emit raw payload to Process & Raw viewer
+    event_bus.raw_data_received.emit(
+        f"Raw History: '{query}'",
+        json.dumps(records, ensure_ascii=False, indent=2)
+    )
+
+    # Format structured numbered list for model context
+    formatted_items = []
+    for idx, rec in enumerate(records, start=1):
+        ts = rec.get("timestamp", "")
+        title = rec.get("task_title", "")
+        summary = rec.get("summary", "")
+        paths = rec.get("related_paths", [])
+        paths_str = f" | พาธไฟล์: {', '.join(paths)}" if paths else ""
+        formatted_items.append(f"[{idx}] {ts} - {title}: {summary}{paths_str}")
+
+    return f"พบประวัติผลงานเก่าที่ตรงกับ '{query}' ({len(records)} รายการ):\n" + "\n".join(formatted_items)
+
+
+# ============================================================================
 # Static Registry of Native macOS Tools
 # ============================================================================
 AVAILABLE_TOOLS = [
@@ -308,6 +402,7 @@ AVAILABLE_TOOLS = [
     control_mac_system,
     manage_memory,
     reveal_task_result,
+    search_raw_history,
 ]
 
 # Quick dispatch lookup map for native tools

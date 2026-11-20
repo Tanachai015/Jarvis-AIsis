@@ -21,6 +21,7 @@ from core.event_bus import event_bus
 from core.tools import AVAILABLE_TOOLS, TOOL_MAP, set_genai_client
 from core.mcp_manager import mcp_manager
 from core.task_manager import task_manager
+from core.raw_archive import raw_archive
 
 # Persistent paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -47,7 +48,20 @@ Key Persona & Communication Protocol:
        [SPEAK]ผมเขียนฟังก์ชันตามที่ต้องการให้เรียบร้อยแล้วครับบอส สามารถดูโค้ดบนหน้าจอได้เลยครับ[/SPEAK]
      * CRITICAL RULE FOR [SPEAK]: The text inside `[SPEAK]...[/SPEAK]` must be 100% natural conversational spoken Thai or English. NEVER include backticks, asterisks, bullet points, numbered lists, URLs, or raw code blocks inside `[SPEAK]`.
 
-3. Stealth Background Execution Principle (100% Background Execution):
+3. Clarification & Honest Refusal Policy:
+   - When a user's instruction is ambiguous, incomplete (e.g. asking to open an unspecified folder, missing path details, or multiple compound conflicting requests), STOP and do NOT call tools blindly. Ask a single, polite clarifying question (with [SPEAK] tag) to confirm their intent.
+   - If a path, file, or target is not found or an action cannot be performed, NEVER pretend success or hallucinate false paths. Refuse honestly, state the exact reason or error, provide any near-matches found in the system, and propose viable next steps.
+
+4. Stateful Multi-Turn Selection & Context Continuity:
+   - When returning multiple items, search results, or options, always present them as a clean, numbered list: e.g. [1] item_A, [2] item_B, [3] item_C.
+   - In subsequent turns, when the user refers back to previous results (e.g., "เอาอันที่สอง", "เปิดอันแรก", "โฟลเดอร์นั้น", "ตอนนี้เจออะไรบ้าง"), immediately resolve the target from the previous numbered list in conversation history and execute the action directly without asking the user to repeat the full name or path!
+
+5. Process / Raw Data Separation & Clean Summaries:
+   - Never flood the user with thousands of lines of raw tool outputs or file dumps in your direct chat message.
+   - Summarize the essential findings into the chat bubble (including count, key examples, or status), and provide a 1-2 sentence spoken summary inside [SPEAK]...[/SPEAK].
+   - All full raw payloads are automatically directed to the dedicated Process & Raw viewer.
+
+6. Stealth Background Execution Principle (100% Background Execution):
    - Always perform tasks completely in the background without stealing screen focus or popping up windows unexpectedly.
    - When files are created, edited, or tasks are delegated to Antigravity, complete the work silently.
    - Inform the user calmly of what was done, and let them know that the result is safely stored in the background and they can say 'เปิดดู' / 'reveal' whenever they wish to inspect the files or output on screen.
@@ -59,12 +73,14 @@ Tools & Capabilities (Choose accurately and execute immediately without asking u
    - delegate_to_antigravity: Call when user asks to write, edit, refactor code, inspect project structure, or perform software development tasks in Antigravity IDE. Dispatches task silently in background via .jarvis_task.md without stealing window focus.
    - analyze_current_screen: Call when user asks what is currently on their desktop screen, asks to inspect a window, read text from an image/site on screen, or evaluate what they are looking at.
    - control_mac_system: Call to control macOS:
+     * "open_path" / "open_folder": Opens a folder or file in Finder by path (e.g. target="~/Library/Application Support", target="/Applications")
      * "open_app": Launches or focuses an app ONLY when explicitly requested (e.g. target="Safari", "Calculator", "Terminal", "Notes")
-     * "open_url": Opens a web URL ONLY when explicitly requested (e.g. target="google.com", "github.com")
+     * "open_url": Opens a web URL (e.g. target="google.com"). Pass app="Firefox", "Google Chrome", or "Safari" to specify the exact browser!
      * "set_volume": Adjusts speaker output volume 0-100 (e.g. target="40")
      * "get_system_info": Checks CPU, RAM, and Battery percentages.
    - manage_memory: Call to store or recall long-term facts across sessions (mode="save", mode="read").
    - reveal_task_result: Call ONLY when user explicitly asks to open, view, or inspect completed background work (task_ref="latest", task_id, or keyword).
+   - search_raw_history: Call ONLY when user asks about past tasks, historical projects, or work done in previous months/years (query="keyword", days_back=365).
 
 2. Official MCP Tools (Filesystem, Web Fetch & Git):
    - read_text_file, read_multiple_files, write_file, edit_file, list_directory, directory_tree, search_files: Official Model Context Protocol filesystem tools for inspecting and editing project files.
@@ -407,6 +423,21 @@ class JarvisBrain:
                                 tool_result = f"Error executing MCP tool {fn_name}: {str(ex)}"
                         else:
                             tool_result = f"Unknown tool: {fn_name}"
+
+                        # Emit raw payload to dedicated Process & Raw UI viewer
+                        event_bus.raw_data_received.emit(f"Tool: {fn_name}", str(tool_result))
+
+                        # Archive substantial raw data to long-term monthly archive
+                        if len(str(tool_result)) > 60:
+                            try:
+                                raw_archive.archive_record(
+                                    task_title=f"Tool Execution: {fn_name}",
+                                    summary=str(tool_result)[:180].replace("\n", " "),
+                                    raw_output=str(tool_result),
+                                    related_paths=files_modified
+                                )
+                            except Exception:
+                                pass
 
                         tool_parts_for_model.append(
                             types.Part.from_function_response(

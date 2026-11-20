@@ -161,70 +161,89 @@ class TaskManager:
             return f"ไม่พบข้อมูลงานที่อ้างอิง '{task_ref}' ครับบอส"
 
         opened_items = []
+        failed_items = []
         files = target_task.get("files_affected", [])
         app_or_url = target_task.get("app_or_url", "")
 
         # 1. Open affected files if any exist
         if files:
             for file_path_str in files:
-                p = Path(file_path_str)
+                expanded = os.path.expanduser(file_path_str)
+                p = Path(expanded)
                 if not p.is_absolute():
                     p = PROJECT_ROOT / p
-                if p.exists():
-                    try:
-                        if sys.platform == "darwin":
-                            subprocess.Popen(["open", str(p)])
+
+                if not p.exists():
+                    failed_items.append(f"{p.name} (ไม่พบไฟล์ที่ {p})")
+                    continue
+
+                try:
+                    if sys.platform == "darwin":
+                        res = subprocess.run(["open", str(p)], capture_output=True, text=True, timeout=5)
+                        if res.returncode == 0:
+                            opened_items.append(p.name)
                         else:
-                            os.system(f"start {p}")
+                            failed_items.append(f"{p.name} (เกิดข้อผิดพลาด: {res.stderr.strip()})")
+                    else:
+                        os.system(f"start {p}")
                         opened_items.append(p.name)
-                    except Exception as e:
-                        print(f"[TaskManager] Error opening file {p}: {e}")
+                except Exception as e:
+                    failed_items.append(f"{p.name} ({str(e)})")
 
         # 2. Open App or URL if specified
         if app_or_url:
             if app_or_url.startswith("http://") or app_or_url.startswith("https://"):
                 try:
-                    subprocess.Popen(["open", app_or_url])
-                    opened_items.append(f"URL ({app_or_url})")
+                    res = subprocess.run(["open", app_or_url], capture_output=True, text=True, timeout=5)
+                    if res.returncode == 0:
+                        opened_items.append(f"URL ({app_or_url})")
+                    else:
+                        failed_items.append(f"URL ({res.stderr.strip()})")
                 except Exception as e:
-                    print(f"[TaskManager] Error opening URL {app_or_url}: {e}")
+                    failed_items.append(f"URL ({str(e)})")
             elif app_or_url.lower() in ("antigravity", "antigravity ide"):
                 # Activate Antigravity IDE window
                 try:
                     from integrations.antigravity_bridge import focus_antigravity_window
-                    focus_antigravity_window()
-                    opened_items.append("หน้าต่าง Antigravity IDE")
+                    if focus_antigravity_window():
+                        opened_items.append("หน้าต่าง Antigravity IDE")
+                    else:
+                        failed_items.append("ไม่พบหน้าต่าง Antigravity IDE บน macOS")
                 except Exception as e:
-                    print(f"[TaskManager] Error activating Antigravity: {e}")
+                    failed_items.append(f"หน้าต่าง Antigravity ({str(e)})")
             else:
                 try:
-                    subprocess.Popen(["open", "-a", app_or_url])
-                    opened_items.append(f"แอป {app_or_url}")
+                    res = subprocess.run(["open", "-a", app_or_url], capture_output=True, text=True, timeout=5)
+                    if res.returncode == 0:
+                        opened_items.append(f"แอป {app_or_url}")
+                    else:
+                        failed_items.append(f"แอป {app_or_url} ({res.stderr.strip()})")
                 except Exception as e:
-                    print(f"[TaskManager] Error opening app {app_or_url}: {e}")
+                    failed_items.append(f"แอป {app_or_url} ({str(e)})")
 
-        # Mark as revealed
-        target_id = target_task.get("task_id")
-        for t in tasks:
-            if t.get("task_id") == target_id:
-                t["revealed"] = True
-                break
-        self._save_tasks(tasks)
+        # Mark as revealed only if at least one item was opened or there were no files
+        if opened_items or (not files and not app_or_url):
+            target_id = target_task.get("task_id")
+            for t in tasks:
+                if t.get("task_id") == target_id:
+                    t["revealed"] = True
+                    break
+            self._save_tasks(tasks)
 
         title = target_task.get("title", "งานเบื้องหลัง")
         summary = target_task.get("summary", "")
 
+        msg_parts = []
         if opened_items:
-            items_str = ", ".join(opened_items)
-            res_msg = (
-                f"เปิดผลลัพธ์ของ '{title}' ({items_str}) ขึ้นมาบนหน้าจอเรียบร้อยแล้วครับบอส\n"
-                f"สรุปงาน: {summary}"
-            )
-        else:
-            res_msg = (
-                f"รายละเอียดผลงาน '{title}':\n{summary}\n"
-                f"(หมายเหตุ: งานนี้ไม่มีไฟล์หรือหน้าต่างแอปพลิเคชันที่ต้องเปิดครับ)"
-            )
+            msg_parts.append(f"เปิดผลลัพธ์ของ '{title}' ({', '.join(opened_items)}) ขึ้นมาบนหน้าจอเรียบร้อยแล้วครับบอส\nสรุปงาน: {summary}")
+        if failed_items:
+            msg_parts.append(f"รายการที่ไม่สามารถเปิดได้: {', '.join(failed_items)}")
+        if not opened_items and not failed_items:
+            msg_parts.append(f"รายละเอียดผลงาน '{title}':\n{summary}\n(หมายเหตุ: งานนี้ไม่มีไฟล์หรือหน้าต่างแอปพลิเคชันที่ต้องเปิดครับ)")
+
+        res_msg = "\n".join(msg_parts)
+        event_bus.task_log_updated.emit("Task Revealed", res_msg)
+        return res_msg
 
         event_bus.task_log_updated.emit("Task Revealed", res_msg)
         return res_msg

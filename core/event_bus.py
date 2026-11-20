@@ -27,6 +27,9 @@ class EventBus(QObject):
     # Fired when a background task or tool produces logs / outputs: (title, details)
     task_log_updated = Signal(str, str)
 
+    # Fired when raw process data or tool payloads are generated for the Process & Raw viewer: (title, raw_content)
+    raw_data_received = Signal(str, str)
+
     # Fired to toggle the Overlay Chat window
     toggle_overlay_signal = Signal()
 
