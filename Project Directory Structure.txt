@@ -1,0 +1,37 @@
+jarvis-desktop/
+├── .env                        # เก็บ GEMINI_API_KEY, โมเดล, เสียง TTS, คีย์ลัด และค่า Timeout
+├── .env.example                # เทมเพลตตัวแปรสภาพแวดล้อม
+├── requirements.txt            # รายการไลบรารีทั้งหมด (google-genai, PySide6, mcp, Quartz, faster-whisper ฯลฯ)
+├── mcp_servers.json            # ไฟล์คอนฟิก Official MCP Servers (filesystem, fetch, git)
+├── config.py                   # ตัวแปรคงที่ระดับ Global และการโหลด Environment
+├── main.py                     # Entry Point: จัดการ Lifecycle, Quartz System EventTap และบูตโมดูล
+├── README.md                   # คู่มือการติดตั้งและคำสั่งทดสอบเบื้องต้น
+├── PROJECT_ARCHITECTURE.md     # เอกสารสรุปโครงสร้างสถาปัตยกรรมระบบโดยละเอียดทั้งหมด
+├── Project Directory Structure.txt # [ไฟล์นี้] ผังโครงสร้างแบบย่อ
+│
+├── core/                       # แกนกลางระบบ (Logic, Brain, Tools, MCP, Signals)
+│   ├── __init__.py
+│   ├── event_bus.py            # ตัวกลางส่งสัญญาณ PySide6 Signals (Thread-safe) เชื่อมข้ามโมดูล
+│   ├── brain.py                # สมอง AI: Fallback Chain, Persistent History, GenAI Client & Tool Dispatch
+│   ├── tools.py                # Native macOS Tools (Screen Vision, Antigravity, System Control, Memory)
+│   └── mcp_manager.py          # ตัวจัดการ Official MCP Servers พร้อม Schema Disk Cache (Boot 0.001s)
+│
+├── integrations/               # การเชื่อมต่อภายนอก
+│   ├── __init__.py
+│   └── antigravity_bridge.py   # ตัวเชื่อมต่อ Antigravity IDE (AppleScript + Watchdog Observer)
+│
+├── voice/                      # ระบบเสียงพูดและการได้ยิน
+│   ├── __init__.py
+│   ├── listener.py             # 1-Tap Toggle Voice (Cmd+Shift+J), Persistent Mic, Faster-Whisper STT
+│   └── speaker.py              # สังเคราะห์เสียงพูด Dual-Tone J.A.R.V.I.S. (Edge-TTS + afplay)
+│
+├── ui/                         # ส่วนติดต่อผู้ใช้ (PySide6 Graphical Interface)
+│   ├── __init__.py
+│   ├── dynamic_island.py       # หน้าต่างแคปซูลโปร่งแสงลอยบนหน้าจอ (สถานะ Listening / Thinking / Tool / Speaking)
+│   ├── overlay_chat.py         # หน้าต่าง Overlay Chat สไตล์ Spotlight/Raycast สำหรับพิมพ์และดู Log
+│   └── tray.py                 # ไอคอนบน Menu Bar (macOS Status Item) พร้อม Context Menu
+│
+└── memory/                     # หน่วยความจำถาวรข้ามเซสชัน (Persistent Storage)
+    ├── chat_history.json       # ประวัติการสนทนา 10 รอบล่าสุด (Persistent Context)
+    ├── jarvis_memory.json      # ความจำระยะยาวของผู้ใช้ (Persistent Facts)
+    └── mcp_tools_cache.json    # แคชสเปกเครื่องมือ MCP ถาวร (Instant Boot 0.001s)

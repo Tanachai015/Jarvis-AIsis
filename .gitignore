@@ -1,0 +1,18 @@
+# Environment & Secrets
+.env
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# macOS System Files
+.DS_Store
+
+# IPC Sockets & Temp Result
+*.sock
+.jarvis_result.md
+
+# Audio Temp Files
+temp_*.mp3
+temp_*.wav
