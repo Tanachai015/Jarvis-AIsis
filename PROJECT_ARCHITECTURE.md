@@ -105,6 +105,8 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ทำหน้าที่รวมศูนย์การอ่านค่า Environment Variables:
 - `GEMINI_MODEL`: ตั้งค่าเริ่มต้นเป็น `gemini-3.5-flash-lite`
 - `VOICE_TOGGLE_HOTKEY`: ปุ่มลัดบันทึกเสียง `<cmd>+<shift>+j`
+- `WHISPER_MODEL`: ขนาดหรือชื่อโมเดล Faster-Whisper (เช่น `small`, `base`, `medium`, รองรับ `WHISPER_MODEL_SIZE` เป็น fallback)
+- `WHISPER_INITIAL_PROMPT`: ข้อความชี้นำบริบทเริ่มต้นของ Faster-Whisper ป้องกันการถอดเสียงเพี้ยนสำหรับคำทับศัพท์, ชื่อเพลง, และชื่อแอปยอดนิยม
 - `VOICE_RECORD_TIMEOUT`: ระยะเวลาปิดรับฟังเสียงอัตโนมัติ (จำกัดช่วง 10–25 วินาที, ค่าเริ่มต้น 15s)
 - `VOICE_COOLDOWN_SECONDS`: ระยะเวลาคูลดาวน์ป้องกันการกดเบิ้ล (ค่าเริ่มต้น 1.5s)
 - `TTS_VOICE_TH` / `TTS_VOICE_EN`: โทนเสียง J.A.R.V.I.S. ภาษาไทย (`th-TH-NiwatNeural`, -14Hz, +6%, +40%) และอังกฤษ (`en-GB-RyanNeural`, -8Hz, +8%, +40%)
@@ -121,6 +123,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ### 3.4 สมองหลักและการประมวลผล AI (`core/brain.py`)
 - **Static Tool Registry:** รวมฟังก์ชัน Native Tools และ Dynamic MCP Tools เข้าด้วยกันใน `GenerateContentConfig` เพียงครั้งเดียวตอนเริ่มต้นโปรแกรม ไม่มีการโหลดหรือสร้าง Schema ซ้ำ
 - **Dual-Output Protocol (`[SPEAK]` Tags):** ปรับแต่งคำสั่งระบบ (System Instruction) ให้โมเดลสร้างผลลัพธ์ 2 รูปแบบในรอบเดียว: ข้อความฉบับเต็มพร้อมโค้ดสำหรับแสดงผลบนจอ และข้อความสรุปสั้นๆ ในแท็ก `[SPEAK]...[/SPEAK]` สำหรับส่งให้เสียงพูดอ่านออกเสียงได้อย่างกระชับ ลื่นหู และไม่เพิ่ม Latency
+- **Phonetic Mistranscription & Ambiguous Speech Guard:** กฎดักจับคำพูดที่ถอดเสียงเพี้ยน หากได้ยินคำภาษาไทยหรือคำแปลกๆ ที่มีเค้าโครงของชื่อเพลง/ศิลปิน/แอปภาษาอังกฤษ (เช่น "เลิก 3,000" แทนที่จะเป็น "Love 3000") ระบบจะหยุดเรียก Tool ค้นหาหรือเปิดเว็บทันที แล้วถามยืนยันด้วยความสุภาพรอบเดียวก่อนดำเนินการ
 - **Explicit Fallback Chain:** ลำดับโมเดลสำรองแบบกำหนดชัดเจน:
   `["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]`
   รองรับการสลับโมเดลอัตโนมัติเมื่อพบ Error 429 (Quota), 503 (Overloaded), 504 (Timeout), หรือ 404
@@ -157,7 +160,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
 - **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
 - **Auto-close Timeout & Cooldown:** หากพูดไม่หยุด ระบบจะตัดส่งคำสั่งให้อัตโนมัติเมื่อครบ 15 วินาที (ปรับได้ 10–25s) พร้อม Micro-Debounce (0.6s) และ Post-Session Cooldown (1.5s) ป้องกันการกดทับซ้ำ
-- **Faster-Whisper:** โหลดโมเดลขนาด `small` บน CPU (`compute_type="int8"`) ทำงานใน Background Worker ถอดความได้รวดเร็วและแม่นยำ
+- **Faster-Whisper with Initial Prompt:** โหลดโมเดลขนาด `small` (หรือตาม `WHISPER_MODEL`) บน CPU (`compute_type="int8"`) ทำงานใน Background Worker พร้อมส่ง `initial_prompt` ช่วยล็อกสำเนียงและคำศัพท์ไทย-อังกฤษให้ถอดความได้แม่นยำยิ่งขึ้น
 
 ### 3.10 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)
 - ตรวจจับภาษาอัตโนมัติจากชุดตัวอักษรไทย (Unicode Range `\u0E00-\u0E7F`)

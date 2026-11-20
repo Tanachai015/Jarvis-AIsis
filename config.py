@@ -41,7 +41,12 @@ TTS_VOICE = TTS_VOICE_TH
 # Voice Listener Settings
 VOICE_INPUT_ENABLED = os.getenv("VOICE_INPUT_ENABLED", "true").lower() in ("true", "1", "yes")
 VOICE_TOGGLE_HOTKEY = os.getenv("VOICE_TOGGLE_HOTKEY", "<cmd>+<shift>+j")
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "small")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", os.getenv("WHISPER_MODEL_SIZE", "small"))
+WHISPER_MODEL_SIZE = WHISPER_MODEL  # Backward compatibility alias
+WHISPER_INITIAL_PROMPT = os.getenv(
+    "WHISPER_INITIAL_PROMPT",
+    "สวัสดีครับ จาร์วิส Jarvis, ช่วยเปิดเพลง, YouTube, Spotify, Love 3000, Safari, Google Chrome, Finder, Terminal, Calculator, Notes, GitHub, Antigravity, Volume, System Info"
+)
 _wake_words_raw = os.getenv("WAKE_WORDS", "jarvis,จาร์วิส,จาวิส")
 WAKE_WORDS = [w.strip().lower() for w in _wake_words_raw.split(",") if w.strip()]
 

@@ -194,6 +194,7 @@ class JarvisListener(threading.Thread):
                 audio_data,
                 beam_size=1,
                 vad_filter=True,
+                initial_prompt=config.WHISPER_INITIAL_PROMPT if config.WHISPER_INITIAL_PROMPT else None,
             )
             transcribed_text = " ".join([s.text for s in segments]).strip()
 
@@ -218,19 +219,19 @@ class JarvisListener(threading.Thread):
         if self.whisper_model is not None:
             return
 
-        print(f"[Listener] Loading Faster-Whisper ({config.WHISPER_MODEL_SIZE}) on CPU (int8)...")
+        print(f"[Listener] Loading Faster-Whisper ({config.WHISPER_MODEL}) on CPU (int8)...")
         event_bus.task_log_updated.emit(
             "Voice Listener",
-            f"กำลังโหลดโมเดล Faster-Whisper ({config.WHISPER_MODEL_SIZE})..."
+            f"กำลังโหลดโมเดล Faster-Whisper ({config.WHISPER_MODEL})..."
         )
         try:
             from faster_whisper import WhisperModel
             self.whisper_model = WhisperModel(
-                config.WHISPER_MODEL_SIZE,
+                config.WHISPER_MODEL,
                 device="cpu",
                 compute_type="int8"
             )
-            print(f"[Listener] Faster-Whisper ({config.WHISPER_MODEL_SIZE}) ready.")
+            print(f"[Listener] Faster-Whisper ({config.WHISPER_MODEL}) ready.")
             event_bus.task_log_updated.emit(
                 "Voice Listener",
                 f"โมเดล Whisper พร้อมใช้งาน กด Cmd+Shift+J เพื่อเริ่ม/หยุดบันทึกเสียง"
