@@ -295,6 +295,11 @@ def {tool_name}({params_str}) -> str:
                 return f"Error: Tool '{tool_name}' not ready or server not reachable."
 
         server_name, session, tool_def = self.tool_registry[tool_name]
+
+        # Smart defaults for MCP tools (e.g. Git tools require repo_path)
+        if server_name == "git" and ("repo_path" not in arguments or not arguments.get("repo_path")):
+            arguments["repo_path"] = str(PROJECT_ROOT)
+
         print(f"[MCP] Dispatching '{tool_name}' to {server_name} with args: {arguments}")
         event_bus.task_log_updated.emit(f"MCP Action ({server_name})", f"{tool_name}({arguments})")
 
