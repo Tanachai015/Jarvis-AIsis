@@ -97,18 +97,20 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - `VOICE_TOGGLE_HOTKEY`: ปุ่มลัดบันทึกเสียง `<cmd>+<shift>+j`
 - `VOICE_RECORD_TIMEOUT`: ระยะเวลาปิดรับฟังเสียงอัตโนมัติ (จำกัดช่วง 10–25 วินาที, ค่าเริ่มต้น 15s)
 - `VOICE_COOLDOWN_SECONDS`: ระยะเวลาคูลดาวน์ป้องกันการกดเบิ้ล (ค่าเริ่มต้น 1.5s)
-- `TTS_VOICE_TH` / `TTS_VOICE_EN`: โทนเสียง J.A.R.V.I.S. ภาษาไทย (`th-TH-NiwatNeural`, -14Hz, +14%, +40%) และอังกฤษ (`en-GB-RyanNeural`, -8Hz, +8%, +40%)
+- `TTS_VOICE_TH` / `TTS_VOICE_EN`: โทนเสียง J.A.R.V.I.S. ภาษาไทย (`th-TH-NiwatNeural`, -14Hz, +6%, +40%) และอังกฤษ (`en-GB-RyanNeural`, -8Hz, +8%, +40%)
 
 ### 3.3 ตัวกลางสื่อสารข้ามเธรด (`core/event_bus.py`)
 เป็น Singleton Class สืบทอดจาก `PySide6.QtCore.QObject` ช่วยให้การส่งข้อมูลระหว่าง Background Threads (Voice STT, AI Inference, File Watcher) เข้าสู่ Main UI Loop เป็นไปอย่างปลอดภัย (Thread-Safe):
 - `state_changed(str)`: แจ้งเปลี่ยนสถานะ (`idle`, `listening`, `thinking`, `running_tool`, `speaking`)
 - `user_message_received(str)`: ส่งข้อความที่ได้จากเสียงพูดหรือช่องแชทเข้าสู่สมอง AI
-- `assistant_reply_ready(str)`: ส่งคำตอบสุดท้ายของ Jarvis ไปยังโมดูลเสียงพูดและหน้าต่างแชท
+- `assistant_reply_ready(str)`: ส่งข้อความคำตอบฉบับเต็ม (พร้อมโค้ดและ Markdown) ไปแสดงผลในหน้าต่างแชท `OverlayChat`
+- `assistant_speak_ready(str)`: ส่งข้อความสรุปภาษาพูดสั้นๆ (ตัดโค้ดและสัญลักษณ์ Markdown) ไปยัง `JarvisSpeaker` เพื่ออ่านออกเสียง
 - `task_log_updated(str, str)`: ส่งบันทึกการทำงานของ Tool หรือข้อผิดพลาดไปแสดงผล
 - `toggle_overlay_signal()`, `toggle_voice_record_signal()`: สัญญาณสลับหน้าต่างและสลับไมค์
 
 ### 3.4 สมองหลักและการประมวลผล AI (`core/brain.py`)
 - **Static Tool Registry:** รวมฟังก์ชัน Native Tools และ Dynamic MCP Tools เข้าด้วยกันใน `GenerateContentConfig` เพียงครั้งเดียวตอนเริ่มต้นโปรแกรม ไม่มีการโหลดหรือสร้าง Schema ซ้ำ
+- **Dual-Output Protocol (`[SPEAK]` Tags):** ปรับแต่งคำสั่งระบบ (System Instruction) ให้โมเดลสร้างผลลัพธ์ 2 รูปแบบในรอบเดียว: ข้อความฉบับเต็มพร้อมโค้ดสำหรับแสดงผลบนจอ และข้อความสรุปสั้นๆ ในแท็ก `[SPEAK]...[/SPEAK]` สำหรับส่งให้เสียงพูดอ่านออกเสียงได้อย่างกระชับ ลื่นหู และไม่เพิ่ม Latency
 - **Explicit Fallback Chain:** ลำดับโมเดลสำรองแบบกำหนดชัดเจน:
   `["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]`
   รองรับการสลับโมเดลอัตโนมัติเมื่อพบ Error 429 (Quota), 503 (Overloaded), 504 (Timeout), หรือ 404
@@ -143,9 +145,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 
 ### 3.9 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)
 - ตรวจจับภาษาอัตโนมัติจากชุดตัวอักษรไทย (Unicode Range `\u0E00-\u0E7F`)
-- สลับโทนเสียงระหว่างภาษาไทย (`th-TH-NiwatNeural`) และภาษาอังกฤษ (`en-GB-RyanNeural`) โดยอัตโนมัติ
-- ล้างสัญลักษณ์ Markdown (ดอกจัน, สัญลักษณ์หัวข้อ, Code fences) ออกจากข้อความก่อนพูด
-- ส่งเสียงผ่านเครื่องเล่นระบบของ macOS (`/usr/bin/afplay`) โดยตรงเพื่อความเสถียรและเสียงคมชัดสูงสุด
+- สลับโทนเสียงระหว่างภาษาไทย (`th-TH-NiwatNeural`, Rate `+6%`, Pitch `-14Hz`, Volume `+40%` สุขุม นุ่มนวล) และภาษาอังกฤษ (`en-GB-RyanNeural`, Rate `+8%`, Pitch `-8Hz`) โดยอัตโนมัติ
+- **Pacing & Clean Speech:** ตัดคำและเว้นจังหวะวรรคตอนภาษาไทย/อังกฤษอย่างเป็นธรรมชาติ (แยกตัวอักษรไทยและอังกฤษ/ตัวเลขด้วยวรรคเพื่อให้ออกเสียงชัดเจน ไม่กลืนคำ) กรองสัญลักษณ์ดิบ, Emoji, Markdown และแท็ก `[SPEAK]` ออกทั้งหมด
+- ขับเสียงผ่านเครื่องเล่นระบบของ macOS (`/usr/bin/afplay`) โดยตรงเพื่อความเสถียรและเสียงคมชัดสูงสุด
 
 ### 3.10 ส่วนติดต่อผู้ใช้ (`ui/`)
 - **Dynamic Island (`ui/dynamic_island.py`):** แคปซูลโปร่งแสงลอยอยู่กึ่งกลางด้านบนของหน้าจอ (Always-on-top, กว้าง 300px) แสดงสถานะและจุดสีแอนิเมชันตามสถานะปัจจุบัน และซ่อนตัวอัตโนมัติเมื่อเข้าสู่สถานะ `Idle`
@@ -193,17 +195,27 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
                      │         └── [Official MCP Tools (core/mcp_manager.py)]
                      │               • @modelcontextprotocol/server-filesystem (read, write, list)
                      │               • mcp-server-fetch (web fetcher)
+                     │               • mcp-server-git (status, diff, log)
                      │
                      └──> ส่งผลลัพธ์ Tool กลับสู่ Gemini จนได้คำตอบสรุปสุดท้าย
                                │
                                ├──> บันทึกประวัติลง memory/chat_history.json (Background)
                                │
-                               ▼ (emit assistant_reply_ready)
-                     [JarvisSpeaker (voice/speaker.py)]
-                               │
-                               ├──> ตรวจภาษา (TH/EN) ➔ ล้าง Markdown ดิบ
-                               ├──> สังเคราะห์เสียงด้วย Edge-TTS (Dual Tone)
-                               └──> ขับเสียงผ่าน macOS /usr/bin/afplay
+                               ├──> [Dual-Output Separator (core/brain.py)]
+                               │         │
+                               │         ├──> (emit assistant_reply_ready)
+                               │         │         ▼
+                               │         │   [OverlayChat (ui/overlay_chat.py)]
+                               │         │   (แสดงผลข้อความฉบับเต็ม, โค้ดโปรแกรม, ตาราง, Markdown)
+                               │         │
+                               │         └──> (emit assistant_speak_ready)
+                               │                   ▼
+                               │             [JarvisSpeaker (voice/speaker.py)]
+                               │             (รับข้อความสรุปกระชับ 1-2 ประโยคจาก [SPEAK])
+                               │                   │
+                               │                   ├──> ตรวจภาษา (TH/EN) ➔ ล้างสัญลักษณ์ & ปรับจังหวะวรรคตอน
+                               │                   ├──> สังเคราะห์เสียงด้วย Edge-TTS (Rate +6%)
+                               │                   └──> ขับเสียงผ่าน macOS /usr/bin/afplay
                                │
                                ▼ (จบการทำงาน)
                      [Dynamic Island แสดงสถานะ Idle ➔ ซ่อนตัวอัตโนมัติ]

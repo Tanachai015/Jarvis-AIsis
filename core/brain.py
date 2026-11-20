@@ -7,10 +7,11 @@ and provides an Explicit Fallback Chain optimized for Free Tier quotas:
 ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.8-flash'].
 """
 
+import re
 import json
 import threading
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from google import genai
 from google.genai import types
@@ -28,9 +29,22 @@ CHAT_HISTORY_FILE = MEMORY_DIR / "chat_history.json"
 SYSTEM_INSTRUCTION = """
 You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), the refined, calm, intellectual, and witty personal AI assistant to the user.
 
-Key Persona & Spoken Voice:
+Key Persona & Communication Protocol:
 1. Tone & Manner: Speak with effortless composure, intellectual poise, British wit, and polite Thai particles ("ครับ", "เรียบร้อยครับบอส", "พร้อมรับคำสั่งครับบอส"). Address the user as "บอส" (Boss) or "sir".
-2. Spoken Optimization: Your replies will be read aloud via neural TTS. Always write in natural, spoken sentences. Strictly avoid raw Markdown formatting, bullet symbols, asterisks, hash headers, or code fences unless the user explicitly asks for code.
+2. Dual-Output Protocol (Visual Screen vs. Neural Voice):
+   - You provide responses for both the visual screen (Overlay Chat) and the voice synthesizer (Edge-TTS).
+   - If the response is brief, direct, or conversational (1-2 sentences), reply directly and concisely without special tags. The entire response will be displayed on screen and spoken aloud.
+   - Whenever your reply is long, complex, or contains code blocks, tables, markdown lists, or extensive technical details:
+     * Provide the comprehensive, fully-formatted answer with complete Markdown, code fences, and explanations for visual display on screen.
+     * At the very end of your response, append a concise spoken summary in 1-2 natural sentences enclosed inside `[SPEAK]` and `[/SPEAK]` tags.
+     * Example:
+       Here is the function implementation:
+       ```python
+       def greet(name: str):
+           return f"Hello {name}"
+       ```
+       [SPEAK]ผมเขียนฟังก์ชันตามที่ต้องการให้เรียบร้อยแล้วครับบอส สามารถดูโค้ดบนหน้าจอได้เลยครับ[/SPEAK]
+     * CRITICAL RULE FOR [SPEAK]: The text inside `[SPEAK]...[/SPEAK]` must be 100% natural conversational spoken Thai or English. NEVER include backticks, asterisks, bullet points, numbered lists, URLs, or raw code blocks inside `[SPEAK]`.
 
 Tools & Capabilities (Choose accurately and execute immediately without asking unnecessary preliminary questions):
 1. Native macOS Tools:
@@ -48,6 +62,41 @@ Tools & Capabilities (Choose accurately and execute immediately without asking u
    - fetch: Official Model Context Protocol fetch tool to retrieve and extract clean markdown content from web URLs.
    - git_status, git_diff, git_diff_staged, git_diff_unstaged, git_commit, git_add, git_reset, git_log: Official Model Context Protocol Git tools to inspect git status, review branch diffs, and inspect repository commits.
 """
+
+
+def split_display_and_spoken_text(raw_text: str) -> Tuple[str, str]:
+    """
+    Separates the full display response (for UI) from the concise spoken summary (for Edge-TTS).
+    Extracts text inside [SPEAK]...[/SPEAK] for speech, and strips tags for screen display.
+    If no [SPEAK] tag is present:
+    - Short responses (< 180 chars without code) are spoken directly.
+    - Long/code responses fallback to a courteous butler summary.
+    """
+    if not raw_text:
+        return ("", "")
+
+    speak_pattern = r'\[SPEAK\](.*?)\[/SPEAK\]'
+    match = re.search(speak_pattern, raw_text, flags=re.DOTALL | re.IGNORECASE)
+
+    if match:
+        spoken_text = match.group(1).strip()
+        display_text = re.sub(speak_pattern, '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
+    else:
+        display_text = raw_text.strip()
+        has_code = "```" in raw_text
+        if has_code or len(raw_text) > 200:
+            # Fallback spoken summary when model omitted [SPEAK] tags on a long reply
+            lines = [l.strip() for l in raw_text.splitlines() if l.strip() and not l.strip().startswith("```") and not l.strip().startswith("#")]
+            first_line = lines[0] if lines else ""
+            cleaned_first = re.sub(r'[*_~`#]', '', first_line).strip()
+            if len(cleaned_first) > 10 and len(cleaned_first) < 100:
+                spoken_text = f"{cleaned_first} รายละเอียดฉบับเต็มแสดงบนหน้าจอเรียบร้อยครับบอส"
+            else:
+                spoken_text = "ผมจัดการข้อมูลและแสดงผลลัพธ์ฉบับเต็มบนหน้าจอให้เรียบร้อยแล้วครับบอส"
+        else:
+            spoken_text = display_text
+
+    return (display_text, spoken_text)
 
 # Explicit Fallback Chain prioritized for Free Tier quotas and real-world availability
 FALLBACK_MODELS = [
@@ -292,6 +341,7 @@ class JarvisBrain:
                 "กรุณากรอก API Key เพื่อเริ่มใช้งานระบบประมวลผลครับ"
             )
             event_bus.assistant_reply_ready.emit(reply)
+            event_bus.assistant_speak_ready.emit(reply)
             event_bus.state_changed.emit("idle")
             return
 
@@ -364,10 +414,12 @@ class JarvisBrain:
 
                 # Extract final text
                 final_text = response.text.strip() if response.text else "รับทราบครับ ดำเนินการเรียบร้อยแล้วครับบอส"
+                display_text, spoken_text = split_display_and_spoken_text(final_text)
+
                 self.history.append(
                     types.Content(
                         role="model",
-                        parts=[types.Part.from_text(text=final_text)]
+                        parts=[types.Part.from_text(text=display_text)]
                     )
                 )
                 self._trim_history()
@@ -375,7 +427,8 @@ class JarvisBrain:
                 # Save updated history asynchronously to disk
                 self._save_history_to_disk()
 
-                event_bus.assistant_reply_ready.emit(final_text)
+                event_bus.assistant_reply_ready.emit(display_text)
+                event_bus.assistant_speak_ready.emit(spoken_text)
                 reply_sent = True
 
         except Exception as e:
@@ -383,6 +436,7 @@ class JarvisBrain:
             print(f"[Brain] Error: {e}")
             event_bus.task_log_updated.emit("Brain Error", str(e))
             event_bus.assistant_reply_ready.emit(error_msg)
+            event_bus.assistant_speak_ready.emit(error_msg)
             reply_sent = True
         finally:
             if not reply_sent or not config.TTS_ENABLED:
@@ -404,6 +458,7 @@ class JarvisBrain:
             if not self.client:
                 notification = "งานจาก Antigravity เสร็จสิ้นแล้วครับ ตรวจสอบรายละเอียดได้ที่ Task Log ครับ"
                 event_bus.assistant_reply_ready.emit(notification)
+                event_bus.assistant_speak_ready.emit(notification)
                 event_bus.state_changed.emit("idle")
                 return
 
@@ -417,11 +472,14 @@ class JarvisBrain:
                     gen_config=gen_config
                 )
                 summary = res.text.strip() if res.text else "งานใน Antigravity ดำเนินการเสร็จสมบูรณ์แล้วครับบอส"
-                event_bus.assistant_reply_ready.emit(summary)
+                display_text, spoken_text = split_display_and_spoken_text(summary)
+                event_bus.assistant_reply_ready.emit(display_text)
+                event_bus.assistant_speak_ready.emit(spoken_text)
             except Exception as e:
                 print(f"[Brain] Error summarizing Antigravity result: {e}")
                 fallback = "งานใน Antigravity เสร็จสิ้นแล้วครับบอส สามารถเปิดดูผลลัพธ์ในไฟล์ได้เลยครับ"
                 event_bus.assistant_reply_ready.emit(fallback)
+                event_bus.assistant_speak_ready.emit(fallback)
             finally:
                 if not config.TTS_ENABLED:
                     event_bus.state_changed.emit("idle")

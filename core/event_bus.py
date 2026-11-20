@@ -18,8 +18,11 @@ class EventBus(QObject):
     # Fired when a user message is received (from voice STT or overlay chat)
     user_message_received = Signal(str)
 
-    # Fired when assistant generates a response
+    # Fired when assistant generates a full response for UI display (Overlay Chat)
     assistant_reply_ready = Signal(str)
+
+    # Fired when assistant prepares a short spoken summary for voice synthesis (Edge-TTS)
+    assistant_speak_ready = Signal(str)
 
     # Fired when a background task or tool produces logs / outputs: (title, details)
     task_log_updated = Signal(str, str)

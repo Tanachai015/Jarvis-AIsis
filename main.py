@@ -246,7 +246,7 @@ def main():
 
     # 5. Connect Signal Pipelines
     event_bus.user_message_received.connect(brain.process_user_message)
-    event_bus.assistant_reply_ready.connect(speaker.speak)
+    event_bus.assistant_speak_ready.connect(speaker.speak)
 
     # 6. Start Global Hotkey Listener
     _hotkey_monitor = start_global_hotkey_listener()

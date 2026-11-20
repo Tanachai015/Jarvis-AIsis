@@ -27,7 +27,7 @@ TTS_ENABLED = os.getenv("TTS_ENABLED", "true").lower() in ("true", "1", "yes")
 # Thai Tone: th-TH-NiwatNeural
 TTS_VOICE_TH = os.getenv("TTS_VOICE_TH", "th-TH-NiwatNeural")
 TTS_PITCH_TH = os.getenv("TTS_PITCH_TH", "-14Hz")
-TTS_RATE_TH = os.getenv("TTS_RATE_TH", "+14%")
+TTS_RATE_TH = os.getenv("TTS_RATE_TH", "+6%")
 TTS_VOLUME_TH = os.getenv("TTS_VOLUME_TH", "+40%")
 
 # British English Tone: en-GB-RyanNeural

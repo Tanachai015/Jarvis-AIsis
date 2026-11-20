@@ -24,30 +24,65 @@ from core.event_bus import event_bus
 
 def clean_markdown_for_speech(text: str) -> str:
     """
-    Strips raw markdown syntax (code blocks, asterisks, headers, backticks,
-    bullet symbols, and URLs) so speech synthesis sounds fluid and natural.
+    Cleans and optimizes text specifically for Edge-TTS speech synthesis:
+    - Strips [SPEAK]...[/SPEAK] tags if present
+    - Strips code blocks, inline code, headers, markdown bullets, bold/italic symbols
+    - Removes raw URLs, email addresses, and bracketed links
+    - Removes emojis and unicode pictographs to prevent synthetic voice distortion
+    - Adjusts pacing: adds natural spacing between Thai script and English/numbers
+    - Normalizes punctuation to create smooth acoustic pauses
     """
     if not text:
         return ""
 
-    # Remove code blocks ```...```
+    # 1. Extract [SPEAK] content if tags are wrapped around text
+    speak_match = re.search(r'\[SPEAK\](.*?)\[/SPEAK\]', text, flags=re.DOTALL | re.IGNORECASE)
+    if speak_match:
+        text = speak_match.group(1)
+    else:
+        text = re.sub(r'\[/?SPEAK\]', '', text, flags=re.IGNORECASE)
+
+    # 2. Remove code blocks ```...``` completely
     cleaned = re.sub(r'```[\s\S]*?```', '', text)
     # Remove inline code `...`
     cleaned = re.sub(r'`([^`]+)`', r'\1', cleaned)
-    # Remove headers (#, ##, etc.)
+    # Remove markdown headers (#, ##, etc.)
     cleaned = re.sub(r'#+\s*', '', cleaned)
-    # Remove markdown bold/italics (*, **, _, __, ~~)
+    # Remove bold, italics, strikethrough (*, **, _, __, ~~)
     cleaned = re.sub(r'[*_~]', '', cleaned)
-    # Remove bullet markers (- , * , + )
+    # Remove bullet markers (- , * , + ) and numbered list prefixes (1. , 2. )
     cleaned = re.sub(r'^\s*[-*+]\s+', '', cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r'^\s*\d+\.\s+', '', cleaned, flags=re.MULTILINE)
     # Convert markdown links [title](url) -> title
     cleaned = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', cleaned)
     # Remove raw URLs
     cleaned = re.sub(r'https?://\S+', '', cleaned)
-    # Remove excessive symbols
-    cleaned = re.sub(r'[<>{}\[\]|\\]', ' ', cleaned)
-    # Normalize whitespaces
+
+    # 3. Remove emojis and special graphical symbols
+    emoji_pattern = re.compile(
+        r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]',
+        flags=re.UNICODE
+    )
+    cleaned = emoji_pattern.sub('', cleaned)
+
+    # 4. Remove brackets, braces, angle brackets, and pipe symbols
+    cleaned = re.sub(r'[<>{}\[\]|\\/]', ' ', cleaned)
+
+    # 5. Pacing optimization for Thai + English mixed text:
+    # Insert space between Thai characters and English/Numbers for clear phoneme transitions
+    cleaned = re.sub(r'([\u0E00-\u0E7F])([A-Za-z0-9])', r'\1 \2', cleaned)
+    cleaned = re.sub(r'([A-Za-z0-9])([\u0E00-\u0E7F])', r'\1 \2', cleaned)
+
+    # 6. Normalize punctuation for natural vocal pauses
+    # Colons and semicolons become a comma pause
+    cleaned = re.sub(r'[:;]', ', ', cleaned)
+    # Multiple dots or dashes become a single period or comma
+    cleaned = re.sub(r'\.{2,}', '. ', cleaned)
+    cleaned = re.sub(r'-{2,}', ', ', cleaned)
+    # Clean up redundant commas and spaces
+    cleaned = re.sub(r',\s*,+', ', ', cleaned)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
     return cleaned
 
 
