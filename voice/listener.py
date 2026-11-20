@@ -192,8 +192,9 @@ class JarvisListener(threading.Thread):
 
             segments, _ = self.whisper_model.transcribe(
                 audio_data,
-                beam_size=1,
+                beam_size=5,
                 vad_filter=True,
+                vad_parameters={"speech_pad_ms": 400},
                 initial_prompt=config.WHISPER_INITIAL_PROMPT if config.WHISPER_INITIAL_PROMPT else None,
             )
             transcribed_text = " ".join([s.text for s in segments]).strip()

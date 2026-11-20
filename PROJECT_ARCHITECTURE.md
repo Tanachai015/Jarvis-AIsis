@@ -160,7 +160,11 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
 - **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
 - **Auto-close Timeout & Cooldown:** หากพูดไม่หยุด ระบบจะตัดส่งคำสั่งให้อัตโนมัติเมื่อครบ 15 วินาที (ปรับได้ 10–25s) พร้อม Micro-Debounce (0.6s) และ Post-Session Cooldown (1.5s) ป้องกันการกดทับซ้ำ
-- **Faster-Whisper with Initial Prompt:** โหลดโมเดลขนาด `small` (หรือตาม `WHISPER_MODEL`) บน CPU (`compute_type="int8"`) ทำงานใน Background Worker พร้อมส่ง `initial_prompt` ช่วยล็อกสำเนียงและคำศัพท์ไทย-อังกฤษให้ถอดความได้แม่นยำยิ่งขึ้น
+- **Faster-Whisper with Initial Prompt & VAD Padding:**
+  - โหลดโมเดลตามตัวแปร `WHISPER_MODEL` (เริ่มต้น `small` สลับเป็น `medium` หรือ `large-v3-turbo` ได้ทันทีจาก `.env`) บน CPU (`compute_type="int8"`)
+  - ใช้ `beam_size=5` เพิ่มความแม่นยำในการเลือกคำที่มีความเป็นไปได้สูงสุด
+  - เปิด `vad_filter=True` พร้อมส่ง `vad_parameters={"speech_pad_ms": 400}` เพื่อขยายขอบเขตหัว-ท้ายเสียง ป้องกันไม่ให้ VAD ตัดเสียงพยางค์แรก (เช่น "จาร์วิส") หรือพยางค์สุดท้ายของประโยคขาดหายไป
+  - ส่ง `initial_prompt` ช่วยล็อกสำเนียง บริบทคำสั่ง และคำทับศัพท์ไทย-อังกฤษให้ถอดความได้แม่นยำยิ่งขึ้น
 
 ### 3.10 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)
 - ตรวจจับภาษาอัตโนมัติจากชุดตัวอักษรไทย (Unicode Range `\u0E00-\u0E7F`)
