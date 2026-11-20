@@ -41,6 +41,13 @@ TTS_VOICE = TTS_VOICE_TH
 # Voice Listener Settings
 VOICE_INPUT_ENABLED = os.getenv("VOICE_INPUT_ENABLED", "true").lower() in ("true", "1", "yes")
 VOICE_TOGGLE_HOTKEY = os.getenv("VOICE_TOGGLE_HOTKEY", "<cmd>+<shift>+j")
+
+# Speech-to-Text (STT) Settings: "groq" (default) or "local"
+STT_MODE = os.getenv("STT_MODE", "groq").lower().strip()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_WHISPER_MODEL = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
+
+# Local Faster-Whisper Fallback Settings (Offline / Fallback)
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", os.getenv("WHISPER_MODEL_SIZE", "small"))
 WHISPER_MODEL_SIZE = WHISPER_MODEL  # Backward compatibility alias
 WHISPER_INITIAL_PROMPT = os.getenv(

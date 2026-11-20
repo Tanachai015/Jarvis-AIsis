@@ -9,6 +9,8 @@ Voice Listener module for Jarvis Desktop Assistant.
 
 import os
 import sys
+import io
+import wave
 import time
 import queue
 import subprocess
@@ -16,6 +18,7 @@ import threading
 from typing import Optional, List
 
 import numpy as np
+import requests
 
 import config
 from core.event_bus import event_bus
@@ -187,24 +190,36 @@ class JarvisListener(threading.Thread):
                 event_bus.state_changed.emit("idle")
                 return
 
-            if self.whisper_model is None:
-                self._load_whisper_model()
+            transcribed_text = None
+            used_engine = "local"
 
-            segments, _ = self.whisper_model.transcribe(
-                audio_data,
-                beam_size=5,
-                vad_filter=True,
-                vad_parameters={"speech_pad_ms": 400},
-                initial_prompt=config.WHISPER_INITIAL_PROMPT if config.WHISPER_INITIAL_PROMPT else None,
-            )
-            transcribed_text = " ".join([s.text for s in segments]).strip()
+            # 1. Attempt Groq Cloud STT (whisper-large-v3-turbo) if enabled & key provided
+            if config.STT_MODE == "groq":
+                if config.GROQ_API_KEY:
+                    print(f"[Listener] 🚀 Transcribing via Groq Cloud ({config.GROQ_WHISPER_MODEL})...")
+                    transcribed_text = self._transcribe_groq(audio_data)
+                    if transcribed_text is not None:
+                        used_engine = f"groq ({config.GROQ_WHISPER_MODEL})"
+                    else:
+                        print("[Listener] ⚠️ Groq Cloud STT failed. Falling back to local Faster-Whisper...")
+                        event_bus.task_log_updated.emit(
+                            "Voice Listener",
+                            "Groq STT ขัดข้อง กำลังสลับไปใช้ Local Faster-Whisper สำรอง..."
+                        )
+                else:
+                    print("[Listener] GROQ_API_KEY is empty. Falling back to local Faster-Whisper...")
+
+            # 2. Local Faster-Whisper Fallback (if Groq skipped, failed, or STT_MODE == 'local')
+            if transcribed_text is None:
+                transcribed_text = self._transcribe_local(audio_data)
+                used_engine = f"local ({config.WHISPER_MODEL})"
 
             if transcribed_text:
-                print(f"[Listener] 🗣️ Transcribed: \"{transcribed_text}\"")
-                event_bus.task_log_updated.emit("Voice Input", f"ถอดความ: \"{transcribed_text}\"")
+                print(f"[Listener] 🗣️ Transcribed [{used_engine}]: \"{transcribed_text}\"")
+                event_bus.task_log_updated.emit("Voice Input", f"ถอดความ [{used_engine}]: \"{transcribed_text}\"")
                 event_bus.user_message_received.emit(transcribed_text)
             else:
-                print("[Listener] No speech recognized.")
+                print(f"[Listener] No speech recognized [{used_engine}].")
                 event_bus.task_log_updated.emit("Voice Input", "ไม่พบเสียงพูดในสิ่งที่บันทึก")
                 self.is_processing = False
                 event_bus.state_changed.emit("idle")
@@ -214,6 +229,66 @@ class JarvisListener(threading.Thread):
             event_bus.task_log_updated.emit("Voice Input Error", f"ข้อผิดพลาด: {str(e)}")
             self.is_processing = False
             event_bus.state_changed.emit("idle")
+
+    def _audio_to_wav_bytes(self, audio_data: np.ndarray, sample_rate: int = 16000) -> io.BytesIO:
+        """Converts float32 audio numpy array to 16-bit PCM WAV in memory."""
+        if audio_data.dtype in (np.float32, np.float64):
+            audio_int16 = np.clip(audio_data, -1.0, 1.0)
+            audio_int16 = (audio_int16 * 32767).astype(np.int16)
+        else:
+            audio_int16 = audio_data.astype(np.int16)
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)  # 16-bit
+            wf.setframerate(sample_rate)
+            wf.writeframes(audio_int16.tobytes())
+        buffer.seek(0)
+        return buffer
+
+    def _transcribe_groq(self, audio_data: np.ndarray) -> Optional[str]:
+        """Transcribes audio using Groq Cloud API (whisper-large-v3-turbo)."""
+        api_key = config.GROQ_API_KEY
+        if not api_key:
+            return None
+
+        try:
+            wav_buffer = self._audio_to_wav_bytes(audio_data, self.SAMPLE_RATE)
+            url = "https://api.groq.com/openai/v1/audio/transcriptions"
+            headers = {"Authorization": f"Bearer {api_key}"}
+            files = {"file": ("speech.wav", wav_buffer.read(), "audio/wav")}
+            data = {
+                "model": config.GROQ_WHISPER_MODEL,
+                "response_format": "json"
+            }
+            if config.WHISPER_INITIAL_PROMPT:
+                data["prompt"] = config.WHISPER_INITIAL_PROMPT
+
+            response = requests.post(url, headers=headers, files=files, data=data, timeout=12)
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("text", "").strip()
+            else:
+                print(f"[Listener] Groq STT HTTP {response.status_code}: {response.text}")
+                return None
+        except Exception as e:
+            print(f"[Listener] Groq STT request failed: {e}")
+            return None
+
+    def _transcribe_local(self, audio_data: np.ndarray) -> str:
+        """Transcribes audio using local Faster-Whisper model."""
+        if self.whisper_model is None:
+            self._load_whisper_model()
+
+        segments, _ = self.whisper_model.transcribe(
+            audio_data,
+            beam_size=5,
+            vad_filter=True,
+            vad_parameters={"speech_pad_ms": 400},
+            initial_prompt=config.WHISPER_INITIAL_PROMPT if config.WHISPER_INITIAL_PROMPT else None,
+        )
+        return " ".join([s.text for s in segments]).strip()
 
     def _load_whisper_model(self):
         """Loads Faster-Whisper model into memory."""

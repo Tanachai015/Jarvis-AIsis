@@ -105,8 +105,11 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ทำหน้าที่รวมศูนย์การอ่านค่า Environment Variables:
 - `GEMINI_MODEL`: ตั้งค่าเริ่มต้นเป็น `gemini-3.5-flash-lite`
 - `VOICE_TOGGLE_HOTKEY`: ปุ่มลัดบันทึกเสียง `<cmd>+<shift>+j`
-- `WHISPER_MODEL`: ขนาดหรือชื่อโมเดล Faster-Whisper (เช่น `small`, `base`, `medium`, รองรับ `WHISPER_MODEL_SIZE` เป็น fallback)
-- `WHISPER_INITIAL_PROMPT`: ข้อความชี้นำบริบทเริ่มต้นของ Faster-Whisper ป้องกันการถอดเสียงเพี้ยนสำหรับคำทับศัพท์, ชื่อเพลง, และชื่อแอปยอดนิยม
+- `STT_MODE`: โหมดถอดเสียงพูดเป็นข้อความ ค่าเริ่มต้น `"groq"` (เร็วพิเศษผ่าน Cloud) หรือ `"local"` (ออฟไลน์บนเครื่อง)
+- `GROQ_API_KEY`: API Key สำหรับบริการ Groq Cloud Speech-to-Text
+- `GROQ_WHISPER_MODEL`: โมเดล Whisper บน Groq Cloud (ค่าเริ่มต้น `whisper-large-v3-turbo`)
+- `WHISPER_MODEL`: ขนาดหรือชื่อโมเดล Faster-Whisper ในเครื่อง (ค่าเริ่มต้น `small` สำหรับสำรองยามออฟไลน์ ไม่กิน RAM)
+- `WHISPER_INITIAL_PROMPT`: ข้อความชี้นำบริบทเริ่มต้นของ Whisper ป้องกันการถอดเสียงเพี้ยนสำหรับคำทับศัพท์, ชื่อเพลง, และชื่อแอปยอดนิยม
 - `VOICE_RECORD_TIMEOUT`: ระยะเวลาปิดรับฟังเสียงอัตโนมัติ (จำกัดช่วง 10–25 วินาที, ค่าเริ่มต้น 15s)
 - `VOICE_COOLDOWN_SECONDS`: ระยะเวลาคูลดาวน์ป้องกันการกดเบิ้ล (ค่าเริ่มต้น 1.5s)
 - `TTS_VOICE_TH` / `TTS_VOICE_EN`: โทนเสียง J.A.R.V.I.S. ภาษาไทย (`th-TH-NiwatNeural`, -14Hz, +6%, +40%) และอังกฤษ (`en-GB-RyanNeural`, -8Hz, +8%, +40%)
@@ -160,11 +163,12 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
 - **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
 - **Auto-close Timeout & Cooldown:** หากพูดไม่หยุด ระบบจะตัดส่งคำสั่งให้อัตโนมัติเมื่อครบ 15 วินาที (ปรับได้ 10–25s) พร้อม Micro-Debounce (0.6s) และ Post-Session Cooldown (1.5s) ป้องกันการกดทับซ้ำ
-- **Faster-Whisper with Initial Prompt & VAD Padding:**
-  - โหลดโมเดลตามตัวแปร `WHISPER_MODEL` (เริ่มต้น `small` สลับเป็น `medium` หรือ `large-v3-turbo` ได้ทันทีจาก `.env`) บน CPU (`compute_type="int8"`)
-  - ใช้ `beam_size=5` เพิ่มความแม่นยำในการเลือกคำที่มีความเป็นไปได้สูงสุด
-  - เปิด `vad_filter=True` พร้อมส่ง `vad_parameters={"speech_pad_ms": 400}` เพื่อขยายขอบเขตหัว-ท้ายเสียง ป้องกันไม่ให้ VAD ตัดเสียงพยางค์แรก (เช่น "จาร์วิส") หรือพยางค์สุดท้ายของประโยคขาดหายไป
-  - ส่ง `initial_prompt` ช่วยล็อกสำเนียง บริบทคำสั่ง และคำทับศัพท์ไทย-อังกฤษให้ถอดความได้แม่นยำยิ่งขึ้น
+- **Groq Cloud STT (Default Primary):**
+  - เมื่อ `STT_MODE="groq"` และมี `GROQ_API_KEY` ระบบจะแปลงเสียงเป็น WAV ในหน่วยความจำ (`io.BytesIO`) แล้วส่งไปยัง Groq Audio API (`whisper-large-v3-turbo`) พร้อม `WHISPER_INITIAL_PROMPT`
+  - ประมวลผลเสร็จในเวลาเพียง **0.2 - 0.4 วินาที** โดยใช้ CPU และ RAM เครื่อง 0%
+- **Automatic Local Fallback (Faster-Whisper):**
+  - หากไม่มีอินเทอร์เน็ต, ไม่ได้ใส่ `GROQ_API_KEY`, หรือ Groq API ส่งกลับ Error ระบบจะสลับมาโหลดและถอดความด้วย Local `Faster-Whisper` (`small`) อัตโนมัติทันที
+  - ใช้ `beam_size=5`, `vad_filter=True` พร้อม `vad_parameters={"speech_pad_ms": 400}` ป้องกันคำหัวท้ายตกหล่น
 
 ### 3.10 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)
 - ตรวจจับภาษาอัตโนมัติจากชุดตัวอักษรไทย (Unicode Range `\u0E00-\u0E7F`)
@@ -201,9 +205,15 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
          └──> ครั้งที่ 2 (หรือครบ 15s): เล่นเสียง Pop.aiff ➔ เปลี่ยนสถานะ "Thinking..."
                      │
                      ▼
-             [Faster-Whisper (STT)]
+             [Speech-to-Text Pipeline (voice/listener.py)]
                      │
-                     ▼ (emit user_message_received)
+                     ├──> Primary: Groq Cloud STT (whisper-large-v3-turbo) ──> ~0.2s, CPU 0%
+                     │         │
+                     │         └──> (Fallback เมื่อออฟไลน์ / ไร้ Key / ขัดข้อง)
+                     │                   │
+                     └──> Fallback: Local Faster-Whisper (small, int8, beam_size=5, speech_pad_ms=400)
+                               │
+                               ▼ (emit user_message_received)
              [JarvisBrain (core/brain.py)]
                      │
                      ├──> ส่งประวัติและข้อความเข้า Gemini API (Explicit Fallback Chain)
