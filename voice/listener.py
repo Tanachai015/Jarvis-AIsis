@@ -90,16 +90,29 @@ class JarvisListener(threading.Thread):
     def set_listen_mode(self, mode: str):
         """Switches voice listening mode at runtime without restarting."""
         clean_mode = mode.lower().strip()
-        if clean_mode in ("push_to_talk", "hi_jarvis", "hybrid"):
-            self.listen_mode = clean_mode
-            mode_names = {
-                "hybrid": "Hybrid (Hotkey + Hi Jarvis)",
-                "push_to_talk": "Push-to-Talk (Cmd+Shift+J Only)",
-                "hi_jarvis": "Wake Word Only (Hi Jarvis)",
-            }
-            desc = mode_names.get(self.listen_mode, self.listen_mode)
-            print(f"[Listener] 🎙️ Voice Listen Mode switched to: {self.listen_mode} [{desc}]")
-            event_bus.task_log_updated.emit("Voice Listener", f"เปลี่ยนโหมดรับเสียงเป็น: {desc}")
+        if clean_mode not in ("push_to_talk", "hi_jarvis", "hybrid"):
+            return
+
+        old_mode = self.listen_mode
+        self.listen_mode = clean_mode
+
+        mode_names = {
+            "hybrid": "Hybrid (Hotkey + Hi Jarvis)",
+            "push_to_talk": "Push-to-Talk (Cmd+Shift+J Only)",
+            "hi_jarvis": "Wake Word Only (Hi Jarvis)",
+        }
+        desc = mode_names.get(self.listen_mode, self.listen_mode)
+        print(f"[Listener] 🎙️ Voice Listen Mode switched to: {self.listen_mode} [{desc}]")
+        event_bus.task_log_updated.emit("Voice Listener", f"เปลี่ยนโหมดรับเสียงเป็น: {desc}")
+
+        # RAM Management Policy according to mode:
+        # 1. hi_jarvis / hybrid: Keep Local Faster-Whisper in RAM for wake word detection
+        if self.listen_mode in ("hi_jarvis", "hybrid"):
+            if self.whisper_model is None:
+                self._load_whisper_model()
+        # 2. push_to_talk: Unload Local Faster-Whisper to immediately return RAM to system
+        elif self.listen_mode == "push_to_talk":
+            self._unload_whisper_model()
 
     def _on_state_changed(self, state: str):
         """Track assistant speaking / thinking state to prevent feedback and overlapping requests."""
@@ -270,20 +283,34 @@ class JarvisListener(threading.Thread):
             event_bus.state_changed.emit("idle")
 
     def _check_wake_snippet(self, audio_data: np.ndarray):
-        """Transcribes a short speech burst to detect wake words."""
+        """
+        Transcribes a short speech burst to detect wake words.
+        MANDATORY: Uses Local Faster-Whisper ONLY (beam_size=1) to preserve Groq Cloud API quota.
+        """
         if self.is_recording or self.is_speaking or self.is_processing:
             return
 
         try:
-            transcribed = None
-            if config.STT_MODE == "groq" and config.GROQ_API_KEY:
-                transcribed = self._transcribe_groq(audio_data)
-            if transcribed is None:
-                transcribed = self._transcribe_local(audio_data)
+            # Wake word checking uses Local Faster-Whisper exclusively, NEVER Groq Cloud
+            if self.whisper_model is None:
+                self._load_whisper_model()
+
+            if self.whisper_model is None:
+                return
+
+            segments, _ = self.whisper_model.transcribe(
+                audio_data,
+                beam_size=1,  # Fast 1-beam search (~50ms)
+                vad_filter=True,
+                vad_parameters={"speech_pad_ms": 200},
+                initial_prompt="hi jarvis, jarvis, จาร์วิส, จาวิส, ไฮ จาร์วิส",
+            )
+            transcribed = " ".join([s.text for s in segments]).strip()
 
             if not transcribed:
                 return
 
+            # Normalize text (lowercase, strip whitespace and punctuation)
             norm_text = re.sub(r'[\s\.,!_?\'"\-]', '', transcribed.lower())
             matched_wake_word = None
             for w in self.wake_words:
@@ -293,10 +320,11 @@ class JarvisListener(threading.Thread):
                     break
 
             if matched_wake_word:
-                print(f"[Listener] 🔔 Wake word detected: \"{matched_wake_word}\" (Transcribed: \"{transcribed}\")")
-                event_bus.task_log_updated.emit("Wake Word", f"ตรวจพบคำปลุก: '{matched_wake_word}'")
+                print(f"[Listener] 🔔 Wake word detected via Local Whisper: \"{matched_wake_word}\" (Text: \"{transcribed}\")")
+                event_bus.task_log_updated.emit("Wake Word", f"ตรวจพบคำปลุก: '{matched_wake_word}' (Local Whisper)")
                 with self.toggle_lock:
                     if not self.is_recording and not self.is_speaking and not self.is_processing:
+                        # Include audio_data as initial chunks in case command followed wake word in same breath
                         self._start_recording(initial_audio=audio_data)
 
         except Exception as e:
@@ -363,14 +391,14 @@ class JarvisListener(threading.Thread):
         return " ".join([s.text for s in segments]).strip()
 
     def _load_whisper_model(self):
-        """Loads Faster-Whisper model into memory."""
+        """Loads Faster-Whisper model into memory if not already loaded."""
         if self.whisper_model is not None:
             return
 
-        print(f"[Listener] Loading Faster-Whisper ({config.WHISPER_MODEL}) on CPU (int8)...")
+        print(f"[Listener] 🧠 Loading Faster-Whisper ({config.WHISPER_MODEL}) into RAM on CPU (int8)...")
         event_bus.task_log_updated.emit(
             "Voice Listener",
-            f"กำลังโหลดโมเดล Faster-Whisper ({config.WHISPER_MODEL})..."
+            f"กำลังโหลดโมเดล Faster-Whisper ({config.WHISPER_MODEL}) เข้า RAM..."
         )
         try:
             from faster_whisper import WhisperModel
@@ -379,14 +407,28 @@ class JarvisListener(threading.Thread):
                 device="cpu",
                 compute_type="int8"
             )
-            print(f"[Listener] Faster-Whisper ({config.WHISPER_MODEL}) ready.")
+            print(f"[Listener] ✅ Faster-Whisper ({config.WHISPER_MODEL}) loaded in RAM.")
             event_bus.task_log_updated.emit(
                 "Voice Listener",
-                f"โมเดล Whisper พร้อมใช้งาน กด Cmd+Shift+J เพื่อเริ่ม/หยุดบันทึกเสียง"
+                f"โมเดล Faster-Whisper ({config.WHISPER_MODEL}) พร้อมใช้งานใน RAM"
             )
         except Exception as e:
-            print(f"[Listener] Failed to load Whisper model: {e}")
+            print(f"[Listener] ❌ Failed to load Whisper model: {e}")
             event_bus.task_log_updated.emit("Listener Error", f"โหลด Whisper ล้มเหลว: {e}")
+
+    def _unload_whisper_model(self):
+        """Unloads Faster-Whisper model from memory and triggers garbage collection to free RAM."""
+        if self.whisper_model is not None:
+            print(f"[Listener] 🧹 Unloading Faster-Whisper ({config.WHISPER_MODEL}) from RAM to free memory...")
+            try:
+                del self.whisper_model
+            except Exception:
+                pass
+            self.whisper_model = None
+            import gc
+            gc.collect()
+            print("[Listener] 🍃 RAM successfully freed.")
+            event_bus.task_log_updated.emit("Voice Listener", "คืน RAM จากโมเดล Whisper เรียบร้อยแล้ว")
 
     def start_listening(self):
         """Starts background listener if enabled."""
@@ -399,19 +441,12 @@ class JarvisListener(threading.Thread):
 
     def run(self):
         """Main background loop maintaining sounddevice input stream."""
-        # STT Engine Mode Initialization
-        if config.STT_MODE == "groq" and config.GROQ_API_KEY:
-            print(f"[Listener] STT Mode: groq ({config.GROQ_WHISPER_MODEL}) - Faster-Whisper ({config.WHISPER_MODEL}) on standby for fallback.")
-            event_bus.task_log_updated.emit(
-                "Voice Listener",
-                f"โหมดรับเสียง: Groq Cloud ({config.GROQ_WHISPER_MODEL}) พร้อมระบบสำรองในเครื่อง"
-            )
-        elif config.STT_MODE == "groq" and not config.GROQ_API_KEY:
-            print(f"[Listener] STT Mode: groq configured but GROQ_API_KEY is empty. Pre-loading Faster-Whisper ({config.WHISPER_MODEL})...")
+        # STT Engine & RAM Pre-loading based on initial Voice Listen Mode
+        if self.listen_mode in ("hi_jarvis", "hybrid"):
+            print(f"[Listener] Mode '{self.listen_mode}' active at startup. Pre-loading Local Faster-Whisper into RAM for Wake Word detection...")
             self._load_whisper_model()
         else:
-            print(f"[Listener] STT Mode: local ({config.WHISPER_MODEL})")
-            self._load_whisper_model()
+            print(f"[Listener] Mode 'push_to_talk' active at startup. Local Faster-Whisper NOT loaded into RAM (saving memory).")
 
         try:
             import sounddevice as sd
@@ -543,5 +578,6 @@ class JarvisListener(threading.Thread):
             self.is_running = False
 
     def stop(self):
-        """Stops listener thread."""
+        """Stops listener thread and cleans up RAM."""
         self.is_running = False
+        self._unload_whisper_model()

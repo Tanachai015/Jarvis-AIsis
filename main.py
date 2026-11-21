@@ -272,6 +272,8 @@ def main():
     speaker.stop()
     listener.stop()
     mcp_manager.close()
+    import gc
+    gc.collect()
 
     sys.exit(exit_code)
 
