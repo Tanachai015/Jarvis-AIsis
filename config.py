@@ -62,6 +62,11 @@ _timeout_raw = int(os.getenv("VOICE_RECORD_TIMEOUT", "15"))
 VOICE_RECORD_TIMEOUT = max(10, min(25, _timeout_raw))  # Clamped to 10 - 25 seconds
 VOICE_COOLDOWN_SECONDS = float(os.getenv("VOICE_COOLDOWN_SECONDS", "1.5"))
 
+# Post-Speech Silence Detection (3.0 - 5.0 seconds auto-cutoff after speaking)
+_silence_raw = float(os.getenv("VOICE_POST_SPEECH_SILENCE", "3.5"))
+VOICE_POST_SPEECH_SILENCE = max(3.0, min(5.0, _silence_raw))  # Clamped to 3.0 - 5.0 seconds
+VOICE_ENERGY_THRESHOLD = float(os.getenv("VOICE_ENERGY_THRESHOLD", "0.015"))
+
 # Antigravity Bridge Settings
 ANTIGRAVITY_WINDOW_TITLE = os.getenv("ANTIGRAVITY_WINDOW_TITLE", "Antigravity")
 TASK_FILE_NAME = os.getenv("TASK_FILE_NAME", ".jarvis_task.md")

@@ -448,7 +448,12 @@ def click_on_screen(target_description: str, double_click: bool = False) -> str:
         # 4. Prompt Gemini Vision for exact pixel coordinates
         prompt = (
             f"You are an expert macOS GUI automation agent.\n"
-            f"Identify the exact center coordinate of the element described as: \"{target_description}\".\n"
+            f"Identify the exact clickable center coordinate of the element described as: \"{target_description}\".\n"
+            f"CRITICAL TARGETING RULES:\n"
+            f"1. If the user asks to click a video, song, link, or article (e.g. 'วิดีโอแรก', 'เพลงแรก', 'YouTube video', 'คลิปแรกใน Firefox'):\n"
+            f"   - Target the exact center of the video thumbnail (ภาพปกวิดีโอ) or the primary title/headline link that directly triggers playback or opens the item.\n"
+            f"   - Avoid unclickable blank spaces, small metadata badges, or duration timestamps.\n"
+            f"2. For buttons, tabs, or input boxes, target the geometric center of the clickable bounding box.\n"
             f"The image resolution is {img_w} pixels wide by {img_h} pixels high.\n"
             f"Output ONLY a valid JSON object in this exact format:\n"
             f"{{\n"
@@ -501,8 +506,16 @@ def click_on_screen(target_description: str, double_click: bool = False) -> str:
         click_x = max(0, min(screen_w - 1, click_x))
         click_y = max(0, min(screen_h - 1, click_y))
 
-        # 6. Execute mouse click
-        pyautogui.moveTo(click_x, click_y, duration=0.25)
+        # 6. Execute mouse click with Inactive Window Focus handling
+        # On macOS, clicking an inactive window (e.g. background Firefox/Safari/Chrome) only activates the window on the first click.
+        # We perform an initial focus/activation click, wait 0.15s for the window to gain focus, then perform the actual click.
+        pyautogui.moveTo(click_x, click_y, duration=0.2)
+        
+        # Initial focus click to bring inactive window forward
+        pyautogui.click(click_x, click_y)
+        time.sleep(0.15)
+
+        # Action click on the now-active window
         if double_click:
             pyautogui.doubleClick(click_x, click_y)
         else:

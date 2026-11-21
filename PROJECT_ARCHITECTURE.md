@@ -110,7 +110,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - `GROQ_WHISPER_MODEL`: โมเดล Whisper บน Groq Cloud (ค่าเริ่มต้น `whisper-large-v3-turbo`)
 - `WHISPER_MODEL`: ขนาดหรือชื่อโมเดล Faster-Whisper ในเครื่อง (ค่าเริ่มต้น `small` สำหรับสำรองยามออฟไลน์ ไม่กิน RAM)
 - `WHISPER_INITIAL_PROMPT`: ข้อความชี้นำบริบทเริ่มต้นของ Whisper ป้องกันการถอดเสียงเพี้ยนสำหรับคำทับศัพท์, ชื่อเพลง, และชื่อแอปยอดนิยม
-- `VOICE_RECORD_TIMEOUT`: ระยะเวลาปิดรับฟังเสียงอัตโนมัติ (จำกัดช่วง 10–25 วินาที, ค่าเริ่มต้น 15s)
+- `VOICE_RECORD_TIMEOUT`: ระยะเวลารอรับฟังเสียงสูงสุดกรณีไม่พบเสียงพูด (จำกัดช่วง 10–25 วินาที, ค่าเริ่มต้น 15s)
+- `VOICE_POST_SPEECH_SILENCE`: ระยะเวลาตรวจจับความเงียบหลังผู้ใช้พูดจบเพื่อตัดส่งคำสั่งอัตโนมัติ (จำกัดช่วง 3.0–5.0 วินาที, ค่าเริ่มต้น 3.5s)
+- `VOICE_ENERGY_THRESHOLD`: ระดับพลังงานเสียง (RMS) สำหรับตัดสินว่ามีเสียงพูด (ค่าเริ่มต้น 0.015)
 - `VOICE_COOLDOWN_SECONDS`: ระยะเวลาคูลดาวน์ป้องกันการกดเบิ้ล (ค่าเริ่มต้น 1.5s)
 - `TTS_VOICE_TH` / `TTS_VOICE_EN`: โทนเสียง J.A.R.V.I.S. ภาษาไทย (`th-TH-NiwatNeural`, -14Hz, +6%, +40%) และอังกฤษ (`en-GB-RyanNeural`, -8Hz, +8%, +40%)
 
@@ -142,9 +144,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 4. `manage_memory(mode, content)`: บันทึกและดึงข้อมูลความจำระยะยาวใน `memory/jarvis_memory.json`
 5. `reveal_task_result(task_ref)`: เปิดไฟล์/หน้าต่างแอป/ผลลัพธ์ของงานเบื้องหลังขึ้นมาบนหน้าจอเฉพาะเมื่อผู้ใช้สั่งเปิดดู (On-Demand Reveal)
 6. `search_raw_history(query, days_back)`: ค้นหาประวัติข้อมูลดิบย้อนหลัง 365 วันจากคลัง `memory/raw_archive/`
-7. `click_on_screen(target_description, double_click)`: แคปหน้าจอ ส่งให้ Gemini Vision ค้นหาพิกัดกึ่งกลาง คำนวณ Scale Factor รองรับ Retina Display 100% แล้วเลื่อนเมาส์คลิก/ดับเบิลคลิกจริง
+7. `click_on_screen(target_description, double_click)`: แคปหน้าจอ ส่งให้ Gemini Vision ค้นหาพิกัดกึ่งกลาง (โดยเฉพาะภาพปกวิดีโอ/Thumbnail หรือลิงก์หลัก) คำนวณ Scale Factor รองรับ Retina Display 100% พร้อมแก้ปัญหา Inactive Window ด้วยการคลิก Activate โฟกัสหน้าต่างก่อน 1 ครั้ง (หน่วง 0.15s) แล้วส่งคลิก Action ซ้ำเพื่อให้เปิดเล่นวิดีโอหรือเปิดลิงก์ทันที
 8. `type_text_on_screen(text, press_enter)`: พิมพ์ข้อความลงในช่องที่โฟกัสอยู่ รองรับภาษาไทยและอังกฤษสมบูรณ์แบบผ่าน Clipboard Injection (`pbcopy` + `Cmd+V`) พร้อมคืนค่าคลิปบอร์ดเดิม
-9. `click_and_type(target_description, text, press_enter)`: ควบคุมแบบรวบขั้นตอนเดียว: หาเป้าหมาย ➔ คลิกโฟกัส ➔ พิมพ์ข้อความทันที
+9. `click_and_type(target_description, text, press_enter)`: ควบคุมแบบรวบขั้นตอนเดียว: หาเป้าหมาย ➔ คลิกโฟกัสและ Activate ➔ พิมพ์ข้อความทันที
 
 ### 3.6 ระบบบันทึกผลงานเบื้องหลังและ On-Demand Reveal (`core/task_manager.py`)
 - **Stealth Task Registry:** ทุกงานที่รันในเบื้องหลัง (การเขียนไฟล์, การแก้โค้ด, การส่งงาน Antigravity) จะถูกบันทึกประวัติลง `memory/background_tasks.json` อย่างเงียบกริบ
@@ -167,7 +169,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ### 3.9 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)
 - **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
 - **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
-- **Auto-close Timeout & Cooldown:** หากพูดไม่หยุด ระบบจะตัดส่งคำสั่งให้อัตโนมัติเมื่อครบ 15 วินาที (ปรับได้ 10–25s) พร้อม Micro-Debounce (0.6s) และ Post-Session Cooldown (1.5s) ป้องกันการกดทับซ้ำ
+- **2-Stage Smart Cutoff (Silence Detection):**
+  - **กรณีที่ 1 (ยังไม่พบเสียงพูด):** รอคอยคำสั่งจนครบเวลาสูงสุด `VOICE_RECORD_TIMEOUT` (15 วินาที)
+  - **กรณีที่ 2 (เริ่มพูดแล้ว):** ตรวจจับพลังงานเสียงพูด (RMS >= 0.015) เมื่อผู้ใช้พูดจบและเงียบต่อเนื่องครบ `VOICE_POST_SPEECH_SILENCE` (3.5 วินาที) ระบบจะตัดจบและส่งไปประมวลผลทันทีโดยไม่ต้องรอจนครบ 15s พร้อม Post-Session Cooldown (1.5s) ป้องกันการกดทับซ้ำ
 - **Groq Cloud STT (Default Primary):**
   - เมื่อ `STT_MODE="groq"` และมี `GROQ_API_KEY` ระบบจะไม่โหลด Local Whisper ขึ้น RAM ตอนบูตเครื่อง (Lazy Loading) โดยพิมพ์ Log: `[Listener] STT Mode: groq (whisper-large-v3-turbo)`
   - เมื่อผู้ใช้พูดจบ ระบบจะแปลงเสียงเป็น WAV ในหน่วยความจำ (`io.BytesIO`) แล้วส่งไปยัง Groq Audio API (`whisper-large-v3-turbo`) พร้อม `WHISPER_INITIAL_PROMPT`

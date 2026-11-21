@@ -63,6 +63,10 @@ class JarvisListener(threading.Thread):
         # Auto-timeout (10 - 25 seconds) and anti-repeat cooldown
         self.timeout_seconds = config.VOICE_RECORD_TIMEOUT
         self.cooldown_seconds = config.VOICE_COOLDOWN_SECONDS
+        self.post_speech_silence = config.VOICE_POST_SPEECH_SILENCE
+        self.speech_energy_threshold = config.VOICE_ENERGY_THRESHOLD
+        self.has_spoken = False
+        self.last_speech_time = 0.0
 
         self.audio_queue = queue.Queue()
         self.recorded_chunks: List[np.ndarray] = []
@@ -128,6 +132,8 @@ class JarvisListener(threading.Thread):
         """Starts recording user command."""
         self.is_recording = True
         self.record_start_time = time.time()
+        self.has_spoken = False
+        self.last_speech_time = 0.0
 
         with self.chunks_lock:
             self.recorded_chunks.clear()
@@ -368,21 +374,40 @@ class JarvisListener(threading.Thread):
 
                 while self.is_running:
                     if self.is_recording:
-                        elapsed = time.time() - self.record_start_time
+                        now = time.time()
+                        elapsed = now - self.record_start_time
 
-                        # Check auto-timeout (10 - 25 seconds window)
+                        # 1. Fetch available audio chunks
+                        try:
+                            chunk = self.audio_queue.get(timeout=0.06)
+                            with self.chunks_lock:
+                                self.recorded_chunks.append(chunk)
+
+                            # Calculate RMS energy of current audio block
+                            rms = float(np.sqrt(np.mean(chunk**2))) if len(chunk) > 0 else 0.0
+                            if rms >= self.speech_energy_threshold:
+                                if not self.has_spoken:
+                                    self.has_spoken = True
+                                    print(f"[Listener] 🗣️ Voice activity detected (RMS: {rms:.4f} >= {self.speech_energy_threshold}).")
+                                self.last_speech_time = now
+                        except queue.Empty:
+                            pass
+
+                        # Case 2: User started speaking, and has now been silent for VOICE_POST_SPEECH_SILENCE (3.5s)
+                        if self.has_spoken and self.last_speech_time > 0:
+                            silence_duration = now - self.last_speech_time
+                            if silence_duration >= self.post_speech_silence:
+                                print(f"[Listener] ⏱️ Post-speech silence ({silence_duration:.2f}s >= {self.post_speech_silence}s) detected. Auto-stopping and processing...")
+                                with self.toggle_lock:
+                                    self._stop_and_process()
+                                continue
+
+                        # Case 1: No speech detected yet, wait up to VOICE_RECORD_TIMEOUT (15s)
                         if elapsed >= self.timeout_seconds:
-                            print(f"[Listener] ⏱️ Auto-close timeout ({self.timeout_seconds}s) reached. Stopping and sending...")
+                            print(f"[Listener] ⏱️ Maximum recording timeout ({self.timeout_seconds}s) reached without silence trigger. Stopping...")
                             with self.toggle_lock:
                                 self._stop_and_process()
                             continue
-
-                        try:
-                            chunk = self.audio_queue.get(timeout=0.1)
-                            with self.chunks_lock:
-                                self.recorded_chunks.append(chunk)
-                        except queue.Empty:
-                            pass
                     else:
                         time.sleep(0.05)
 
