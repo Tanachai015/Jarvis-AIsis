@@ -42,6 +42,11 @@ TTS_VOICE = TTS_VOICE_TH
 VOICE_INPUT_ENABLED = os.getenv("VOICE_INPUT_ENABLED", "true").lower() in ("true", "1", "yes")
 VOICE_TOGGLE_HOTKEY = os.getenv("VOICE_TOGGLE_HOTKEY", "<cmd>+<shift>+j")
 
+# Voice Listening Mode: "hybrid" (default), "push_to_talk", "hi_jarvis"
+VOICE_LISTEN_MODE = os.getenv("VOICE_LISTEN_MODE", "hybrid").lower().strip()
+if VOICE_LISTEN_MODE not in ("push_to_talk", "hi_jarvis", "hybrid"):
+    VOICE_LISTEN_MODE = "hybrid"
+
 # Speech-to-Text (STT) Settings: "groq" (default) or "local"
 STT_MODE = os.getenv("STT_MODE", "groq").lower().strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
@@ -54,7 +59,7 @@ WHISPER_INITIAL_PROMPT = os.getenv(
     "WHISPER_INITIAL_PROMPT",
     "จาร์วิส, เปิดแอป Firefox, Google Chrome, YouTube, Spotify, ค้นหาเพลง Love 3000, Application Support"
 )
-_wake_words_raw = os.getenv("WAKE_WORDS", "jarvis,จาร์วิส,จาวิส")
+_wake_words_raw = os.getenv("WAKE_WORDS", "hi jarvis,jarvis,จาร์วิส,จาวิส,ไฮ จาร์วิส")
 WAKE_WORDS = [w.strip().lower() for w in _wake_words_raw.split(",") if w.strip()]
 
 # Voice Listening Auto-Close & Anti-Repeat Cooldown (10 - 25 seconds auto-timeout)

@@ -105,6 +105,8 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ทำหน้าที่รวมศูนย์การอ่านค่า Environment Variables:
 - `GEMINI_MODEL`: ตั้งค่าเริ่มต้นเป็น `gemini-3.5-flash-lite`
 - `VOICE_TOGGLE_HOTKEY`: ปุ่มลัดบันทึกเสียง `<cmd>+<shift>+j`
+- `VOICE_LISTEN_MODE`: โหมดรับฟังเสียงเริ่มต้น ค่าเริ่มต้น `"hybrid"` (รองรับ `"push_to_talk"`, `"hi_jarvis"`, `"hybrid"`)
+- `WAKE_WORDS`: คำปลุกระบบ (เช่น `"hi jarvis, jarvis, จาร์วิส, จาวิส, ไฮ จาร์วิส"` รองรับการตัดวรรค/อักขระพิเศษเพื่อเทียบคำอย่างแม่นยำ)
 - `STT_MODE`: โหมดถอดเสียงพูดเป็นข้อความ ค่าเริ่มต้น `"groq"` (เร็วพิเศษผ่าน Cloud) หรือ `"local"` (ออฟไลน์บนเครื่อง)
 - `GROQ_API_KEY`: API Key สำหรับบริการ Groq Cloud Speech-to-Text
 - `GROQ_WHISPER_MODEL`: โมเดล Whisper บน Groq Cloud (ค่าเริ่มต้น `whisper-large-v3-turbo`)
@@ -124,6 +126,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - `assistant_speak_ready(str)`: ส่งข้อความสรุปภาษาพูดสั้นๆ (ตัดโค้ดและสัญลักษณ์ Markdown) ไปยัง `JarvisSpeaker` เพื่ออ่านออกเสียง
 - `task_log_updated(str, str)`: ส่งบันทึกการทำงานของ Tool หรือข้อผิดพลาดไปแสดงผล
 - `toggle_overlay_signal()`, `toggle_voice_record_signal()`: สัญญาณสลับหน้าต่างและสลับไมค์
+- `voice_mode_changed(str)`: สัญญาณเปลี่ยนโหมดรับฟังเสียงแบบเรียลไทม์ (`push_to_talk`, `hi_jarvis`, `hybrid`) จากเมนูบาร์
 
 ### 3.4 สมองหลักและการประมวลผล AI (`core/brain.py`)
 - **Static Tool Registry:** รวมฟังก์ชัน Native Tools (9 เครื่องมือ) และ Dynamic MCP Tools (31 เครื่องมือ) เข้าด้วยกันใน `GenerateContentConfig` เพียงครั้งเดียวตอนเริ่มต้นโปรแกรม รวมทั้งหมด **40 เครื่องมือ** ไม่มีการโหลดหรือสร้าง Schema ซ้ำ
@@ -167,6 +170,10 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **Result Watching:** ใช้ **`watchdog.observers.Observer`** เฝ้าดูการสร้างไฟล์ `.jarvis_result.md` เมื่อ Agent ทำงานเสร็จ จะส่งเนื้อหากลับมาให้ Jarvis สรุปผลด้วยเสียงทันที และบันทึกเข้า `task_manager` เพื่อรอให้ผู้ใช้สั่งเปิดดูเมื่อพร้อม
 
 ### 3.9 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)
+- **3 Listening Modes (รองรับ 3 โหมดสลับได้ทันทีที่เมนูบาร์):**
+  1. `push_to_talk`: สั่งงานเฉพาะเมื่อกดคีย์ลัด `Cmd + Shift + J` เท่านั้น ไม่เปิดตรวจจับคำปลุกเบื้องหลัง ช่วยลดการทำงานของไมค์ให้เป็น 0% เมื่อไม่ได้กด
+  2. `hi_jarvis`: ดักจับคำปลุกเบื้องหลังแบบ Silent Background Listening เมื่อพูดคำว่า `"hi jarvis"` หรือคำใน `WAKE_WORDS` ระบบจะเล่นเสียง *Tink* และเข้าสู่โหมดรับคำสั่งทันที พร้อมตัดส่งอัตโนมัติเมื่อพูดจบ
+  3. `hybrid` (ค่าเริ่มต้น): ใช้งานได้ทั้งสองรูปแบบพร้อมกัน — จะกดปุ่มลัด `Cmd + Shift + J` ก็ได้ หรือพูดคำว่า `"hi jarvis"` เมื่อใดก็ได้เช่นกัน
 - **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
 - **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
 - **2-Stage Smart Cutoff (Silence Detection):**
@@ -190,7 +197,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ### 3.11 ส่วนติดต่อผู้ใช้ (`ui/`)
 - **Dynamic Island (`ui/dynamic_island.py`):** แคปซูลโปร่งแสงลอยอยู่กึ่งกลางด้านบนของหน้าจอ (Always-on-top, กว้าง 300px) แสดงสถานะและจุดสีแอนิเมชันตามสถานะปัจจุบัน และซ่อนตัวอัตโนมัติเมื่อเข้าสู่สถานะ `Idle`
 - **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight / Raycast สำหรับพิมพ์ข้อความ ดูประวัติการแชท และตรวจสอบ System / Tool Logs
-- **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์, ล้างประวัติ หรือออกจากโปรแกรม
+- **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์, เมนูย่อย `🎙️ Voice Listen Mode` สำหรับสลับโหมดรับเสียง (`Hybrid`, `Push-to-Talk`, `Wake Word Only`) แบบเรียลไทม์โดยไม่ต้องรีสตาร์ท, ล้างประวัติ หรือออกจากโปรแกรม
 
 ### 3.12 หน่วยความจำถาวร (`memory/`)
 - `memory/chat_history.json`: บันทึกประวัติการสนทนา 10 เทิร์นล่าสุด ทำให้เปิดโปรแกรมใหม่แล้วคุยต่อได้ทันที

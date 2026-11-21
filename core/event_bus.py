@@ -40,6 +40,9 @@ class EventBus(QObject):
     show_overlay_signal = Signal()
     hide_overlay_signal = Signal()
 
+    # Fired when Voice Listen Mode is changed at runtime ('push_to_talk', 'hi_jarvis', 'hybrid')
+    voice_mode_changed = Signal(str)
+
 
 # Singleton instance shared across the entire application
 event_bus = EventBus()

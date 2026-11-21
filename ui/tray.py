@@ -4,9 +4,10 @@ Displays a menu bar icon on macOS / Windows with quick actions and status.
 """
 
 from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen, QActionGroup
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QApplication
 
+import config
 from core.event_bus import event_bus
 
 
@@ -75,6 +76,28 @@ class JarvisTrayIcon(QSystemTrayIcon):
         # Toggle Voice Recording
         toggle_voice_action = menu.addAction("Toggle Voice Input (Cmd+Shift+J)")
         toggle_voice_action.triggered.connect(lambda: event_bus.toggle_voice_record_signal.emit())
+
+        # Voice Listen Mode Selection Submenu
+        voice_mode_menu = menu.addMenu("🎙️ Voice Listen Mode")
+        self.mode_group = QActionGroup(self)
+        self.mode_group.setExclusive(True)
+
+        mode_options = [
+            ("hybrid", "Hybrid (Hotkey + Hi Jarvis)"),
+            ("push_to_talk", "Push-to-Talk (Cmd+Shift+J)"),
+            ("hi_jarvis", "Wake Word Only (Hi Jarvis)"),
+        ]
+
+        current_mode = config.VOICE_LISTEN_MODE
+        for mode_key, mode_label in mode_options:
+            action = voice_mode_menu.addAction(mode_label)
+            action.setCheckable(True)
+            if mode_key == current_mode:
+                action.setChecked(True)
+            action.triggered.connect(lambda checked=False, m=mode_key: event_bus.voice_mode_changed.emit(m))
+            self.mode_group.addAction(action)
+
+        menu.addSeparator()
 
         # Clear History
         if self.on_clear_history:
