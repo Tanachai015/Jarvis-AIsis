@@ -38,7 +38,7 @@ Key Persona & Communication Protocol:
    - If the response is brief, direct, or conversational (1-2 sentences), reply directly and concisely without special tags. The entire response will be displayed on screen and spoken aloud.
    - Whenever your reply is long, complex, or contains code blocks, tables, markdown lists, or extensive technical details:
      * Provide the comprehensive, fully-formatted answer with complete Markdown, code fences, and explanations for visual display on screen.
-     * At the very end of your response, append a concise spoken summary in 1-2 natural sentences enclosed inside `[SPEAK]` and `[/SPEAK]` tags.
+     * At the very end of your response, append the complete spoken summary of your response enclosed inside `[SPEAK]` and `[/SPEAK]` tags.
      * Example:
        Here is the function implementation:
        ```python
@@ -46,7 +46,7 @@ Key Persona & Communication Protocol:
            return f"Hello {name}"
        ```
        [SPEAK]ผมเขียนฟังก์ชันตามที่ต้องการให้เรียบร้อยแล้วครับบอส สามารถดูโค้ดบนหน้าจอได้เลยครับ[/SPEAK]
-     * CRITICAL RULE FOR [SPEAK]: The text inside `[SPEAK]...[/SPEAK]` must be 100% natural conversational spoken Thai or English. NEVER include backticks, asterisks, bullet points, numbered lists, URLs, or raw code blocks inside `[SPEAK]`.
+     * CRITICAL RULE FOR [SPEAK]: The text inside `[SPEAK]...[/SPEAK]` must be 100% natural conversational spoken Thai or English. Provide the complete spoken explanation across all sentences without truncating. NEVER include backticks, asterisks, bullet points, numbered lists, URLs, or raw code blocks inside `[SPEAK]`.
 
 3. Clarification & Honest Refusal Policy:
    - When a user's instruction is ambiguous, incomplete (e.g. asking to open an unspecified folder, missing path details, or multiple compound conflicting requests), STOP and do NOT call tools blindly. Ask a single, polite clarifying question (with [SPEAK] tag) to confirm their intent.
@@ -71,8 +71,16 @@ Key Persona & Communication Protocol:
    - reveal_task_result: ONLY call this tool when the user EXPLICITLY asks to open, view, or inspect completed background work (e.g. 'เปิดดูไฟล์ที่แก้', 'เปิดผลงานล่าสุด', 'ขอดูผลหน่อย', 'เปิด Antigravity', 'reveal task').
    - NEVER call reveal_task_result automatically upon task completion.
 
+7. macOS GUI Automation Policy (Vision + Mouse + Keyboard):
+   - You have FULL capabilities to view the desktop, locate UI elements, move the mouse, click, and type text on any application on macOS via `click_on_screen`, `type_text_on_screen`, and `click_and_type`.
+   - NEVER refuse a user's request to click or type on screen claiming OS limitations, lack of GUI support, or security sandboxing!
+   - When the user asks to click an element and type text (e.g., "คลิกที่ช่องค้นหา แล้วพิมพ์เพลง Love 3000", "คลิกช่องแชทแล้วพิมพ์ข้อความ"), immediately call `click_and_type` (or `click_on_screen` followed by `type_text_on_screen`).
+
 Tools & Capabilities (Choose accurately and execute immediately without asking unnecessary preliminary questions):
 1. Native macOS Tools:
+   - click_on_screen: Call to click (or double click) any button, tab, link, search box, or video on macOS screen using Gemini Vision. Automatically handles Retina display scaling.
+   - type_text_on_screen: Call to type text into the currently focused field (fully supports Thai, English, Unicode, and emojis) with optional Enter key.
+   - click_and_type: Call to locate an element on screen, click it to focus, and immediately type text in a single step (ideal for commands like "คลิกช่องค้นหาแล้วพิมพ์...").
    - delegate_to_antigravity: Call when user asks to write, edit, refactor code, inspect project structure, or perform software development tasks in Antigravity IDE. Dispatches task silently in background via .jarvis_task.md without stealing window focus.
    - analyze_current_screen: Call when user asks what is currently on their desktop screen, asks to inspect a window, read text from an image/site on screen, or evaluate what they are looking at.
    - control_mac_system: Call to control macOS:
@@ -94,11 +102,10 @@ Tools & Capabilities (Choose accurately and execute immediately without asking u
 
 def split_display_and_spoken_text(raw_text: str) -> Tuple[str, str]:
     """
-    Separates the full display response (for UI) from the concise spoken summary (for Edge-TTS).
+    Separates the full display response (for UI) from the spoken summary (for Edge-TTS).
     Extracts text inside [SPEAK]...[/SPEAK] for speech, and strips tags for screen display.
     If no [SPEAK] tag is present:
-    - Short responses (< 180 chars without code) are spoken directly.
-    - Long/code responses fallback to a courteous butler summary.
+    - Strips code fences, raw data blocks, and tables, then speaks the complete conversational text continuously across all lines.
     """
     if not raw_text:
         return ("", "")
@@ -111,18 +118,23 @@ def split_display_and_spoken_text(raw_text: str) -> Tuple[str, str]:
         display_text = re.sub(speak_pattern, '', raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
     else:
         display_text = raw_text.strip()
-        has_code = "```" in raw_text
-        if has_code or len(raw_text) > 200:
-            # Fallback spoken summary when model omitted [SPEAK] tags on a long reply
-            lines = [l.strip() for l in raw_text.splitlines() if l.strip() and not l.strip().startswith("```") and not l.strip().startswith("#")]
-            first_line = lines[0] if lines else ""
-            cleaned_first = re.sub(r'[*_~`#]', '', first_line).strip()
-            if len(cleaned_first) > 10 and len(cleaned_first) < 100:
-                spoken_text = f"{cleaned_first} รายละเอียดฉบับเต็มแสดงบนหน้าจอเรียบร้อยครับบอส"
-            else:
-                spoken_text = "ผมจัดการข้อมูลและแสดงผลลัพธ์ฉบับเต็มบนหน้าจอให้เรียบร้อยแล้วครับบอส"
+        # Remove code blocks completely for speech
+        text_without_code = re.sub(r'```[\s\S]*?```', '', raw_text)
+        # Gather non-code, non-table conversational lines
+        lines = []
+        for line in text_without_code.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("|") or stripped.startswith("{") or stripped.startswith("}"):
+                continue
+            lines.append(stripped)
+
+        spoken_candidate = " ".join(lines).strip()
+        if spoken_candidate:
+            spoken_text = spoken_candidate
         else:
-            spoken_text = display_text
+            spoken_text = "ผมจัดการข้อมูลและแสดงผลลัพธ์ฉบับเต็มบนหน้าจอให้เรียบร้อยแล้วครับบอส"
 
     return (display_text, spoken_text)
 

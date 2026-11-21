@@ -124,8 +124,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - `toggle_overlay_signal()`, `toggle_voice_record_signal()`: สัญญาณสลับหน้าต่างและสลับไมค์
 
 ### 3.4 สมองหลักและการประมวลผล AI (`core/brain.py`)
-- **Static Tool Registry:** รวมฟังก์ชัน Native Tools และ Dynamic MCP Tools เข้าด้วยกันใน `GenerateContentConfig` เพียงครั้งเดียวตอนเริ่มต้นโปรแกรม ไม่มีการโหลดหรือสร้าง Schema ซ้ำ
-- **Dual-Output Protocol (`[SPEAK]` Tags):** ปรับแต่งคำสั่งระบบ (System Instruction) ให้โมเดลสร้างผลลัพธ์ 2 รูปแบบในรอบเดียว: ข้อความฉบับเต็มพร้อมโค้ดสำหรับแสดงผลบนจอ และข้อความสรุปสั้นๆ ในแท็ก `[SPEAK]...[/SPEAK]` สำหรับส่งให้เสียงพูดอ่านออกเสียงได้อย่างกระชับ ลื่นหู และไม่เพิ่ม Latency
+- **Static Tool Registry:** รวมฟังก์ชัน Native Tools (9 เครื่องมือ) และ Dynamic MCP Tools (31 เครื่องมือ) เข้าด้วยกันใน `GenerateContentConfig` เพียงครั้งเดียวตอนเริ่มต้นโปรแกรม รวมทั้งหมด **40 เครื่องมือ** ไม่มีการโหลดหรือสร้าง Schema ซ้ำ
+- **Dual-Output Protocol (`[SPEAK]` Tags):** ปรับแต่งคำสั่งระบบ (System Instruction) ให้โมเดลสร้างผลลัพธ์ 2 รูปแบบในรอบเดียว: ข้อความฉบับเต็มพร้อมโค้ดสำหรับแสดงผลบนจอ และข้อความสรุปฉบับเต็มในแท็ก `[SPEAK]...[/SPEAK]` สำหรับส่งให้อ่านออกเสียงอย่างลื่นหู ต่อเนื่องทุกประโยคและทุกย่อหน้าโดยไม่ตัดจบกลางคัน
+- **macOS GUI Automation Policy:** ให้สิทธิ์และคำสั่งเด็ดขาดแก่ Jarvis ในการมองเห็นหน้าจอ คลิกเมาส์ และพิมพ์ข้อความลงในแอปใดก็ได้บน macOS ผ่าน `click_on_screen`, `type_text_on_screen`, และ `click_and_type` โดยไม่ปฏิเสธคำสั่งผู้ใช้
 - **Phonetic Mistranscription & Ambiguous Speech Guard:** กฎดักจับคำพูดที่ถอดเสียงเพี้ยน หากได้ยินคำภาษาไทยหรือคำแปลกๆ ที่มีเค้าโครงของชื่อเพลง/ศิลปิน/แอปภาษาอังกฤษ (เช่น "เลิก 3,000" แทนที่จะเป็น "Love 3000") ระบบจะหยุดเรียก Tool ค้นหาหรือเปิดเว็บทันที แล้วถามยืนยันด้วยความสุภาพรอบเดียวก่อนดำเนินการ
 - **Explicit Fallback Chain:** ลำดับโมเดลสำรองแบบกำหนดชัดเจน:
   `["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]`
@@ -134,12 +135,16 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **Persistent Chat History:** โหลดประวัติ 10 รอบล่าสุดจาก `memory/chat_history.json` ตอนเปิดโปรแกรม และบันทึกประวัติแบบ Asynchronous หลังจบแต่ละรอบ
 
 ### 3.5 เครื่องมือระบบ macOS พื้นฐาน (`core/tools.py`)
-ประกอบด้วย 5 เครื่องมือหลักที่เขียนด้วย Native Python และคำสั่งของ macOS:
+ประกอบด้วย 9 เครื่องมือหลักที่เขียนด้วย Native Python และคำสั่งของ macOS:
 1. `delegate_to_antigravity(task_prompt)`: ส่งงานเขียนโค้ดไปยัง Antigravity IDE ในเบื้องหลังผ่านไฟล์ `.jarvis_task.md` โดยไม่แย่งโฟกัสหน้าจอ
 2. `analyze_current_screen(question)`: ถ่ายภาพหน้าจอด้วย `screencapture -x /tmp/jarvis_screen.jpg` ส่งให้ Gemini Vision วิเคราะห์ และลบไฟล์ทิ้งทันที
-3. `control_mac_system(action, target)`: ควบคุมระบบ macOS (`open_app`, `open_url`, `set_volume`, `get_system_info`)
+3. `control_mac_system(action, target, app)`: ควบคุมระบบ macOS (`open_path`, `open_app`, `open_url` ระบุเบราว์เซอร์, `set_volume`, `get_system_info`)
 4. `manage_memory(mode, content)`: บันทึกและดึงข้อมูลความจำระยะยาวใน `memory/jarvis_memory.json`
 5. `reveal_task_result(task_ref)`: เปิดไฟล์/หน้าต่างแอป/ผลลัพธ์ของงานเบื้องหลังขึ้นมาบนหน้าจอเฉพาะเมื่อผู้ใช้สั่งเปิดดู (On-Demand Reveal)
+6. `search_raw_history(query, days_back)`: ค้นหาประวัติข้อมูลดิบย้อนหลัง 365 วันจากคลัง `memory/raw_archive/`
+7. `click_on_screen(target_description, double_click)`: แคปหน้าจอ ส่งให้ Gemini Vision ค้นหาพิกัดกึ่งกลาง คำนวณ Scale Factor รองรับ Retina Display 100% แล้วเลื่อนเมาส์คลิก/ดับเบิลคลิกจริง
+8. `type_text_on_screen(text, press_enter)`: พิมพ์ข้อความลงในช่องที่โฟกัสอยู่ รองรับภาษาไทยและอังกฤษสมบูรณ์แบบผ่าน Clipboard Injection (`pbcopy` + `Cmd+V`) พร้อมคืนค่าคลิปบอร์ดเดิม
+9. `click_and_type(target_description, text, press_enter)`: ควบคุมแบบรวบขั้นตอนเดียว: หาเป้าหมาย ➔ คลิกโฟกัส ➔ พิมพ์ข้อความทันที
 
 ### 3.6 ระบบบันทึกผลงานเบื้องหลังและ On-Demand Reveal (`core/task_manager.py`)
 - **Stealth Task Registry:** ทุกงานที่รันในเบื้องหลัง (การเขียนไฟล์, การแก้โค้ด, การส่งงาน Antigravity) จะถูกบันทึกประวัติลง `memory/background_tasks.json` อย่างเงียบกริบ
@@ -151,7 +156,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
   - `@modelcontextprotocol/server-filesystem`: จัดการไฟล์ อ่าน เขียน ลิสต์ และค้นหาไฟล์ในโปรเจกต์ (16 เครื่องมือ)
   - `mcp-server-fetch`: ดึงข้อมูลจาก URL และแปลงเป็น Markdown (1 เครื่องมือ)
   - `mcp-server-git`: ตรวจสอบสถานะโค้ด (`git_status`), ประวัติ Commit (`git_log`), ดู Diff ทั้ง staged/unstaged (`git_diff`), สลับ Branch (`git_checkout`), สร้าง Commit และตรวจตรา Git Repository (14 เครื่องมือ)
-  - **สรุปเครื่องมือในระบบ:** MCP Tools รวม 31 เครื่องมือ + Native macOS Tools 5 เครื่องมือ = รวมทั้งสิ้น **36 เครื่องมือ**
+  - **สรุปเครื่องมือในระบบ:** MCP Tools รวม 31 เครื่องมือ + Native macOS Tools 9 เครื่องมือ = รวมทั้งสิ้น **40 เครื่องมือ**
 - **Persistent Schema Disk Cache:** บันทึกโครงสร้างเครื่องมือไว้ใน `memory/mcp_tools_cache.json` ทำให้เปิดโปรแกรมครั้งถัดไปได้ในเวลาเพียง **0.005 วินาที** โดยไม่ต้องรอ Subprocess เริ่มทำงาน
 - **SHA-256 Invalidation:** ตรวจสอบความถูกต้องของคอนฟิก หากไฟล์ `mcp_servers.json` มีการแก้ไข ระบบจะอัปเดตแคชใหม่ให้อัตโนมัติ
 
@@ -174,6 +179,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ### 3.10 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)
 - ตรวจจับภาษาอัตโนมัติจากชุดตัวอักษรไทย (Unicode Range `\u0E00-\u0E7F`)
 - สลับโทนเสียงระหว่างภาษาไทย (`th-TH-NiwatNeural`, Rate `+6%`, Pitch `-14Hz`, Volume `+40%` สุขุม นุ่มนวล) และภาษาอังกฤษ (`en-GB-RyanNeural`, Rate `+8%`, Pitch `-8Hz`) โดยอัตโนมัติ
+- **Continuous Multi-Line Speech:** ปรับระบบแยกข้อความพูดให้ดึงข้อความสนทนาครบถ้วนทุกประโยคและทุกย่อหน้าต่อเนื่องกัน ไม่ตัดจบแค่ประโยคแรกหรือย่อหน้าเดียว
 - **Pacing & Clean Speech:** ตัดคำและเว้นจังหวะวรรคตอนภาษาไทย/อังกฤษอย่างเป็นธรรมชาติ (แยกตัวอักษรไทยและอังกฤษ/ตัวเลขด้วยวรรคเพื่อให้ออกเสียงชัดเจน ไม่กลืนคำ) กรองสัญลักษณ์ดิบ, Emoji, Markdown และแท็ก `[SPEAK]` ออกทั้งหมด
 - ขับเสียงผ่านเครื่องเล่นระบบของ macOS (`/usr/bin/afplay`) โดยตรงเพื่อความเสถียรและเสียงคมชัดสูงสุด
 
@@ -222,6 +228,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
                      ├──> Gemini ร้องขอ Function Call (Tools / MCP)
                      │         │
                      │         ├── [Native Tools (core/tools.py)]
+                     │         │     • click_on_screen / type_text_on_screen / click_and_type (GUI Automation)
                      │         │     • delegate_to_antigravity (.jarvis_task.md + Watchdog)
                      │         │     • reveal_task_result (On-Demand Reveal งานเบื้องหลัง)
                      │         │     • search_raw_history (ค้นหาประวัติ Raw Archive 365 วัน)

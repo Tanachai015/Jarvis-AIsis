@@ -9,9 +9,11 @@ Pre-registers all standard native tools once at startup for fast execution and m
 """
 
 import os
+import re
 import sys
 import json
 import time
+import threading
 import subprocess
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -394,6 +396,216 @@ def search_raw_history(query: str, days_back: int = 365) -> str:
 
 
 # ============================================================================
+# 7. click_on_screen
+# ============================================================================
+def click_on_screen(target_description: str, double_click: bool = False) -> str:
+    """
+    Captures the current macOS screen, uses Gemini Vision to identify the target element,
+    and moves the mouse to click (or double-click) directly on it.
+    Accurately calculates Retina display scaling factors for 100% precise click coordinates.
+
+    Args:
+        target_description: Visual description of the element to click (e.g. 'ปุ่มเล่นวิดีโอ', 'ช่องค้นหา', 'แท็บแรก', 'ปุ่มขยาย').
+        double_click: Whether to perform a double click instead of a single click (default False).
+    """
+    global _genai_client, _current_model
+    if not _genai_client:
+        return "ยังไม่ได้เชื่อมต่อ Gemini Client ครับบอส"
+
+    temp_screen_path = "/tmp/jarvis_click_screen.png"
+    action_type = "ดับเบิลคลิก" if double_click else "คลิก"
+    event_bus.task_log_updated.emit("Mouse Tool", f"กำลังจับภาพหน้าจอเพื่อค้นหาและ{action_type}: '{target_description}'")
+
+    try:
+        import pyautogui
+        from PIL import Image
+
+        # 1. Temporarily hide overlay chat for an unobstructed view
+        event_bus.hide_overlay_signal.emit()
+        time.sleep(0.2)
+
+        # 2. Native macOS screencapture (-x = silent)
+        subprocess.run(["screencapture", "-x", temp_screen_path], check=True, timeout=5)
+        if not os.path.exists(temp_screen_path):
+            return "ไม่สามารถบันทึกภาพหน้าจอได้ครับบอส"
+
+        # 3. Compute screen dimensions & Retina scaling factors
+        screen_w, screen_h = pyautogui.size()
+        with Image.open(temp_screen_path) as img:
+            img_w, img_h = img.size
+
+        scale_x = img_w / screen_w
+        scale_y = img_h / screen_h
+
+        with open(temp_screen_path, "rb") as f:
+            image_bytes = f.read()
+
+        try:
+            os.remove(temp_screen_path)
+        except Exception:
+            pass
+
+        # 4. Prompt Gemini Vision for exact pixel coordinates
+        prompt = (
+            f"You are an expert macOS GUI automation agent.\n"
+            f"Identify the exact center coordinate of the element described as: \"{target_description}\".\n"
+            f"The image resolution is {img_w} pixels wide by {img_h} pixels high.\n"
+            f"Output ONLY a valid JSON object in this exact format:\n"
+            f"{{\n"
+            f"  \"found\": true,\n"
+            f"  \"x\": <pixel_x_number>,\n"
+            f"  \"y\": <pixel_y_number>,\n"
+            f"  \"description\": \"<brief element description>\"\n"
+            f"}}\n"
+            f"If the element is not found on screen, output:\n"
+            f"{{\n"
+            f"  \"found\": false,\n"
+            f"  \"reason\": \"<explanation why not found>\"\n"
+            f"}}\n"
+            f"DO NOT include markdown fences or any explanation outside the JSON."
+        )
+
+        response = _genai_client.models.generate_content(
+            model=_current_model,
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                prompt
+            ]
+        )
+
+        raw_resp = response.text or ""
+        clean_json = re.sub(r'```(?:json)?', '', raw_resp).strip('` \n')
+
+        try:
+            data = json.loads(clean_json)
+        except Exception:
+            json_match = re.search(r'\{.*\}', raw_resp, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group(0))
+            else:
+                return f"ไม่สามารถประมวลผลพิกัดจากภาพหน้าจอได้ครับ: {raw_resp[:120]}"
+
+        if not data.get("found"):
+            reason = data.get("reason", "ไม่พบองค์ประกอบดังกล่าวบนหน้าจอ")
+            event_bus.task_log_updated.emit("Mouse Tool", f"ไม่พบเป้าหมาย: {reason}")
+            return f"ไม่พบเป้าหมาย '{target_description}' บนหน้าจอครับ: {reason}"
+
+        pixel_x = float(data["x"])
+        pixel_y = float(data["y"])
+
+        # 5. Convert physical image pixels to logical screen points
+        click_x = int(pixel_x / scale_x)
+        click_y = int(pixel_y / scale_y)
+
+        # Clamp within screen bounds
+        click_x = max(0, min(screen_w - 1, click_x))
+        click_y = max(0, min(screen_h - 1, click_y))
+
+        # 6. Execute mouse click
+        pyautogui.moveTo(click_x, click_y, duration=0.25)
+        if double_click:
+            pyautogui.doubleClick(click_x, click_y)
+        else:
+            pyautogui.click(click_x, click_y)
+
+        detected_desc = data.get("description", target_description)
+        res_msg = f"{action_type}ที่ '{detected_desc}' (พิกัด {click_x}, {click_y}) เรียบร้อยแล้วครับบอส"
+        event_bus.task_log_updated.emit("Mouse Tool", res_msg)
+        return res_msg
+
+    except Exception as e:
+        err = f"เกิดข้อผิดพลาดในการคลิกบนหน้าจอ: {e}"
+        event_bus.task_log_updated.emit("Mouse Error", err)
+        return err
+
+
+# ============================================================================
+# 8. type_text_on_screen
+# ============================================================================
+def type_text_on_screen(text: str, press_enter: bool = False) -> str:
+    """
+    Types text into the currently focused window, text box, or application on macOS.
+    Supports both Thai and English characters fully via the macOS clipboard mechanism.
+
+    Args:
+        text: Text string to type into the focused element.
+        press_enter: Whether to press Enter/Return after typing (default False).
+    """
+    if not text:
+        return "ไม่มีข้อความสำหรับพิมพ์ครับบอส"
+
+    event_bus.task_log_updated.emit("Keyboard Tool", f"กำลังพิมพ์ข้อความ: '{text[:60]}...'")
+
+    try:
+        import pyautogui
+
+        # 1. Backup previous clipboard content
+        orig_clip = b""
+        try:
+            orig_clip = subprocess.run(["pbpaste"], capture_output=True, timeout=2).stdout
+        except Exception:
+            pass
+
+        # 2. Copy target text to clipboard
+        p = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+        p.communicate(text.encode("utf-8"))
+
+        # 3. Paste reliably with Cmd+V (handles Thai, Unicode, emojis, special characters)
+        time.sleep(0.1)
+        pyautogui.hotkey("command", "v")
+        time.sleep(0.15)
+
+        # 4. Optional Enter key
+        if press_enter:
+            pyautogui.press("enter")
+            time.sleep(0.1)
+
+        # 5. Restore previous clipboard content asynchronously
+        def _restore():
+            time.sleep(0.5)
+            try:
+                rp = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+                rp.communicate(orig_clip)
+            except Exception:
+                pass
+
+        threading.Thread(target=_restore, daemon=True).start()
+
+        enter_msg = " และกด Enter" if press_enter else ""
+        res_msg = f"พิมพ์ข้อความ '{text}'{enter_msg} ลงในช่องที่เลือกเรียบร้อยแล้วครับบอส"
+        event_bus.task_log_updated.emit("Keyboard Tool", res_msg)
+        return res_msg
+
+    except Exception as e:
+        err = f"เกิดข้อผิดพลาดในการพิมพ์ข้อความ: {e}"
+        event_bus.task_log_updated.emit("Keyboard Error", err)
+        return err
+
+
+# ============================================================================
+# 9. click_and_type
+# ============================================================================
+def click_and_type(target_description: str, text: str, press_enter: bool = False) -> str:
+    """
+    Single-step GUI automation: Locates target element on screen via Gemini Vision,
+    clicks it to focus, and immediately types the specified text (supporting Thai and English).
+    Ideal for commands like 'คลิกที่ช่องค้นหาแล้วพิมพ์ Love 3000' or 'คลิกช่องแชทแล้วพิมพ์สวัสดี'.
+
+    Args:
+        target_description: Visual description of the target field to click (e.g. 'ช่องแชท', 'search bar').
+        text: The text to type into the field once clicked.
+        press_enter: Whether to press Enter after typing (default False).
+    """
+    click_res = click_on_screen(target_description=target_description, double_click=False)
+    if "ไม่พบเป้าหมาย" in click_res or "เกิดข้อผิดพลาด" in click_res:
+        return f"ไม่สามารถพิมพ์ได้เนื่องจาก: {click_res}"
+
+    time.sleep(0.35)  # Allow focus to settle
+    type_res = type_text_on_screen(text=text, press_enter=press_enter)
+    return f"คลิกที่ '{target_description}' สำเร็จ และ{type_res}"
+
+
+# ============================================================================
 # Static Registry of Native macOS Tools
 # ============================================================================
 AVAILABLE_TOOLS = [
@@ -403,6 +615,9 @@ AVAILABLE_TOOLS = [
     manage_memory,
     reveal_task_result,
     search_raw_history,
+    click_on_screen,
+    type_text_on_screen,
+    click_and_type,
 ]
 
 # Quick dispatch lookup map for native tools
