@@ -201,13 +201,13 @@ class JarvisListener(threading.Thread):
                     if transcribed_text is not None:
                         used_engine = f"groq ({config.GROQ_WHISPER_MODEL})"
                     else:
-                        print("[Listener] ⚠️ Groq Cloud STT failed. Falling back to local Faster-Whisper...")
+                        print(f"[Listener] ⚠️ Groq Cloud STT failed. Fallback to Local Faster-Whisper ({config.WHISPER_MODEL})...")
                         event_bus.task_log_updated.emit(
                             "Voice Listener",
-                            "Groq STT ขัดข้อง กำลังสลับไปใช้ Local Faster-Whisper สำรอง..."
+                            f"Groq STT ขัดข้อง กำลังสลับไปใช้ Local Faster-Whisper ({config.WHISPER_MODEL}) สำรอง..."
                         )
                 else:
-                    print("[Listener] GROQ_API_KEY is empty. Falling back to local Faster-Whisper...")
+                    print(f"[Listener] ⚠️ GROQ_API_KEY is empty. Fallback to Local Faster-Whisper ({config.WHISPER_MODEL})...")
 
             # 2. Local Faster-Whisper Fallback (if Groq skipped, failed, or STT_MODE == 'local')
             if transcribed_text is None:
@@ -327,7 +327,19 @@ class JarvisListener(threading.Thread):
 
     def run(self):
         """Main background loop maintaining sounddevice input stream."""
-        self._load_whisper_model()
+        # STT Engine Mode Initialization
+        if config.STT_MODE == "groq" and config.GROQ_API_KEY:
+            print(f"[Listener] STT Mode: groq ({config.GROQ_WHISPER_MODEL}) - Faster-Whisper ({config.WHISPER_MODEL}) on standby for fallback.")
+            event_bus.task_log_updated.emit(
+                "Voice Listener",
+                f"โหมดรับเสียง: Groq Cloud ({config.GROQ_WHISPER_MODEL}) พร้อมระบบสำรองในเครื่อง"
+            )
+        elif config.STT_MODE == "groq" and not config.GROQ_API_KEY:
+            print(f"[Listener] STT Mode: groq configured but GROQ_API_KEY is empty. Pre-loading Faster-Whisper ({config.WHISPER_MODEL})...")
+            self._load_whisper_model()
+        else:
+            print(f"[Listener] STT Mode: local ({config.WHISPER_MODEL})")
+            self._load_whisper_model()
 
         try:
             import sounddevice as sd
