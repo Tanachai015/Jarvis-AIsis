@@ -42,10 +42,8 @@ TTS_VOICE = TTS_VOICE_TH
 VOICE_INPUT_ENABLED = os.getenv("VOICE_INPUT_ENABLED", "true").lower() in ("true", "1", "yes")
 VOICE_TOGGLE_HOTKEY = os.getenv("VOICE_TOGGLE_HOTKEY", "<cmd>+<shift>+j")
 
-# Voice Listening Mode: "hybrid" (default), "push_to_talk", "hi_jarvis"
-VOICE_LISTEN_MODE = os.getenv("VOICE_LISTEN_MODE", "hybrid").lower().strip()
-if VOICE_LISTEN_MODE not in ("push_to_talk", "hi_jarvis", "hybrid"):
-    VOICE_LISTEN_MODE = "hybrid"
+# Wake Trigger Enabled (Can be toggled via tray icon or voice_settings.json)
+WAKE_TRIGGER_ENABLED = os.getenv("WAKE_TRIGGER_ENABLED", "true").lower() in ("true", "1", "yes")
 
 # Speech-to-Text (STT) Settings: "groq" (default) or "local"
 STT_MODE = os.getenv("STT_MODE", "groq").lower().strip()

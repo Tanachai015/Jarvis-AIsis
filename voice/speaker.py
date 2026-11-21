@@ -21,6 +21,46 @@ import edge_tts
 import config
 from core.event_bus import event_bus
 
+# Cache directory for wake acknowledgment audios
+CACHE_ACK_DIR = "/tmp/jarvis_acks"
+
+
+def ensure_cached_ack_phrases(phrases: list[str]) -> list[str]:
+    """
+    Synthesizes and caches acknowledgment phrases (e.g. 'สวัสดีครับ', 'พร้อมครับ')
+    into /tmp/jarvis_acks/*.mp3 asynchronously or on startup using th-TH-NiwatNeural.
+    Returns list of cached valid audio file paths.
+    """
+    os.makedirs(CACHE_ACK_DIR, exist_ok=True)
+    cached_paths = []
+
+    async def _synth(phrase: str, out_path: str):
+        try:
+            comm = edge_tts.Communicate(
+                text=phrase,
+                voice=config.TTS_VOICE_TH,
+                pitch=config.TTS_PITCH_TH,
+                rate=config.TTS_RATE_TH,
+                volume=config.TTS_VOLUME_TH
+            )
+            await comm.save(out_path)
+        except Exception as e:
+            print(f"[Speaker] Failed to cache ack phrase '{phrase}': {e}")
+
+    for idx, phrase in enumerate(phrases):
+        filename = f"ack_{idx}.mp3"
+        filepath = os.path.join(CACHE_ACK_DIR, filename)
+        if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+            try:
+                asyncio.run(_synth(phrase, filepath))
+            except Exception as ex:
+                print(f"[Speaker] Error generating ack audio '{phrase}': {ex}")
+
+        if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            cached_paths.append(filepath)
+
+    return cached_paths
+
 
 def clean_markdown_for_speech(text: str) -> str:
     """

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-11-22
+
+### Added
+- **Single-Pipeline Push-to-Talk + Wake Trigger Architecture**:
+  - Replaced legacy 3-mode system with a clean, unified architecture centering on `push_to_talk`.
+  - Added dynamic configuration file `voice_settings.json` for customizable wake words, acknowledgment phrases, and exit triggers.
+  - Implemented 3 non-overlapping states: `STANDBY_WAKE`, `ACTIVE_PTT`, and `FOLLOWUP_LOOP`.
+- **Pre-cached Wake Acknowledgment Phrases**:
+  - Generated and cached TTS audio files in `/tmp/jarvis_acks/` for instant playback upon wake detection.
+  - Added blocking playback with echo-flush before opening the microphone.
+- **Continuous 60s Follow-up Loop**:
+  - Automatically re-opens recording after assistant finishes speaking, enabling natural multi-turn conversations without wake-word repetition.
+  - Added support for conversation exit phrases (*"ขอบคุณครับ"*, *"พอแค่นี้"*, *"พักก่อน"*) returning directly to standby.
+- **Updated System Tray UI**:
+  - Replaced confusing mode switcher with a clean toggle for Wake Word Trigger (Active/Disabled).
+
+---
+
 ## [1.2.0] - 2026-11-22
 
 ### Added

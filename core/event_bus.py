@@ -40,7 +40,7 @@ class EventBus(QObject):
     show_overlay_signal = Signal()
     hide_overlay_signal = Signal()
 
-    # Fired when Voice Listen Mode is changed at runtime ('push_to_talk', 'hi_jarvis', 'hybrid')
+    # Fired when Voice Mode / Wake Trigger is toggled at runtime ('wake_on', 'wake_off', 'push_to_talk')
     voice_mode_changed = Signal(str)
 
 

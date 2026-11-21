@@ -169,27 +169,12 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **Stealth Background Execution (100% เบื้องหลัง):** เปลี่ยนจากการสั่งสลับหน้าต่างและส่งคีย์ลัด มาเป็นการเขียนไฟล์คำสั่ง `.jarvis_task.md` ลงในพื้นที่โปรเจกต์โดยตรง ทำให้ผู้ใช้สามารถพิมพ์งานหรือใช้งานแอปอื่นบนหน้าจอต่อไปได้โดยไม่ถูกแย่งโฟกัส
 - **Result Watching:** ใช้ **`watchdog.observers.Observer`** เฝ้าดูการสร้างไฟล์ `.jarvis_result.md` เมื่อ Agent ทำงานเสร็จ จะส่งเนื้อหากลับมาให้ Jarvis สรุปผลด้วยเสียงทันที และบันทึกเข้า `task_manager` เพื่อรอให้ผู้ใช้สั่งเปิดดูเมื่อพร้อม
 
-### 3.9 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)
-- **3 Listening Modes & RAM Management (กติกาการถือครองและคืน RAM ตามโหมด):**
-  1. `push_to_talk`: สั่งงานเฉพาะเมื่อกดคีย์ลัด `Cmd + Shift + J` เท่านั้น ไม่มีการดักฟังคำปลุกเบื้องหลัง โมเดล Local Faster-Whisper จะถูกปลดออกจาก RAM ทันที (`_unload_whisper_model` + `gc.collect()`) เพื่อคืนทรัพยากรหน่วยความจำ 100% ให้ระบบ
-  2. `hi_jarvis`: ดักจับคำปลุกเบื้องหลังแบบ Silent Background Listening โดยบังคับใช้ **Local `Faster-Whisper` (`small`, beam_size=1)** ตรวจสอบคำปลุกใน `WAKE_WORDS` เท่านั้น (ห้ามเรียกใช้ Groq Cloud STT ในขั้นตอนนี้เพื่อป้องกันโควต้าหมด) โดยโมเดลจะถูกโหลดค้างไว้ใน RAM อย่างต่อเนื่องเพื่อความรวดเร็วในการตรวจจับ
-  3. `hybrid` (ค่าเริ่มต้น): รองรับทั้งกดคีย์ลัด `Cmd + Shift + J` และตรวจจับคำปลุกเบื้องหลังด้วย Local Faster-Whisper โดยโมเดลจะถูกโหลดค้างไว้ใน RAM เช่นเดียวกัน
-  - **Zero Reload Overhead:** เมื่อผู้ใช้สลับโหมดไปมาระหว่าง `hi_jarvis` กับ `hybrid` ระบบจะใช้โมเดลเดิมที่ค้างอยู่ใน RAM ต่อทันที ไม่มีการ Unload แล้วโหลดใหม่ซ้ำ
-  - **Graceful RAM Cleanup:** เมื่อสลับกลับเป็น `push_to_talk` หรือเมื่อปิดแอปพลิเคชัน (`stop()` / Graceful Teardown ใน `main.py`) ระบบจะสั่งปลดโมเดลและเรียก `gc.collect()` คืน RAM ทันที
-- **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
-- **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
-- **2-Stage Smart Cutoff (Silence Detection):**
-  - **กรณีที่ 1 (ยังไม่พบเสียงพูด):** รอคอยคำสั่งจนครบเวลาสูงสุด `VOICE_RECORD_TIMEOUT` (15 วินาที)
-  - **กรณีที่ 2 (เริ่มพูดแล้ว):** ตรวจจับพลังงานเสียงพูด (RMS >= 0.015) เมื่อผู้ใช้พูดจบและเงียบต่อเนื่องครบ `VOICE_POST_SPEECH_SILENCE` (3.5 วินาที) ระบบจะตัดจบและส่งไปประมวลผลทันทีโดยไม่ต้องรอจนครบ 15s พร้อม Post-Session Cooldown (1.5s) ป้องกันการกดทับซ้ำ
-- **Groq Cloud STT (Default Primary สำหรับคำสั่ง):**
-  - เมื่อตรวจพบคำปลุกหรือกดสั่งงาน และบันทึกคำสั่งเสร็จสิ้น จะส่งเสียงคำสั่งไปยัง Groq Audio API (`whisper-large-v3-turbo`) เป็นหลัก เพื่อความเร็วและแม่นยำระดับ 0.2 - 0.4s
-  - หาก Groq ล่มหรือออฟไลน์ จึงจะสลับมาใช้ Local Faster-Whisper สำรองอัตโนมัติ
-  - เมื่อ `STT_MODE="groq"` และมี `GROQ_API_KEY` ระบบจะไม่โหลด Local Whisper ขึ้น RAM ตอนบูตเครื่อง (Lazy Loading) โดยพิมพ์ Log: `[Listener] STT Mode: groq (whisper-large-v3-turbo)`
-  - เมื่อผู้ใช้พูดจบ ระบบจะแปลงเสียงเป็น WAV ในหน่วยความจำ (`io.BytesIO`) แล้วส่งไปยัง Groq Audio API (`whisper-large-v3-turbo`) พร้อม `WHISPER_INITIAL_PROMPT`
-  - ประมวลผลเสร็จในเวลาเพียง **0.2 - 0.4 วินาที** โดยใช้ CPU และ RAM เครื่อง 0%
-- **Automatic Local Fallback (Faster-Whisper):**
-  - หากไม่มีอินเทอร์เน็ต, ไม่ได้ใส่ `GROQ_API_KEY`, หรือ Groq API ส่งกลับ Error ระบบจะแสดง Log: `[Listener] ⚠️ Fallback to Local Faster-Whisper...` แล้วโหลดและถอดความด้วย Local `Faster-Whisper` (`small`) อัตโนมัติทันที
-  - ใช้ `beam_size=5`, `vad_filter=True` พร้อม `vad_parameters={"speech_pad_ms": 400}` ป้องกันคำหัวท้ายตกหล่น
+### 3.9 ระบบรับเสียงพูด Single-Pipeline Push-to-Talk + Wake Trigger (`voice/listener.py`)
+- **Single Core Pipeline Architecture:** ยึดท่อส่งเสียง Push-to-Talk เป็นแกนกลางเดียว (ตัดระบบ 3 โหมดเดิมที่ซับซ้อนออกทั้งหมด) โดยแบ่งเป็น 3 สถานะที่ไม่ทับซ้อนกัน:
+  1. `STANDBY_WAKE`: สแตนด์บายรอคำปลุกด้วย Local Faster-Whisper (`small`, int8, beam_size=1) โดยใช้ค่า `wake_rms_threshold` และ `no_speech_prob` เพื่อความเงียบสนิท ไม่กิน CPU และไม่หลอนเปิดไมค์เอง เมื่อตรวจพบคำปลุก จะสุ่มเล่นเสียงตอบรับ (`wake_ack_phrases` เช่น "สวัสดีครับ", "พร้อมครับ") ด้วย Blocking `afplay` จนจบสนิท เคลียร์ Buffer ไมค์ แล้วเรียกเปิดโหมด Push-to-Talk อัตโนมัติ (ผู้ใช้ยังคงกด `Cmd + Shift + J` ได้ตลอดเวลา)
+  2. `ACTIVE_PTT`: บันทึกเสียงคำสั่งด้วยอาร์เรย์ 1D `float32` ตลอดกระบวนการ ตัดส่งอัตโนมัติเมื่อตรวจพบเสียงพูดและหยุดพูดเงียบต่อเนื่องครบ 3.0 วินาที (`post_speech_silence_sec`) ถอดความความเร็วสูงผ่าน Groq Cloud STT (`whisper-large-v3-turbo`) พร้อม Local Fallback หากออฟไลน์ หากตรวจพบคำปิดสนทนา (`exit_conversation_phrases` เช่น "ขอบคุณครับ", "พอแค่นี้") จะตอบรับสั้นๆ และกลับสู่ `STANDBY_WAKE` ทันที
+  3. `FOLLOWUP_LOOP`: ลูปสนทนาต่อเนื่องอัตโนมัติ เมื่อ JarvisBrain และ JarvisSpeaker พูดตอบกลับเสร็จสิ้น (+ หน่วง 0.35s กันเสียงสะท้อน) ระบบจะเปิดไมค์รอรับคำสั่งถัดไปทันทีโดยไม่ต้องเรียกคำปลุกซ้ำ มีกรอบเวลาหมดเวลา 60 วินาที (`followup_timeout_sec`) หากไม่มีเสียงพูดจะปิดไมค์กลับสู่ `STANDBY_WAKE` อย่างสะอาด
+- **voice_settings.json:** ไฟล์กำหนดค่าปรับแต่งเสียงภายนอก สามารถเพิ่ม/ลดคำปลุก คำตอบรับ และคำปิดสนทนาได้โดยไม่ต้องแก้ไขโค้ด Python
 
 ### 3.10 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)
 - ตรวจจับภาษาอัตโนมัติจากชุดตัวอักษรไทย (Unicode Range `\u0E00-\u0E7F`)

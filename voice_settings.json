@@ -1,0 +1,27 @@
+{
+  "wake_words": [
+    "jarvis",
+    "hi jarvis",
+    "hey jarvis",
+    "จาร์วิส",
+    "จาวิส",
+    "ไฮ จาร์วิส"
+  ],
+  "wake_ack_phrases": [
+    "สวัสดีครับ",
+    "พร้อมครับ",
+    "ว่าไงครับ",
+    "ครับบอส"
+  ],
+  "exit_conversation_phrases": [
+    "พอแค่นี้",
+    "ขอบคุณครับ",
+    "หยุดฟัง",
+    "พักก่อน",
+    "ไม่มีอะไรแล้ว",
+    "ปิดไมค์"
+  ],
+  "post_speech_silence_sec": 3.0,
+  "followup_timeout_sec": 60.0,
+  "wake_rms_threshold": 0.025
+}

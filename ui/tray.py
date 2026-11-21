@@ -73,29 +73,15 @@ class JarvisTrayIcon(QSystemTrayIcon):
         toggle_action = menu.addAction("Toggle Overlay Chat (Alt+Space)")
         toggle_action.triggered.connect(lambda: event_bus.toggle_overlay_signal.emit())
 
-        # Toggle Voice Recording
+        # Toggle Voice Recording (Push-to-Talk)
         toggle_voice_action = menu.addAction("Toggle Voice Input (Cmd+Shift+J)")
         toggle_voice_action.triggered.connect(lambda: event_bus.toggle_voice_record_signal.emit())
 
-        # Voice Listen Mode Selection Submenu
-        voice_mode_menu = menu.addMenu("🎙️ Voice Listen Mode")
-        self.mode_group = QActionGroup(self)
-        self.mode_group.setExclusive(True)
-
-        mode_options = [
-            ("hybrid", "Hybrid (Hotkey + Hi Jarvis)"),
-            ("push_to_talk", "Push-to-Talk (Cmd+Shift+J)"),
-            ("hi_jarvis", "Wake Word Only (Hi Jarvis)"),
-        ]
-
-        current_mode = config.VOICE_LISTEN_MODE
-        for mode_key, mode_label in mode_options:
-            action = voice_mode_menu.addAction(mode_label)
-            action.setCheckable(True)
-            if mode_key == current_mode:
-                action.setChecked(True)
-            action.triggered.connect(lambda checked=False, m=mode_key: event_bus.voice_mode_changed.emit(m))
-            self.mode_group.addAction(action)
+        # Toggle Wake Word Trigger (Enable / Disable "Jarvis" detection)
+        self.wake_trigger_action = menu.addAction("🎙️ Wake Word Trigger (Active)")
+        self.wake_trigger_action.setCheckable(True)
+        self.wake_trigger_action.setChecked(config.WAKE_TRIGGER_ENABLED)
+        self.wake_trigger_action.triggered.connect(self._on_toggle_wake_trigger)
 
         menu.addSeparator()
 
@@ -111,6 +97,12 @@ class JarvisTrayIcon(QSystemTrayIcon):
         quit_action.triggered.connect(QApplication.instance().quit)
 
         self.setContextMenu(menu)
+
+    def _on_toggle_wake_trigger(self, checked: bool):
+        """Toggles wake word detection on/off."""
+        event_bus.voice_mode_changed.emit("wake_on" if checked else "wake_off")
+        status_text = "Active" if checked else "Disabled"
+        self.wake_trigger_action.setText(f"🎙️ Wake Word Trigger ({status_text})")
 
     def _on_tray_activated(self, reason):
         # On single click or double click, toggle overlay
