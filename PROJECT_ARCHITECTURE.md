@@ -171,19 +171,23 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **Result Watching:** ใช้ **`watchdog.observers.Observer`** เฝ้าดูการสร้างไฟล์ `.jarvis_result.md` เมื่อ Agent ทำงานเสร็จ จะส่งเนื้อหากลับมาให้ Jarvis สรุปผลด้วยเสียงทันที และบันทึกเข้า `task_manager` เพื่อรอให้ผู้ใช้สั่งเปิดดูเมื่อพร้อม
 
 ### 3.9 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)
+- **Discrete State Machine & Session Epoch (การแยกสถานะและป้องกันข้อมูลปนเปื้อน):**
+  - กำหนดสถานะการทำงานชัดเจน (`ListenerState.IDLE`, `WAKE_LISTENING`, `RECORDING`, `PROCESSING`) และแยก Audio Queues ออกจากกันโดยเด็ดขาด: `record_queue` สำหรับอัดเสียงคำสั่ง และ `wake_queue` สำหรับดักฟังคำปลุก
+  - ใช้ **Generational Session Epoch** (`session_epoch += 1`) ทุกครั้งที่มีการเริ่มอัดคำสั่งหรือสลับโหมด เพื่อตัดสิทธิ์และยกเลิก Thread ตรวจจับคำปลุกเก่าที่ค้างอยู่ในพื้นหลังทันที ขจัดปัญหาเสียงหลอนหรือสถานะรวนสะสมข้ามรอบ 100%
 - **3 Listening Modes & RAM Management (กติกาการถือครองและคืน RAM ตามโหมด):**
-  1. `push_to_talk`: สั่งงานเฉพาะเมื่อกดคีย์ลัด `Cmd + Shift + J` เท่านั้น ไม่มีการดักฟังคำปลุกเบื้องหลัง โมเดล Local Faster-Whisper จะถูกปลดออกจาก RAM ทันที (`_unload_whisper_model` + `gc.collect()`) เพื่อคืนทรัพยากรหน่วยความจำ 100% ให้ระบบ
-  2. `hi_jarvis`: ดักจับคำปลุกเบื้องหลังแบบ Silent Background Listening โดยบังคับใช้ **Local `Faster-Whisper` (`small`, beam_size=1)** ตรวจสอบคำปลุกใน `WAKE_WORDS` เท่านั้น (ห้ามเรียกใช้ Groq Cloud STT ในขั้นตอนนี้เพื่อป้องกันโควต้าหมด) โดยโมเดลจะถูกโหลดค้างไว้ใน RAM อย่างต่อเนื่องเพื่อความรวดเร็วในการตรวจจับ
-  3. `hybrid` (ค่าเริ่มต้น): รองรับทั้งกดคีย์ลัด `Cmd + Shift + J` และตรวจจับคำปลุกเบื้องหลังด้วย Local Faster-Whisper โดยโมเดลจะถูกโหลดค้างไว้ใน RAM เช่นเดียวกัน
-  - **Zero Reload Overhead:** เมื่อผู้ใช้สลับโหมดไปมาระหว่าง `hi_jarvis` กับ `hybrid` ระบบจะใช้โมเดลเดิมที่ค้างอยู่ใน RAM ต่อทันที ไม่มีการ Unload แล้วโหลดใหม่ซ้ำ
-  - **Graceful RAM Cleanup:** เมื่อสลับกลับเป็น `push_to_talk` หรือเมื่อปิดแอปพลิเคชัน (`stop()` / Graceful Teardown ใน `main.py`) ระบบจะสั่งปลดโมเดลและเรียก `gc.collect()` คืน RAM ทันที
+  - `push_to_talk`: สั่งงานเฉพาะเมื่อกดคีย์ลัด `Cmd + Shift + J` เท่านั้น หยุดการดักฟังคำปลุกทันทีและปลดโมเดล Local Faster-Whisper ออกจาก RAM ทันที (`_unload_whisper_model` + `gc.collect()`) โดยไม่มีการทำงานหรือรับเสียงของ Wake Word ใดๆ ทั้งสิ้น
+  - `hi_jarvis`: ดักจับคำปลุกเบื้องหลังแบบ Silent Background Listening โดยบังคับใช้ **Local `Faster-Whisper` (`small`, beam_size=1)** ตรวจสอบคำปลุกใน `WAKE_WORDS` เท่านั้น โดยโมเดลจะถูกโหลดค้างไว้ใน RAM เพื่อความรวดเร็วในการตรวจจับ
+  - `hybrid` (ค่าเริ่มต้น): รองรับทั้งกดคีย์ลัด `Cmd + Shift + J` และตรวจจับคำปลุกเบื้องหลังด้วย Local Faster-Whisper โดยโมเดลจะถูกโหลดค้างไว้ใน RAM
+  - **Zero Reload Overhead:** สลับไปมาระหว่าง `hi_jarvis` กับ `hybrid` ใช้โมเดลเดิมใน RAM ต่อทันที ไม่โหลดซ้ำ
+  - **Graceful RAM Cleanup:** เมื่อสลับกลับเป็น `push_to_talk` หรือเมื่อปิดแอปพลิเคชัน (`stop()`) ปลดโมเดลและเรียก `gc.collect()` คืน RAM ทันที
+- **Higher RMS Threshold & Anti-Hallucination Filter:**
+  - เพิ่มเกณฑ์พลังงานเสียงขั้นต่ำ (`WAKE_ENERGY_THRESHOLD=0.028` ปรับแต่งผ่าน `.env` ได้) ป้องกันเสียงรบกวนเบาๆ ในห้องกระตุ้นการทำงานเอง
+  - ระบบกรองการหลอนคำของ Whisper (Anti-Hallucination Safeguards): ตรวจสอบ `no_speech_prob > 0.60`, `compression_ratio > 2.4`, `avg_logprob < -1.2`, ความยาวเสียงขั้นต่ำ (0.45s–3.5s) และเกณฑ์พลังงาน RMS ก่อนยอมรับเป็น Wake Word หรือส่งคำสั่งไปประมวลผล
 - **Non-Blocking Wake Ack & Round-2 Continuous Operation:**
-  - เมื่อตรวจพบ Wake Word (`hi jarvis`, `jarvis`, `จาร์วิส`, `จาวิส`, `ไฮ จาร์วิส`) ในโหมด `hi_jarvis` หรือ `hybrid` ระบบจะสั่งเล่นเสียงตอบรับ (`/tmp/jarvis_wake_ack.mp3` หรือ `Tink.aiff`) แยก Subprocess (`/usr/bin/afplay`) แบบ Non-Blocking โดยไม่บล็อกลูปการอัดเสียง
-  - ปลดล็อกสถานะการพูด (`is_speaking = False`) ทันที เพื่อป้องกันไม่ให้ไมโครโฟนถูกปิดเสียง (Mute) ทำให้การสั่งการในรอบที่ 2 (Round 2) หรือคำสั่งถัดไปรับเสียงและถอดความได้อย่างราบรื่นต่อเนื่อง 100%
-  - รีเซ็ตตัวแปรสถานะและค้างหลงเหลือ (`is_recording`, `is_speaking`, `is_processing`) อย่างสมบูรณ์ทั้งใน `_start_recording` และ `set_listen_mode` เพื่อป้องกันปัญหา Deadlock
+  - เมื่อตรวจพบ Wake Word ระบบจะสั่งเล่นเสียงตอบรับ (`/tmp/jarvis_wake_ack.mp3` หรือ `Tink.aiff`) แยก Subprocess (`/usr/bin/afplay`) แบบ Non-Blocking โดยไม่บล็อกลูปการอัดเสียง
+  - ไม่ล็อก `is_speaking = True` ในช่วง Wake Ack ทำให้ไมโครโฟนไม่ถูก Mute และสามารถเริ่มอัดเสียงคำสั่งได้ทันทีต่อเนื่องทุกรอบ (Round 2 Ready)
 - **1D Float32 Audio Representation Guard:**
-  - บังคับแปลงสัญญาณเสียงทั้งหมดให้อยู่ในรูปแบบ 1D Float32 (`np.asarray(..., dtype=np.float32).reshape(-1)`) ตลอด Pipeline ทั้งใน `_audio_callback`, `_transcribe_and_dispatch`, `_audio_to_wav_bytes`, และ `_check_wake_snippet`
-  - ป้องกันข้อผิดพลาด Array Dimension Mismatch (1D vs 2D) ระหว่าง `sounddevice`, `numpy`, และ `Groq Cloud STT` อย่างเบ็ดเสร็จ
+  - บังคับแปลงสัญญาณเสียงทั้งหมดให้อยู่ในรูปแบบ 1D Float32 (`np.asarray(..., dtype=np.float32).reshape(-1)`) ตลอด Pipeline ทั้งใน `_audio_callback`, `_transcribe_and_dispatch`, `_audio_to_wav_bytes`, และ `_check_wake_snippet` ป้องกันบั๊กมิติ Array คลาดเคลื่อน
 - **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
 - **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
 - **2-Stage Smart Cutoff (Silence Detection):**

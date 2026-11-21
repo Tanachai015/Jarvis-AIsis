@@ -3,8 +3,9 @@ Voice Listener module for Jarvis Desktop Assistant.
 1-Tap Toggle Hotkey Mode (Cmd + Shift + J):
 - Press 1: Starts recording, plays Tink.aiff, sets Dynamic Island to 'Listening... (Cmd+Shift+J to send)'
 - Press 2 (or auto-close timeout 10-25s): Stops recording, plays Pop.aiff, sets Dynamic Island to 'Thinking...',
-  transcribes with Faster-Whisper, and dispatches command directly to Event Bus.
-- Features automatic cooldown & debounce to prevent accidental re-pressing / overlapping triggers.
+  transcribes with Groq Cloud STT (whisper-large-v3-turbo) / Local Faster-Whisper fallback, and dispatches command.
+- Robust State Isolation: Distinct states for Wake Word Standby, Wake Ack Playback, Command Recording, and STT Processing.
+- Automatic RAM Lifecycle: Faster-Whisper is retained in RAM during hi_jarvis/hybrid, and freed with gc.collect() in push_to_talk.
 """
 
 import os
@@ -66,6 +67,14 @@ def _ensure_wake_ack_sound():
         print(f"[Listener] Pre-synthesize wake ack note: {e}")
 
 
+class ListenerState:
+    """Discrete states for clear isolation of voice processing lifecycle."""
+    IDLE = "idle"                        # Standby in push_to_talk, or idle
+    WAKE_LISTENING = "wake_listening"    # Standby in hi_jarvis / hybrid, actively listening for wake word
+    RECORDING = "recording"              # Actively recording user command
+    PROCESSING = "processing"            # STT transcribing & dispatching to Brain
+
+
 class JarvisListener(threading.Thread):
     """
     Dedicated worker thread for microphone capture and speech-to-text.
@@ -79,34 +88,48 @@ class JarvisListener(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
         self.is_running = False
+        self._enabled = config.VOICE_INPUT_ENABLED
+
+        # State machine and generational epoch
+        self.listen_mode = config.VOICE_LISTEN_MODE
+        self.state = ListenerState.WAKE_LISTENING if self.listen_mode in ("hi_jarvis", "hybrid") else ListenerState.IDLE
+        self.session_epoch = 0
+
+        # Public boolean flags for UI / compatibility
         self.is_recording = False
         self.is_speaking = False
         self.is_processing = False
-        self._enabled = config.VOICE_INPUT_ENABLED
+
         self.record_start_time = 0.0
         self.last_toggle_time = 0.0
 
-        # Auto-timeout (10 - 25 seconds) and anti-repeat cooldown
+        # Thresholds and timers
         self.timeout_seconds = config.VOICE_RECORD_TIMEOUT
         self.cooldown_seconds = config.VOICE_COOLDOWN_SECONDS
         self.post_speech_silence = config.VOICE_POST_SPEECH_SILENCE
         self.speech_energy_threshold = config.VOICE_ENERGY_THRESHOLD
+        self.wake_energy_threshold = config.WAKE_ENERGY_THRESHOLD
         self.has_spoken = False
         self.last_speech_time = 0.0
 
-        # Voice Listen Mode: "hybrid", "push_to_talk", "hi_jarvis"
-        self.listen_mode = config.VOICE_LISTEN_MODE
+        # Wake word detection
         self.wake_words = [w.strip().lower() for w in config.WAKE_WORDS]
         self.wake_buffer: List[np.ndarray] = []
         self.wake_buffer_lock = threading.Lock()
         self.wake_silence_count = 0
+        self._wake_buffering_logged = False
+        self._wake_check_lock = threading.Lock()
 
-        self.audio_queue = queue.Queue()
+        # Dedicated queues for complete isolation:
+        # 1. record_queue: used exclusively during active command recording
+        # 2. wake_queue: used exclusively during wake word standby
+        self.record_queue = queue.Queue()
+        self.wake_queue = queue.Queue()
+        self.audio_queue = self.record_queue  # Backward-compatibility alias
+
         self.recorded_chunks: List[np.ndarray] = []
         self.chunks_lock = threading.Lock()
         self.toggle_lock = threading.Lock()
-        self._wake_check_lock = threading.Lock()
-        self._wake_buffering_logged = False
 
         self.whisper_model = None
 
@@ -133,35 +156,47 @@ class JarvisListener(threading.Thread):
         print(f"[Listener] 🎙️ Voice Listen Mode switched to: {self.listen_mode} [{desc}]")
         event_bus.task_log_updated.emit("Voice Listener", f"เปลี่ยนโหมดรับเสียงเป็น: {desc}")
 
-        # Clean up buffers, queue, and transient flags to guarantee a clean state across mode switches
+        # Invalidate any in-flight wake checks or transitions
+        self.session_epoch += 1
+
+        # Clean up buffers, queues, and transient flags to guarantee a clean state across mode switches
         with self.wake_buffer_lock:
             self.wake_buffer.clear()
             self.wake_silence_count = 0
             self._wake_buffering_logged = False
 
-        while not self.audio_queue.empty():
+        while not self.wake_queue.empty():
             try:
-                self.audio_queue.get_nowait()
+                self.wake_queue.get_nowait()
             except queue.Empty:
                 break
 
-        # Reset transient flags so next interaction never hangs
+        while not self.record_queue.empty():
+            try:
+                self.record_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        # Reset transient flags
         self.is_recording = False
         self.is_speaking = False
         self.is_processing = False
         with self.chunks_lock:
             self.recorded_chunks.clear()
-        event_bus.state_changed.emit("idle")
 
-        # RAM Management Policy according to mode:
-        # 1. hi_jarvis / hybrid: Keep Local Faster-Whisper in RAM for wake word detection
-        if self.listen_mode in ("hi_jarvis", "hybrid"):
+        # State transition and RAM Management Policy according to mode:
+        if self.listen_mode == "push_to_talk":
+            self.state = ListenerState.IDLE
+            # Unload Local Faster-Whisper to immediately return RAM to system
+            self._unload_whisper_model()
+        else:
+            self.state = ListenerState.WAKE_LISTENING
+            # Keep Local Faster-Whisper in RAM for wake word detection
             if self.whisper_model is None:
                 self._load_whisper_model()
             threading.Thread(target=_ensure_wake_ack_sound, daemon=True).start()
-        # 2. push_to_talk: Unload Local Faster-Whisper to immediately return RAM to system
-        elif self.listen_mode == "push_to_talk":
-            self._unload_whisper_model()
+
+        event_bus.state_changed.emit("idle")
 
     def _on_state_changed(self, state: str):
         """Track assistant speaking / thinking state to prevent feedback and overlapping requests."""
@@ -175,6 +210,11 @@ class JarvisListener(threading.Thread):
         elif clean_state in ("idle", "running_tool", "listening"):
             self.is_speaking = False
             self.is_processing = False
+            if clean_state == "idle" and not self.is_recording:
+                if self.listen_mode in ("hi_jarvis", "hybrid"):
+                    self.state = ListenerState.WAKE_LISTENING
+                else:
+                    self.state = ListenerState.IDLE
 
     def toggle_recording(self):
         """
@@ -222,6 +262,8 @@ class JarvisListener(threading.Thread):
 
     def _start_recording(self, initial_audio: Optional[np.ndarray] = None):
         """Starts recording user command."""
+        self.session_epoch += 1
+        self.state = ListenerState.RECORDING
         self.is_recording = True
         self.is_speaking = False
         self.is_processing = False
@@ -236,10 +278,21 @@ class JarvisListener(threading.Thread):
                 if arr.size > 0:
                     self.recorded_chunks.append(arr)
 
-        # Drain leftover chunks from queue
-        while not self.audio_queue.empty():
+        # Clear wake buffer and drain both queues
+        with self.wake_buffer_lock:
+            self.wake_buffer.clear()
+            self.wake_silence_count = 0
+            self._wake_buffering_logged = False
+
+        while not self.wake_queue.empty():
             try:
-                self.audio_queue.get_nowait()
+                self.wake_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        while not self.record_queue.empty():
+            try:
+                self.record_queue.get_nowait()
             except queue.Empty:
                 break
 
@@ -256,12 +309,14 @@ class JarvisListener(threading.Thread):
         if not self.is_recording:
             return
 
+        self.session_epoch += 1
+        self.state = ListenerState.PROCESSING
         self.is_recording = False
         self.is_processing = True
         print("[Listener] ⏹️ Recording stopped. Processing audio...")
         _play_system_sound("Pop")
         event_bus.state_changed.emit("thinking")
-        event_bus.task_log_updated.emit("Voice Input", "กำลังประมวลผลเสียงพูดด้วย Faster-Whisper...")
+        event_bus.task_log_updated.emit("Voice Input", "กำลังประมวลผลเสียงพูด...")
 
         with self.chunks_lock:
             chunks_to_process = list(self.recorded_chunks)
@@ -270,16 +325,17 @@ class JarvisListener(threading.Thread):
         # Run transcription in a background thread to keep audio stream responsive
         threading.Thread(
             target=self._transcribe_and_dispatch,
-            args=(chunks_to_process,),
+            args=(chunks_to_process, self.session_epoch),
             daemon=True
         ).start()
 
-    def _transcribe_and_dispatch(self, chunks: List[np.ndarray]):
+    def _transcribe_and_dispatch(self, chunks: List[np.ndarray], epoch: int):
         """Transcribes recorded audio frames and dispatches to Brain."""
         if not chunks:
             print("[Listener] No audio captured.")
             event_bus.task_log_updated.emit("Voice Input", "ไม่พบข้อมูลเสียงที่บันทึก")
             self.is_processing = False
+            self.state = ListenerState.WAKE_LISTENING if self.listen_mode in ("hi_jarvis", "hybrid") else ListenerState.IDLE
             event_bus.state_changed.emit("idle")
             return
 
@@ -294,16 +350,28 @@ class JarvisListener(threading.Thread):
                 print("[Listener] No valid audio captured.")
                 event_bus.task_log_updated.emit("Voice Input", "ไม่พบข้อมูลเสียงที่บันทึก")
                 self.is_processing = False
+                self.state = ListenerState.WAKE_LISTENING if self.listen_mode in ("hi_jarvis", "hybrid") else ListenerState.IDLE
                 event_bus.state_changed.emit("idle")
                 return
 
             audio_data = np.concatenate(flattened_chunks, axis=0).reshape(-1)
             duration_seconds = len(audio_data) / self.SAMPLE_RATE
 
-            if duration_seconds < 0.3:
-                print(f"[Listener] Audio too short ({duration_seconds:.2f}s), discarded.")
+            if duration_seconds < 0.45:
+                print(f"[Listener] Audio too short ({duration_seconds:.2f}s < 0.45s), discarded.")
                 event_bus.task_log_updated.emit("Voice Input", "เสียงสั้นเกินไป กรุณาลองใหม่อีกครั้ง")
                 self.is_processing = False
+                self.state = ListenerState.WAKE_LISTENING if self.listen_mode in ("hi_jarvis", "hybrid") else ListenerState.IDLE
+                event_bus.state_changed.emit("idle")
+                return
+
+            # Reject empty/quiet background noise before transcribing command
+            overall_rms = float(np.sqrt(np.mean(audio_data**2)))
+            if overall_rms < self.speech_energy_threshold * 0.5:
+                print(f"[Listener] Audio energy too low (RMS: {overall_rms:.4f} < {self.speech_energy_threshold * 0.5:.4f}), discarded.")
+                event_bus.task_log_updated.emit("Voice Input", "ระดับเสียงเบาเกินไป ไม่พบคำสั่ง")
+                self.is_processing = False
+                self.state = ListenerState.WAKE_LISTENING if self.listen_mode in ("hi_jarvis", "hybrid") else ListenerState.IDLE
                 event_bus.state_changed.emit("idle")
                 return
 
@@ -338,13 +406,16 @@ class JarvisListener(threading.Thread):
             else:
                 print(f"[Listener] No speech recognized [{used_engine}].")
                 event_bus.task_log_updated.emit("Voice Input", "ไม่พบเสียงพูดในสิ่งที่บันทึก")
-                self.is_processing = False
-                event_bus.state_changed.emit("idle")
 
         except Exception as e:
             print(f"[Listener] Transcription error: {e}")
             event_bus.task_log_updated.emit("Voice Input Error", f"ข้อผิดพลาด: {str(e)}")
+        finally:
             self.is_processing = False
+            if self.listen_mode in ("hi_jarvis", "hybrid"):
+                self.state = ListenerState.WAKE_LISTENING
+            else:
+                self.state = ListenerState.IDLE
             event_bus.state_changed.emit("idle")
 
     def _play_wake_ack_non_blocking(self):
@@ -373,12 +444,16 @@ class JarvisListener(threading.Thread):
         if not played:
             _play_system_sound("Tink")
 
-    def _handle_wake_ack_and_record(self):
+    def _handle_wake_ack_and_record(self, epoch: int):
         """
         Acknowledges wake word non-blocking (independent playback) and immediately
         starts recording the user's actual command without muting microphone or freezing round 2.
         """
         with self.toggle_lock:
+            # Verify generational epoch and state
+            if epoch != self.session_epoch or self.state != ListenerState.WAKE_LISTENING or self.listen_mode not in ("hi_jarvis", "hybrid"):
+                return
+
             if self.is_recording or self.is_processing:
                 return
 
@@ -387,17 +462,37 @@ class JarvisListener(threading.Thread):
             # Guarantee microphone remains unmuted
             self.is_speaking = False
 
+            # Invalidate any concurrent wake checks
+            self.session_epoch += 1
+            self.state = ListenerState.RECORDING
+
+            # Clear and drain wake state completely
+            with self.wake_buffer_lock:
+                self.wake_buffer.clear()
+                self.wake_silence_count = 0
+                self._wake_buffering_logged = False
+
+            while not self.wake_queue.empty():
+                try:
+                    self.wake_queue.get_nowait()
+                except queue.Empty:
+                    break
+
             # Play wake ack non-blocking
             self._play_wake_ack_non_blocking()
 
-            # Smoothly start recording user's command immediately
+            # Start recording user command immediately
             self._start_recording()
 
-    def _check_wake_snippet(self, audio_data: np.ndarray):
+    def _check_wake_snippet(self, audio_data: np.ndarray, epoch: int):
         """
         Transcribes a short speech burst to detect wake words.
         MANDATORY: Uses Local Faster-Whisper ONLY (beam_size=1) to preserve Groq Cloud API quota.
+        Includes anti-hallucination filters (duration, RMS energy, no_speech_prob, compression_ratio).
         """
+        if epoch != self.session_epoch or self.state != ListenerState.WAKE_LISTENING or self.listen_mode not in ("hi_jarvis", "hybrid"):
+            return
+
         if self.is_recording or self.is_speaking or self.is_processing:
             return
 
@@ -406,32 +501,67 @@ class JarvisListener(threading.Thread):
             return
 
         try:
+            if epoch != self.session_epoch or self.state != ListenerState.WAKE_LISTENING or self.listen_mode not in ("hi_jarvis", "hybrid"):
+                return
+
             # Force 1D float32 representation
             audio_data = np.asarray(audio_data, dtype=np.float32).reshape(-1)
             if len(audio_data) == 0:
                 return
 
             duration = len(audio_data) / self.SAMPLE_RATE
-            print(f"[Listener] ⚡ Checking wake word with Faster-Whisper ({duration:.2f}s, {len(audio_data)} samples)...")
+            # Filter 1: Duration check (wake word phrase like 'Hi Jarvis' or 'จาร์วิส' is typically 0.45s - 3.5s)
+            if duration < 0.45 or duration > 3.5:
+                return
+
+            # Filter 2: Snippet RMS energy check (prevent low background noise from waking Jarvis)
+            snippet_rms = float(np.sqrt(np.mean(audio_data**2)))
+            min_energy = self.wake_energy_threshold * 0.70
+            if snippet_rms < min_energy:
+                return
+
+            print(f"[Listener] ⚡ Checking wake word with Faster-Whisper ({duration:.2f}s, RMS: {snippet_rms:.4f} >= {min_energy:.4f})...")
 
             # Wake word checking uses Local Faster-Whisper exclusively, NEVER Groq Cloud
             if self.whisper_model is None:
-                self._load_whisper_model()
+                if self.listen_mode in ("hi_jarvis", "hybrid"):
+                    self._load_whisper_model()
+                else:
+                    return
 
             if self.whisper_model is None:
                 return
 
-            # Note: vad_filter=False because audio is ALREADY an isolated speech snippet from our energy/silence detector.
-            # Setting vad_filter=True causes Silero VAD to falsely drop short single-word wake words.
+            # Fast 1-beam transcribe without VAD (already an energy-detected speech segment)
             segments, _ = self.whisper_model.transcribe(
                 audio_data,
                 beam_size=1,  # Fast 1-beam search (~50ms)
                 vad_filter=False,
                 initial_prompt="hi jarvis, jarvis, จาร์วิส, จาวิส, ไฮ จาร์วิส",
             )
-            transcribed = " ".join([s.text for s in segments]).strip()
 
+            # Filter 3: Whisper Hallucination Filter (no_speech_prob, compression_ratio, avg_logprob)
+            valid_words = []
+            for s in segments:
+                if s.no_speech_prob > 0.60:
+                    print(f"[Listener] ⚠️ Wake snippet discarded (no_speech_prob={s.no_speech_prob:.2f} > 0.60): '{s.text}'")
+                    continue
+                if s.compression_ratio > 2.4:
+                    print(f"[Listener] ⚠️ Wake snippet discarded (compression_ratio={s.compression_ratio:.2f} > 2.4): '{s.text}'")
+                    continue
+                if s.avg_logprob < -1.2:
+                    print(f"[Listener] ⚠️ Wake snippet discarded (avg_logprob={s.avg_logprob:.2f} < -1.2): '{s.text}'")
+                    continue
+                t = s.text.strip()
+                if t:
+                    valid_words.append(t)
+
+            transcribed = " ".join(valid_words).strip()
             if not transcribed:
+                return
+
+            # Check again if epoch is still valid before processing matched word
+            if epoch != self.session_epoch or self.state != ListenerState.WAKE_LISTENING:
                 return
 
             print(f"[Listener] 🔍 Whisper heard: \"{transcribed}\" (Target words: {self.wake_words})")
@@ -448,13 +578,11 @@ class JarvisListener(threading.Thread):
             if matched_wake_word:
                 print(f"[Listener] 🔔 Wake word detected via Local Whisper: \"{matched_wake_word}\" (Text: \"{transcribed}\")")
                 event_bus.task_log_updated.emit("Wake Word", f"ตรวจพบคำปลุก: '{matched_wake_word}' (Local Whisper)")
-                with self.toggle_lock:
-                    if not self.is_recording and not self.is_speaking and not self.is_processing:
-                        # Launch short acknowledgement speech & recording in background thread
-                        threading.Thread(
-                            target=self._handle_wake_ack_and_record,
-                            daemon=True
-                        ).start()
+                threading.Thread(
+                    target=self._handle_wake_ack_and_record,
+                    args=(epoch,),
+                    daemon=True
+                ).start()
 
         except Exception as e:
             print(f"[Listener] Wake check error: {e}")
@@ -507,7 +635,7 @@ class JarvisListener(threading.Thread):
             return None
 
     def _transcribe_local(self, audio_data: np.ndarray) -> str:
-        """Transcribes audio using local Faster-Whisper model."""
+        """Transcribes audio using local Faster-Whisper model with anti-hallucination filtering."""
         if self.whisper_model is None:
             self._load_whisper_model()
 
@@ -519,7 +647,23 @@ class JarvisListener(threading.Thread):
             vad_parameters={"speech_pad_ms": 400},
             initial_prompt=config.WHISPER_INITIAL_PROMPT if config.WHISPER_INITIAL_PROMPT else None,
         )
-        return " ".join([s.text for s in segments]).strip()
+        valid_segments = []
+        for s in segments:
+            # Hallucination safeguards:
+            if s.no_speech_prob > 0.65:
+                print(f"[Listener] Local Whisper dropped segment (no_speech_prob={s.no_speech_prob:.2f}): '{s.text}'")
+                continue
+            if s.compression_ratio > 2.4:
+                print(f"[Listener] Local Whisper dropped segment (compression_ratio={s.compression_ratio:.2f}): '{s.text}'")
+                continue
+            if s.avg_logprob < -1.2:
+                print(f"[Listener] Local Whisper dropped segment (avg_logprob={s.avg_logprob:.2f}): '{s.text}'")
+                continue
+            t = s.text.strip()
+            if t:
+                valid_segments.append(t)
+
+        return " ".join(valid_segments).strip()
 
     def _load_whisper_model(self):
         """Loads Faster-Whisper model into memory if not already loaded."""
@@ -588,12 +732,15 @@ class JarvisListener(threading.Thread):
                     return
                 # Always flatten chunk to 1D float32 at audio intake
                 chunk_1d = np.asarray(indata, dtype=np.float32).reshape(-1)
-                # Always capture frames when recording
-                if self.is_recording:
-                    self.audio_queue.put(chunk_1d)
-                # If in wake word listening mode (hi_jarvis or hybrid) and not busy
-                elif self.listen_mode in ("hi_jarvis", "hybrid") and not self.is_processing:
-                    self.audio_queue.put(chunk_1d)
+
+                current_state = self.state
+                # Only feed record_queue when actively recording
+                if current_state == ListenerState.RECORDING:
+                    self.record_queue.put(chunk_1d)
+                # Only feed wake_queue when actively in wake listening standby
+                elif current_state == ListenerState.WAKE_LISTENING:
+                    if self.listen_mode in ("hi_jarvis", "hybrid") and not self.is_processing:
+                        self.wake_queue.put(chunk_1d)
 
             with sd.InputStream(
                 samplerate=self.SAMPLE_RATE,
@@ -609,13 +756,16 @@ class JarvisListener(threading.Thread):
                 )
 
                 while self.is_running:
-                    if self.is_recording:
+                    current_state = self.state
+
+                    # STATE 1: Active Command Recording
+                    if current_state == ListenerState.RECORDING:
                         now = time.time()
                         elapsed = now - self.record_start_time
 
-                        # 1. Fetch available audio chunks
+                        # Fetch available audio chunks from dedicated record_queue
                         try:
-                            chunk = self.audio_queue.get(timeout=0.06)
+                            chunk = self.record_queue.get(timeout=0.06)
                             chunk_1d = np.asarray(chunk, dtype=np.float32).reshape(-1)
                             with self.chunks_lock:
                                 self.recorded_chunks.append(chunk_1d)
@@ -630,7 +780,7 @@ class JarvisListener(threading.Thread):
                         except queue.Empty:
                             pass
 
-                        # Case 2: User started speaking, and has now been silent for VOICE_POST_SPEECH_SILENCE (3.5s)
+                        # Post-speech silence auto-cutoff (e.g. 3.5s)
                         if self.has_spoken and self.last_speech_time > 0:
                             silence_duration = now - self.last_speech_time
                             if silence_duration >= self.post_speech_silence:
@@ -639,83 +789,87 @@ class JarvisListener(threading.Thread):
                                     self._stop_and_process()
                                 continue
 
-                        # Case 1: No speech detected yet, wait up to VOICE_RECORD_TIMEOUT (15s)
+                        # Maximum recording timeout cutoff (e.g. 15s)
                         if elapsed >= self.timeout_seconds:
                             print(f"[Listener] ⏱️ Maximum recording timeout ({self.timeout_seconds}s) reached without silence trigger. Stopping...")
                             with self.toggle_lock:
                                 self._stop_and_process()
                             continue
-                    else:
-                        # Standby mode: Check wake words if in 'hi_jarvis' or 'hybrid' mode
-                        if self.listen_mode in ("hi_jarvis", "hybrid") and not self.is_speaking and not self.is_processing:
-                            try:
-                                chunk = self.audio_queue.get(timeout=0.08)
-                                chunk_1d = np.asarray(chunk, dtype=np.float32).reshape(-1)
-                                rms = float(np.sqrt(np.mean(chunk_1d**2))) if len(chunk_1d) > 0 else 0.0
 
-                                # Adaptive wake threshold: sensitive enough to capture quiet / normal speech (0.008 - 0.012)
-                                wake_threshold = min(0.010, self.speech_energy_threshold)
+                    # STATE 2: Wake Word Standby (hi_jarvis or hybrid)
+                    elif current_state == ListenerState.WAKE_LISTENING and self.listen_mode in ("hi_jarvis", "hybrid") and not self.is_speaking and not self.is_processing:
+                        try:
+                            chunk = self.wake_queue.get(timeout=0.08)
+                            chunk_1d = np.asarray(chunk, dtype=np.float32).reshape(-1)
+                            rms = float(np.sqrt(np.mean(chunk_1d**2))) if len(chunk_1d) > 0 else 0.0
 
-                                if rms >= wake_threshold:
-                                    with self.wake_buffer_lock:
-                                        if len(self.wake_buffer) == 0 and not self._wake_buffering_logged:
-                                            print(f"[Listener] 🎙️ Mic input active (RMS: {rms:.4f} >= {wake_threshold:.4f}) -> Buffering wake audio...")
-                                            self._wake_buffering_logged = True
-                                        self.wake_buffer.append(chunk_1d)
-                                        self.wake_silence_count = 0
-                                else:
-                                    with self.wake_buffer_lock:
-                                        if len(self.wake_buffer) > 0:
-                                            self.wake_silence_count += 1
-                                            self.wake_buffer.append(chunk_1d)
+                            # Configurable threshold to prevent low background noise from triggering wake detection
+                            wake_threshold = self.wake_energy_threshold
 
-                                            # Pause of ~0.45s (approx 7 blocks) after speech to capture compound wake words ("hi jarvis")
-                                            if self.wake_silence_count >= 7:
-                                                valid_wake = [
-                                                    np.asarray(c, dtype=np.float32).reshape(-1)
-                                                    for c in self.wake_buffer
-                                                    if c is not None and len(c) > 0
-                                                ]
-                                                snippet = np.concatenate(valid_wake, axis=0).reshape(-1) if valid_wake else np.zeros(0, dtype=np.float32)
-                                                self.wake_buffer.clear()
-                                                self.wake_silence_count = 0
-                                                self._wake_buffering_logged = False
-                                                duration = len(snippet) / self.SAMPLE_RATE
-                                                if 0.35 <= duration <= 4.0:
-                                                    threading.Thread(
-                                                        target=self._check_wake_snippet,
-                                                        args=(snippet,),
-                                                        daemon=True
-                                                    ).start()
-
+                            if rms >= wake_threshold:
                                 with self.wake_buffer_lock:
-                                    # Cap max buffer to 3.5s to prevent runaway memory
-                                    if len(self.wake_buffer) > int(3.5 * self.SAMPLE_RATE / self.BLOCK_SIZE):
-                                        valid_wake = [
-                                            np.asarray(c, dtype=np.float32).reshape(-1)
-                                            for c in self.wake_buffer
-                                            if c is not None and len(c) > 0
-                                        ]
-                                        snippet = np.concatenate(valid_wake, axis=0).reshape(-1) if valid_wake else np.zeros(0, dtype=np.float32)
-                                        self.wake_buffer.clear()
-                                        self.wake_silence_count = 0
-                                        self._wake_buffering_logged = False
+                                    if len(self.wake_buffer) == 0 and not self._wake_buffering_logged:
+                                        print(f"[Listener] 🎙️ Mic input active (RMS: {rms:.4f} >= {wake_threshold:.4f}) -> Buffering wake audio...")
+                                        self._wake_buffering_logged = True
+                                    self.wake_buffer.append(chunk_1d)
+                                    self.wake_silence_count = 0
+                            else:
+                                with self.wake_buffer_lock:
+                                    if len(self.wake_buffer) > 0:
+                                        self.wake_silence_count += 1
+                                        self.wake_buffer.append(chunk_1d)
+
+                                        # Pause of ~0.45s (approx 7 blocks) after speech to capture compound wake words ("hi jarvis")
+                                        if self.wake_silence_count >= 7:
+                                            valid_wake = [
+                                                np.asarray(c, dtype=np.float32).reshape(-1)
+                                                for c in self.wake_buffer
+                                                if c is not None and len(c) > 0
+                                            ]
+                                            snippet = np.concatenate(valid_wake, axis=0).reshape(-1) if valid_wake else np.zeros(0, dtype=np.float32)
+                                            self.wake_buffer.clear()
+                                            self.wake_silence_count = 0
+                                            self._wake_buffering_logged = False
+                                            duration = len(snippet) / self.SAMPLE_RATE
+                                            if 0.45 <= duration <= 3.5:
+                                                threading.Thread(
+                                                    target=self._check_wake_snippet,
+                                                    args=(snippet, self.session_epoch),
+                                                    daemon=True
+                                                ).start()
+
+                            with self.wake_buffer_lock:
+                                # Cap max buffer to 3.5s to prevent runaway memory
+                                if len(self.wake_buffer) > int(3.5 * self.SAMPLE_RATE / self.BLOCK_SIZE):
+                                    valid_wake = [
+                                        np.asarray(c, dtype=np.float32).reshape(-1)
+                                        for c in self.wake_buffer
+                                        if c is not None and len(c) > 0
+                                    ]
+                                    snippet = np.concatenate(valid_wake, axis=0).reshape(-1) if valid_wake else np.zeros(0, dtype=np.float32)
+                                    self.wake_buffer.clear()
+                                    self.wake_silence_count = 0
+                                    self._wake_buffering_logged = False
+                                    duration = len(snippet) / self.SAMPLE_RATE
+                                    if 0.45 <= duration <= 3.5:
                                         threading.Thread(
                                             target=self._check_wake_snippet,
-                                            args=(snippet,),
+                                            args=(snippet, self.session_epoch),
                                             daemon=True
                                         ).start()
 
+                        except queue.Empty:
+                            pass
+
+                    # STATE 3: Idle / Push-to-Talk / Processing Standby
+                    else:
+                        # In push_to_talk, processing, or idle mode, discard any queue frames to use 0% CPU
+                        while not self.wake_queue.empty():
+                            try:
+                                self.wake_queue.get_nowait()
                             except queue.Empty:
-                                pass
-                        else:
-                            # In push_to_talk mode, discard any queue frames to use 0% CPU
-                            while not self.audio_queue.empty():
-                                try:
-                                    self.audio_queue.get_nowait()
-                                except queue.Empty:
-                                    break
-                            time.sleep(0.05)
+                                break
+                        time.sleep(0.05)
 
         except Exception as e:
             perm_msg = (
@@ -734,4 +888,18 @@ class JarvisListener(threading.Thread):
     def stop(self):
         """Stops listener thread and cleans up RAM."""
         self.is_running = False
+        self.state = ListenerState.IDLE
+        self.session_epoch += 1
+        with self.wake_buffer_lock:
+            self.wake_buffer.clear()
+        while not self.wake_queue.empty():
+            try:
+                self.wake_queue.get_nowait()
+            except queue.Empty:
+                break
+        while not self.record_queue.empty():
+            try:
+                self.record_queue.get_nowait()
+            except queue.Empty:
+                break
         self._unload_whisper_model()

@@ -76,6 +76,10 @@ _silence_raw = float(os.getenv("VOICE_POST_SPEECH_SILENCE", "3.5"))
 VOICE_POST_SPEECH_SILENCE = max(3.0, min(5.0, _silence_raw))  # Clamped to 3.0 - 5.0 seconds
 VOICE_ENERGY_THRESHOLD = float(os.getenv("VOICE_ENERGY_THRESHOLD", "0.015"))
 
+# Wake Word RMS Energy Threshold for buffering / wake detection in hi_jarvis & hybrid
+# Higher threshold (~0.025 - 0.035) prevents low background noise from falsely waking Jarvis
+WAKE_ENERGY_THRESHOLD = float(os.getenv("WAKE_ENERGY_THRESHOLD", "0.028"))
+
 # Antigravity Bridge Settings
 ANTIGRAVITY_WINDOW_TITLE = os.getenv("ANTIGRAVITY_WINDOW_TITLE", "Antigravity")
 TASK_FILE_NAME = os.getenv("TASK_FILE_NAME", ".jarvis_task.md")
