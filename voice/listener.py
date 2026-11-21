@@ -67,6 +67,7 @@ class JarvisListener(threading.Thread):
         self.post_speech_silence = config.VOICE_POST_SPEECH_SILENCE
         self.speech_energy_threshold = config.VOICE_ENERGY_THRESHOLD
         self.has_spoken = False
+        self.speech_frames = 0
         self.last_speech_time = 0.0
 
         self.audio_queue = queue.Queue()
@@ -127,7 +128,30 @@ class JarvisListener(threading.Thread):
                     return
 
                 self.last_toggle_time = now
-                self._stop_and_process()
+                if not self.has_spoken:
+                    print("[Listener] Recording stopped with no speech detected. Discarding audio.")
+                    event_bus.task_log_updated.emit("Voice Input", "ไม่พบเสียงพูด (ยกเลิกการบันทึก)")
+                    self._cancel_recording()
+                else:
+                    self._stop_and_process()
+
+    def _cancel_recording(self):
+        """Cancels recording without transcribing (e.g. timeout with no speech, or stopped while silent)."""
+        self.is_recording = False
+        self.is_processing = False
+        self.has_spoken = False
+        self.speech_frames = 0
+        with self.chunks_lock:
+            self.recorded_chunks.clear()
+
+        while not self.audio_queue.empty():
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        _play_system_sound("Pop")
+        event_bus.state_changed.emit("idle")
 
     def _start_recording(self):
         """Starts recording user command."""
@@ -136,6 +160,7 @@ class JarvisListener(threading.Thread):
         self.is_processing = False
         self.record_start_time = time.time()
         self.has_spoken = False
+        self.speech_frames = 0
         self.last_speech_time = 0.0
 
         with self.chunks_lock:
@@ -205,9 +230,18 @@ class JarvisListener(threading.Thread):
             audio_data = np.concatenate(flattened_chunks, axis=0).reshape(-1)
             duration_seconds = len(audio_data) / self.SAMPLE_RATE
 
-            if duration_seconds < 0.4:
-                print(f"[Listener] Audio too short ({duration_seconds:.2f}s), discarded.")
+            if duration_seconds < 0.5:
+                print(f"[Listener] Audio too short ({duration_seconds:.2f}s < 0.5s), discarded.")
                 event_bus.task_log_updated.emit("Voice Input", "เสียงสั้นเกินไป กรุณาลองใหม่อีกครั้ง")
+                self.is_processing = False
+                event_bus.state_changed.emit("idle")
+                return
+
+            # Reject pure background noise/silence
+            overall_rms = float(np.sqrt(np.mean(audio_data**2)))
+            if overall_rms < 0.015:
+                print(f"[Listener] Audio contains only silence/ambient noise (RMS: {overall_rms:.4f} < 0.015). Discarded.")
+                event_bus.task_log_updated.emit("Voice Input", "ไม่พบเสียงพูดที่ชัดเจน (ระดับเสียงเบาเกินไป)")
                 self.is_processing = False
                 event_bus.state_changed.emit("idle")
                 return
@@ -237,9 +271,23 @@ class JarvisListener(threading.Thread):
                 used_engine = f"local ({config.WHISPER_MODEL})"
 
             if transcribed_text:
-                print(f"[Listener] 🗣️ Transcribed [{used_engine}]: \"{transcribed_text}\"")
-                event_bus.task_log_updated.emit("Voice Input", f"ถอดความ [{used_engine}]: \"{transcribed_text}\"")
-                event_bus.user_message_received.emit(transcribed_text)
+                # Anti-hallucination safeguard: detect repetitive loops (e.g. "จับบ้าที่ จับบ้าที่")
+                words = transcribed_text.split()
+                is_repetitive = False
+                if len(words) >= 4:
+                    word_counts = {}
+                    for w in words:
+                        word_counts[w] = word_counts.get(w, 0) + 1
+                    if max(word_counts.values()) / len(words) > 0.55:
+                        is_repetitive = True
+
+                if is_repetitive:
+                    print(f"[Listener] Dropping repetitive Whisper hallucination: \"{transcribed_text}\"")
+                    event_bus.task_log_updated.emit("Voice Input", "กรองเสียงรบกวนที่ผิดพลาดออกแล้ว")
+                else:
+                    print(f"[Listener] 🗣️ Transcribed [{used_engine}]: \"{transcribed_text}\"")
+                    event_bus.task_log_updated.emit("Voice Input", f"ถอดความ [{used_engine}]: \"{transcribed_text}\"")
+                    event_bus.user_message_received.emit(transcribed_text)
             else:
                 print(f"[Listener] No speech recognized [{used_engine}].")
                 event_bus.task_log_updated.emit("Voice Input", "ไม่พบเสียงพูดในสิ่งที่บันทึก")
@@ -403,10 +451,15 @@ class JarvisListener(threading.Thread):
                             # Calculate RMS energy of current audio block
                             rms = float(np.sqrt(np.mean(chunk_1d**2))) if len(chunk_1d) > 0 else 0.0
                             if rms >= self.speech_energy_threshold:
-                                if not self.has_spoken:
-                                    self.has_spoken = True
-                                    print(f"[Listener] 🗣️ Voice activity detected (RMS: {rms:.4f} >= {self.speech_energy_threshold}).")
-                                self.last_speech_time = now
+                                self.speech_frames += 1
+                                # Require at least 2 consecutive blocks (~130ms) to confirm genuine human speech
+                                if self.speech_frames >= 2:
+                                    if not self.has_spoken:
+                                        self.has_spoken = True
+                                        print(f"[Listener] 🗣️ Voice activity confirmed (RMS: {rms:.4f} >= {self.speech_energy_threshold}).")
+                                    self.last_speech_time = now
+                            else:
+                                self.speech_frames = max(0, self.speech_frames - 1)
                         except queue.Empty:
                             pass
 
@@ -419,11 +472,17 @@ class JarvisListener(threading.Thread):
                                     self._stop_and_process()
                                 continue
 
-                        # Case 1: No speech detected yet, wait up to VOICE_RECORD_TIMEOUT (15s)
+                        # Case 1: Maximum recording timeout (15s)
                         if elapsed >= self.timeout_seconds:
-                            print(f"[Listener] ⏱️ Maximum recording timeout ({self.timeout_seconds}s) reached without silence trigger. Stopping...")
-                            with self.toggle_lock:
-                                self._stop_and_process()
+                            if not self.has_spoken:
+                                print(f"[Listener] ⏱️ Timeout ({self.timeout_seconds}s) with NO speech detected. Discarding audio.")
+                                event_bus.task_log_updated.emit("Voice Input", "หมดเวลารอ (ไม่พบเสียงพูด)")
+                                with self.toggle_lock:
+                                    self._cancel_recording()
+                            else:
+                                print(f"[Listener] ⏱️ Maximum recording timeout ({self.timeout_seconds}s) reached. Stopping...")
+                                with self.toggle_lock:
+                                    self._stop_and_process()
                             continue
                     else:
                         time.sleep(0.05)

@@ -51,10 +51,7 @@ GROQ_WHISPER_MODEL = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
 # Local Faster-Whisper Fallback Settings (Offline / Fallback)
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", os.getenv("WHISPER_MODEL_SIZE", "small"))
 WHISPER_MODEL_SIZE = WHISPER_MODEL  # Backward compatibility alias
-WHISPER_INITIAL_PROMPT = os.getenv(
-    "WHISPER_INITIAL_PROMPT",
-    "จาร์วิส, เปิดแอป Firefox, Google Chrome, YouTube, Spotify, ค้นหาเพลง Love 3000, Application Support"
-)
+WHISPER_INITIAL_PROMPT = os.getenv("WHISPER_INITIAL_PROMPT", "").strip()
 
 # Voice Listening Auto-Close & Anti-Repeat Cooldown (10 - 25 seconds auto-timeout)
 _timeout_raw = int(os.getenv("VOICE_RECORD_TIMEOUT", "15"))
@@ -64,7 +61,7 @@ VOICE_COOLDOWN_SECONDS = float(os.getenv("VOICE_COOLDOWN_SECONDS", "1.5"))
 # Post-Speech Silence Detection (3.0 - 5.0 seconds auto-cutoff after speaking)
 _silence_raw = float(os.getenv("VOICE_POST_SPEECH_SILENCE", "3.5"))
 VOICE_POST_SPEECH_SILENCE = max(3.0, min(5.0, _silence_raw))  # Clamped to 3.0 - 5.0 seconds
-VOICE_ENERGY_THRESHOLD = float(os.getenv("VOICE_ENERGY_THRESHOLD", "0.015"))
+VOICE_ENERGY_THRESHOLD = float(os.getenv("VOICE_ENERGY_THRESHOLD", "0.022"))
 
 # Antigravity Bridge Settings
 ANTIGRAVITY_WINDOW_TITLE = os.getenv("ANTIGRAVITY_WINDOW_TITLE", "Antigravity")
