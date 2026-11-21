@@ -175,7 +175,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
   - กำหนดสถานะการทำงานชัดเจน (`ListenerState.IDLE`, `WAKE_LISTENING`, `RECORDING`, `PROCESSING`) และแยก Audio Queues ออกจากกันโดยเด็ดขาด: `record_queue` สำหรับอัดเสียงคำสั่ง และ `wake_queue` สำหรับดักฟังคำปลุก
   - ใช้ **Generational Session Epoch** (`session_epoch += 1`) ทุกครั้งที่มีการเริ่มอัดคำสั่งหรือสลับโหมด เพื่อตัดสิทธิ์และยกเลิก Thread ตรวจจับคำปลุกเก่าที่ค้างอยู่ในพื้นหลังทันที ขจัดปัญหาเสียงหลอนหรือสถานะรวนสะสมข้ามรอบ 100%
 - **3 Listening Modes & RAM Management (กติกาการถือครองและคืน RAM ตามโหมด):**
-  - `push_to_talk`: สั่งงานเฉพาะเมื่อกดคีย์ลัด `Cmd + Shift + J` เท่านั้น หยุดการดักฟังคำปลุกทันทีและปลดโมเดล Local Faster-Whisper ออกจาก RAM ทันที (`_unload_whisper_model` + `gc.collect()`) โดยไม่มีการทำงานหรือรับเสียงของ Wake Word ใดๆ ทั้งสิ้น
+  - `push_to_talk` (Strict Hotkey Mode): สั่งงานเฉพาะเมื่อกดคีย์ลัด `Cmd + Shift + J` (`toggle_voice_record_signal`) เท่านั้น ห้ามดักจับคำปลุกเบื้องหลังโดยเด็ดขาด ห้ามเริ่มอัดเสียงเองโดยอัตโนมัติ และห้ามส่งข้อความเข้า Brain หากเซสชันไม่ได้เกิดจากการกดปุ่มลัด โมเดล Local Faster-Whisper จะถูกปลดออกจาก RAM ทันที (`_unload_whisper_model` + `gc.collect()`) เพื่อคืนทรัพยากรหน่วยความจำ 100% ให้ระบบ (และหากมีการโหลดสำรองยาม Groq ขัดข้อง จะคืน RAM ทันทีหลังถอดเสียงเสร็จสิ้น)
   - `hi_jarvis`: ดักจับคำปลุกเบื้องหลังแบบ Silent Background Listening โดยบังคับใช้ **Local `Faster-Whisper` (`small`, beam_size=1)** ตรวจสอบคำปลุกใน `WAKE_WORDS` เท่านั้น โดยโมเดลจะถูกโหลดค้างไว้ใน RAM เพื่อความรวดเร็วในการตรวจจับ
   - `hybrid` (ค่าเริ่มต้น): รองรับทั้งกดคีย์ลัด `Cmd + Shift + J` และตรวจจับคำปลุกเบื้องหลังด้วย Local Faster-Whisper โดยโมเดลจะถูกโหลดค้างไว้ใน RAM
   - **Zero Reload Overhead:** สลับไปมาระหว่าง `hi_jarvis` กับ `hybrid` ใช้โมเดลเดิมใน RAM ต่อทันที ไม่โหลดซ้ำ

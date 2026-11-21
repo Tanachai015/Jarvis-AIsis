@@ -94,6 +94,7 @@ class JarvisListener(threading.Thread):
         self.listen_mode = config.VOICE_LISTEN_MODE
         self.state = ListenerState.WAKE_LISTENING if self.listen_mode in ("hi_jarvis", "hybrid") else ListenerState.IDLE
         self.session_epoch = 0
+        self._session_triggered_by_hotkey = False
 
         # Public boolean flags for UI / compatibility
         self.is_recording = False
@@ -181,6 +182,7 @@ class JarvisListener(threading.Thread):
         self.is_recording = False
         self.is_speaking = False
         self.is_processing = False
+        self._session_triggered_by_hotkey = False
         with self.chunks_lock:
             self.recorded_chunks.clear()
 
@@ -250,7 +252,7 @@ class JarvisListener(threading.Thread):
                     return
 
                 self.last_toggle_time = now
-                self._start_recording()
+                self._start_recording(is_from_hotkey=True)
             else:
                 # 3. Minimum recording duration (0.6s) to filter out accidental micro double-taps
                 if now - self.record_start_time < 0.6:
@@ -260,8 +262,16 @@ class JarvisListener(threading.Thread):
                 self.last_toggle_time = now
                 self._stop_and_process()
 
-    def _start_recording(self, initial_audio: Optional[np.ndarray] = None):
-        """Starts recording user command."""
+    def _start_recording(self, initial_audio: Optional[np.ndarray] = None, is_from_hotkey: bool = False):
+        """
+        Starts recording user command.
+        STRICT: In push_to_talk mode, recording can ONLY start via hotkey Cmd+Shift+J (is_from_hotkey=True).
+        """
+        if self.listen_mode == "push_to_talk" and not is_from_hotkey:
+            print("[Listener] push_to_talk guard: rejecting automatic recording attempt without hotkey.")
+            return
+
+        self._session_triggered_by_hotkey = is_from_hotkey
         self.session_epoch += 1
         self.state = ListenerState.RECORDING
         self.is_recording = True
@@ -331,6 +341,14 @@ class JarvisListener(threading.Thread):
 
     def _transcribe_and_dispatch(self, chunks: List[np.ndarray], epoch: int):
         """Transcribes recorded audio frames and dispatches to Brain."""
+        # STRICT GUARD: In push_to_talk mode, ensure session was initiated by hotkey Cmd+Shift+J
+        if self.listen_mode == "push_to_talk" and not getattr(self, "_session_triggered_by_hotkey", False):
+            print("[Listener] push_to_talk guard: session was not triggered by Cmd+Shift+J. Dropping dispatch to Brain.")
+            self.is_processing = False
+            self.state = ListenerState.IDLE
+            event_bus.state_changed.emit("idle")
+            return
+
         if not chunks:
             print("[Listener] No audio captured.")
             event_bus.task_log_updated.emit("Voice Input", "ไม่พบข้อมูลเสียงที่บันทึก")
@@ -416,6 +434,10 @@ class JarvisListener(threading.Thread):
                 self.state = ListenerState.WAKE_LISTENING
             else:
                 self.state = ListenerState.IDLE
+                # In push_to_talk mode, if Local Whisper was temporarily loaded for fallback, free it immediately
+                if self.whisper_model is not None:
+                    self._unload_whisper_model()
+            self._session_triggered_by_hotkey = False
             event_bus.state_changed.emit("idle")
 
     def _play_wake_ack_non_blocking(self):
@@ -448,7 +470,11 @@ class JarvisListener(threading.Thread):
         """
         Acknowledges wake word non-blocking (independent playback) and immediately
         starts recording the user's actual command without muting microphone or freezing round 2.
+        STRICT: Never runs if listen_mode == 'push_to_talk'.
         """
+        if self.listen_mode == "push_to_talk":
+            return
+
         with self.toggle_lock:
             # Verify generational epoch and state
             if epoch != self.session_epoch or self.state != ListenerState.WAKE_LISTENING or self.listen_mode not in ("hi_jarvis", "hybrid"):
@@ -489,7 +515,11 @@ class JarvisListener(threading.Thread):
         Transcribes a short speech burst to detect wake words.
         MANDATORY: Uses Local Faster-Whisper ONLY (beam_size=1) to preserve Groq Cloud API quota.
         Includes anti-hallucination filters (duration, RMS energy, no_speech_prob, compression_ratio).
+        STRICT: Never runs if listen_mode == 'push_to_talk'.
         """
+        if self.listen_mode == "push_to_talk":
+            return
+
         if epoch != self.session_epoch or self.state != ListenerState.WAKE_LISTENING or self.listen_mode not in ("hi_jarvis", "hybrid"):
             return
 
