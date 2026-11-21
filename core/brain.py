@@ -9,7 +9,6 @@ and provides an Explicit Fallback Chain optimized for Free Tier quotas:
 
 import re
 import json
-import time
 import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -288,132 +287,87 @@ class JarvisBrain:
         """
         Attempts generation using an Explicit Fallback Chain:
         [self.current_model] + remaining FALLBACK_MODELS.
-        Automatically retries on 500 INTERNAL and 503 UNAVAILABLE up to 3 times,
-        catches 429 (quota), 503, 500, 504 (timeout), 404 (not found),
-        and switches to the next model in the fallback list.
+        Catches 429 (quota), 503 (high demand), 504 (timeout), 404 (not found),
+        and switches to the next model in the list.
         """
         chain = [self.current_model] + [m for m in FALLBACK_MODELS if m != self.current_model]
         total_models = len(chain)
 
         for idx, model_to_try in enumerate(chain, start=1):
-            max_retries = 3
-            last_exception = None
+            try:
+                call_config = gen_config.model_copy()
+                call_config.http_options = types.HttpOptions(
+                    timeout=60000,
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                )
 
-            for attempt in range(1, max_retries + 1):
-                try:
-                    call_config = gen_config.model_copy()
-                    call_config.http_options = types.HttpOptions(
-                        timeout=60000,
-                        retry_options=types.HttpRetryOptions(attempts=1),
+                # ThinkingConfig handling: Lite models do not support thinking_config
+                if "lite" not in model_to_try.lower():
+                    call_config.thinking_config = types.ThinkingConfig(thinking_budget=0)
+                else:
+                    call_config.thinking_config = None
+
+                response = self.client.models.generate_content(
+                    model=model_to_try,
+                    contents=contents,
+                    config=call_config,
+                )
+
+                # Persist new working model if fallback succeeded
+                if model_to_try != self.current_model:
+                    old_model = self.current_model
+                    self.current_model = model_to_try
+                    set_genai_client(self.client, self.current_model)
+                    event_bus.task_log_updated.emit(
+                        "Model Switched",
+                        f"สลับโมเดลอัตโนมัติจาก '{old_model}' ➔ '{self.current_model}' สำเร็จเรียบร้อยแล้ว"
                     )
+                    print(f"[Brain] Persisted working model: {self.current_model}")
 
-                    # ThinkingConfig handling: Lite models do not support thinking_config
-                    if "lite" not in model_to_try.lower():
-                        call_config.thinking_config = types.ThinkingConfig(thinking_budget=0)
-                    else:
-                        call_config.thinking_config = None
+                return response
 
-                    response = self.client.models.generate_content(
-                        model=model_to_try,
-                        contents=contents,
-                        config=call_config,
-                    )
+            except Exception as e:
+                err_str = str(e).lower()
+                is_recoverable = (
+                    "429" in err_str
+                    or "resource_exhausted" in err_str
+                    or "quota" in err_str
+                    or "503" in err_str
+                    or "unavailable" in err_str
+                    or "high demand" in err_str
+                    or "504" in err_str
+                    or "deadline" in err_str
+                    or "timeout" in err_str
+                    or "timed out" in err_str
+                    or "404" in err_str
+                    or "not_found" in err_str
+                    or "not found" in err_str
+                    or "no longer available" in err_str
+                )
 
-                    # Persist new working model if fallback succeeded
-                    if model_to_try != self.current_model:
-                        old_model = self.current_model
-                        self.current_model = model_to_try
-                        set_genai_client(self.client, self.current_model)
-                        event_bus.task_log_updated.emit(
-                            "Model Switched",
-                            f"สลับโมเดลอัตโนมัติจาก '{old_model}' ➔ '{self.current_model}' สำเร็จเรียบร้อยแล้ว"
-                        )
-                        print(f"[Brain] Persisted working model: {self.current_model}")
+                is_last_model = (idx == total_models)
 
-                    return response
+                if not is_recoverable or is_last_model:
+                    raise e
 
-                except Exception as e:
-                    last_exception = e
-                    err_str = str(e).lower()
-                    err_code = getattr(e, 'code', getattr(e, 'status_code', None))
+                if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str:
+                    reason = "429 โควต้าเต็ม"
+                elif "503" in err_str or "unavailable" in err_str or "high demand" in err_str:
+                    reason = "503 เซิร์ฟเวอร์โหลดหนัก"
+                elif "504" in err_str or "deadline" in err_str or "timeout" in err_str:
+                    reason = "504 Timeout"
+                elif "404" in err_str or "not_found" in err_str or "no longer available" in err_str:
+                    reason = "404 ไม่พบโมเดล"
+                else:
+                    reason = "Error"
 
-                    # Transient server errors: 500 INTERNAL, 503 UNAVAILABLE, Timeout
-                    is_transient = (
-                        err_code in (500, 503, 504)
-                        or "500" in err_str
-                        or "internal" in err_str
-                        or "503" in err_str
-                        or "unavailable" in err_str
-                        or "high demand" in err_str
-                        or "504" in err_str
-                        or "deadline" in err_str
-                        or "timeout" in err_str
-                        or "timed out" in err_str
-                    )
-
-                    if is_transient and attempt < max_retries:
-                        delay = attempt * 1.5
-                        err_label = (
-                            "500 INTERNAL" if (err_code == 500 or "500" in err_str or "internal" in err_str)
-                            else "503 UNAVAILABLE" if (err_code == 503 or "503" in err_str or "unavailable" in err_str)
-                            else "TIMEOUT"
-                        )
-                        status_msg = f"โมเดล '{model_to_try}' พบปัญหาชั่วคราว ({err_label}) กำลังลองใหม่รอบที่ {attempt}/{max_retries} ใน {delay:.1f} วินาที..."
-                        print(f"[Brain] ⚠️ {status_msg}")
-                        event_bus.task_log_updated.emit("API Retry", status_msg)
-                        time.sleep(delay)
-                        continue
-                    else:
-                        # Non-transient error or retries exhausted, proceed to model fallback
-                        break
-
-            # Handle model fallback after retries exhausted or quota error
-            e = last_exception
-            err_str = str(e).lower()
-            is_recoverable = (
-                "429" in err_str
-                or "resource_exhausted" in err_str
-                or "quota" in err_str
-                or "500" in err_str
-                or "internal" in err_str
-                or "503" in err_str
-                or "unavailable" in err_str
-                or "high demand" in err_str
-                or "504" in err_str
-                or "deadline" in err_str
-                or "timeout" in err_str
-                or "timed out" in err_str
-                or "404" in err_str
-                or "not_found" in err_str
-                or "not found" in err_str
-                or "no longer available" in err_str
-            )
-
-            is_last_model = (idx == total_models)
-
-            if not is_recoverable or is_last_model:
-                raise e
-
-            if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str:
-                reason = "429 โควต้าเต็ม"
-            elif "500" in err_str or "internal" in err_str:
-                reason = "500 Internal Error (ลองซ้ำครบแล้ว)"
-            elif "503" in err_str or "unavailable" in err_str or "high demand" in err_str:
-                reason = "503 เซิร์ฟเวอร์โหลดหนัก (ลองซ้ำครบแล้ว)"
-            elif "504" in err_str or "deadline" in err_str or "timeout" in err_str:
-                reason = "504 Timeout"
-            elif "404" in err_str or "not_found" in err_str or "no longer available" in err_str:
-                reason = "404 ไม่พบโมเดล"
-            else:
-                reason = "Error"
-
-            next_model = chain[idx]
-            event_bus.task_log_updated.emit(
-                "Model Fallback",
-                f"โมเดล '{model_to_try}' ติดปัญหา ({reason}) [ลำดับ {idx}/{total_models}] "
-                f"กำลังสลับไปโมเดลสำรองถัดไป: '{next_model}'..."
-            )
-            print(f"[Brain] Fallback ({reason}): '{model_to_try}' -> '{next_model}'")
+                next_model = chain[idx]
+                event_bus.task_log_updated.emit(
+                    "Model Fallback",
+                    f"โมเดล '{model_to_try}' ติดปัญหา ({reason}) [ลำดับ {idx}/{total_models}] "
+                    f"กำลังสลับไปโมเดลสำรองถัดไป: '{next_model}'..."
+                )
+                print(f"[Brain] Fallback ({reason}): '{model_to_try}' -> '{next_model}'")
 
         raise RuntimeError("ไม่สามารถรับคำตอบจากโมเดลใดๆ ในลำดับสำรองได้")
 
@@ -518,8 +472,17 @@ class JarvisBrain:
                         gen_config=self.gen_config,
                     )
 
-                # Extract final text
-                final_text = response.text.strip() if response.text else "รับทราบครับ ดำเนินการเรียบร้อยแล้วครับบอส"
+                # Extract final text cleanly (suppressing thought_signature warnings from Gemini thinking models)
+                texts = []
+                if response.candidates:
+                    for cand in response.candidates:
+                        if cand.content and cand.content.parts:
+                            for p in cand.content.parts:
+                                if getattr(p, "thought", False):
+                                    continue
+                                if p.text:
+                                    texts.append(p.text)
+                final_text = "".join(texts).strip() if texts else (response.text.strip() if response.text else "รับทราบครับ ดำเนินการเรียบร้อยแล้วครับบอส")
                 display_text, spoken_text = split_display_and_spoken_text(final_text)
 
                 # Record task in TaskManager if files were modified in the background

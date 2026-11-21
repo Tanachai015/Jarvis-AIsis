@@ -125,17 +125,17 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - `assistant_reply_ready(str)`: ส่งข้อความคำตอบฉบับเต็ม (พร้อมโค้ดและ Markdown) ไปแสดงผลในหน้าต่างแชท `OverlayChat`
 - `assistant_speak_ready(str)`: ส่งข้อความสรุปภาษาพูดสั้นๆ (ตัดโค้ดและสัญลักษณ์ Markdown) ไปยัง `JarvisSpeaker` เพื่ออ่านออกเสียง
 - `task_log_updated(str, str)`: ส่งบันทึกการทำงานของ Tool หรือข้อผิดพลาดไปแสดงผล
-- `toggle_overlay_signal()`, `toggle_voice_record_signal()`: สัญญาณสลับหน้าต่างและสลับไมค์ (1-Tap Toggle: `Cmd + Shift + J`)
+- `toggle_overlay_signal()`, `toggle_voice_record_signal()`: สัญญาณสลับหน้าต่างและสลับไมค์
+- `voice_mode_changed(str)`: สัญญาณเปลี่ยนโหมดรับฟังเสียงแบบเรียลไทม์ (`push_to_talk`, `hi_jarvis`, `hybrid`) จากเมนูบาร์
 
 ### 3.4 สมองหลักและการประมวลผล AI (`core/brain.py`)
 - **Static Tool Registry:** รวมฟังก์ชัน Native Tools (9 เครื่องมือ) และ Dynamic MCP Tools (31 เครื่องมือ) เข้าด้วยกันใน `GenerateContentConfig` เพียงครั้งเดียวตอนเริ่มต้นโปรแกรม รวมทั้งหมด **40 เครื่องมือ** ไม่มีการโหลดหรือสร้าง Schema ซ้ำ
 - **Dual-Output Protocol (`[SPEAK]` Tags):** ปรับแต่งคำสั่งระบบ (System Instruction) ให้โมเดลสร้างผลลัพธ์ 2 รูปแบบในรอบเดียว: ข้อความฉบับเต็มพร้อมโค้ดสำหรับแสดงผลบนจอ และข้อความสรุปฉบับเต็มในแท็ก `[SPEAK]...[/SPEAK]` สำหรับส่งให้อ่านออกเสียงอย่างลื่นหู ต่อเนื่องทุกประโยคและทุกย่อหน้าโดยไม่ตัดจบกลางคัน
 - **macOS GUI Automation Policy:** ให้สิทธิ์และคำสั่งเด็ดขาดแก่ Jarvis ในการมองเห็นหน้าจอ คลิกเมาส์ และพิมพ์ข้อความลงในแอปใดก็ได้บน macOS ผ่าน `click_on_screen`, `type_text_on_screen`, และ `click_and_type` โดยไม่ปฏิเสธคำสั่งผู้ใช้
 - **Phonetic Mistranscription & Ambiguous Speech Guard:** กฎดักจับคำพูดที่ถอดเสียงเพี้ยน หากได้ยินคำภาษาไทยหรือคำแปลกๆ ที่มีเค้าโครงของชื่อเพลง/ศิลปิน/แอปภาษาอังกฤษ (เช่น "เลิก 3,000" แทนที่จะเป็น "Love 3000") ระบบจะหยุดเรียก Tool ค้นหาหรือเปิดเว็บทันที แล้วถามยืนยันด้วยความสุภาพรอบเดียวก่อนดำเนินการ
-- **Explicit Fallback Chain & Transient Error Retries:** ลำดับโมเดลสำรองแบบกำหนดชัดเจน:
+- **Explicit Fallback Chain:** ลำดับโมเดลสำรองแบบกำหนดชัดเจน:
   `["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]`
-  - **Automatic Transient Retries:** เมื่อพบปัญหาชั่วคราวจากเซิร์ฟเวอร์ เช่น `500 INTERNAL`, `503 UNAVAILABLE`, หรือ `504 DEADLINE_EXCEEDED` ระบบจะลองซ้ำอัตโนมัติ (Retry with Backoff 2–3 รอบ) พร้อมแจ้งเตือนผ่าน UI (`event_bus.task_log_updated`) ให้ผู้ใช้ทราบแบบเรียลไทม์ก่อนตัดใจสลับโมเดล
-  - **Auto-Switching:** สลับโมเดลสำรองถัดไปทันทีเมื่อพบ Error 429 (Quota), 503 (Overloaded หลังลองซ้ำครบ), หรือ 404 โดยบันทึกโมเดลที่ทำงานได้จริงไว้ใช้อย่างต่อเนื่อง
+  รองรับการสลับโมเดลอัตโนมัติเมื่อพบ Error 429 (Quota), 503 (Overloaded), 504 (Timeout), หรือ 404
 - **ThinkingConfig Handling:** ตั้งค่า `thinking_budget=0` เฉพาะโมเดลที่รองรับ (ยกเว้นตระกูล Lite เพื่อป้องกันข้อผิดพลาด 400)
 - **Persistent Chat History:** โหลดประวัติ 10 รอบล่าสุดจาก `memory/chat_history.json` ตอนเปิดโปรแกรม และบันทึกประวัติแบบ Asynchronous หลังจบแต่ละรอบ
 
@@ -170,19 +170,23 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **Result Watching:** ใช้ **`watchdog.observers.Observer`** เฝ้าดูการสร้างไฟล์ `.jarvis_result.md` เมื่อ Agent ทำงานเสร็จ จะส่งเนื้อหากลับมาให้ Jarvis สรุปผลด้วยเสียงทันที และบันทึกเข้า `task_manager` เพื่อรอให้ผู้ใช้สั่งเปิดดูเมื่อพร้อม
 
 ### 3.9 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)
-- **Pure 1-Tap Toggle Mode (Push-to-Talk via Cmd+Shift+J):**
-  - สั่งงานเฉพาะเมื่อกดคีย์ลัด `Cmd + Shift + J` เท่านั้น กดครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้ง (หรือหยุดพูดครบ 3.5s) เพื่อส่งไปถอดความ (เล่นเสียง *Pop*)
-  - ปราศจากระบบ Wake Word และ Background Listening ทำให้ระบบนิ่ง เสถียร 100% และไม่มีปัญหาเสียงหลอนหรือกระตุ้นการทำงานเองโดยไม่ตั้งใจ
-- **Persistent Mic Session (0% CPU & Zero Background Hallucination):**
-  - เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา แต่เมื่อไม่ได้อยู่ในระหว่างการบันทึกเสียง ฟังก์ชัน `_audio_callback` จะ `return` ทันที ทำให้ใช้ **CPU 0%** และไม่ดักจับหรือส่งเฟรมเสียงใดๆ เข้าคิวเมื่อไม่ได้กดสั่งงาน
-- **1D Float32 Audio Representation Guard:**
-  - บังคับแปลงสัญญาณเสียงทั้งหมดให้อยู่ในรูปแบบ 1D Float32 (`np.asarray(..., dtype=np.float32).reshape(-1)`) ตลอด Pipeline ทั้งใน `_audio_callback`, `_transcribe_and_dispatch`, และ `_audio_to_wav_bytes` ป้องกันข้อผิดพลาด Array Dimension Mismatch อย่างถาวร
+- **3 Listening Modes & RAM Management (กติกาการถือครองและคืน RAM ตามโหมด):**
+  1. `push_to_talk`: สั่งงานเฉพาะเมื่อกดคีย์ลัด `Cmd + Shift + J` เท่านั้น ไม่มีการดักฟังคำปลุกเบื้องหลัง โมเดล Local Faster-Whisper จะถูกปลดออกจาก RAM ทันที (`_unload_whisper_model` + `gc.collect()`) เพื่อคืนทรัพยากรหน่วยความจำ 100% ให้ระบบ
+  2. `hi_jarvis`: ดักจับคำปลุกเบื้องหลังแบบ Silent Background Listening โดยบังคับใช้ **Local `Faster-Whisper` (`small`, beam_size=1)** ตรวจสอบคำปลุกใน `WAKE_WORDS` เท่านั้น (ห้ามเรียกใช้ Groq Cloud STT ในขั้นตอนนี้เพื่อป้องกันโควต้าหมด) โดยโมเดลจะถูกโหลดค้างไว้ใน RAM อย่างต่อเนื่องเพื่อความรวดเร็วในการตรวจจับ
+  3. `hybrid` (ค่าเริ่มต้น): รองรับทั้งกดคีย์ลัด `Cmd + Shift + J` และตรวจจับคำปลุกเบื้องหลังด้วย Local Faster-Whisper โดยโมเดลจะถูกโหลดค้างไว้ใน RAM เช่นเดียวกัน
+  - **Zero Reload Overhead:** เมื่อผู้ใช้สลับโหมดไปมาระหว่าง `hi_jarvis` กับ `hybrid` ระบบจะใช้โมเดลเดิมที่ค้างอยู่ใน RAM ต่อทันที ไม่มีการ Unload แล้วโหลดใหม่ซ้ำ
+  - **Graceful RAM Cleanup:** เมื่อสลับกลับเป็น `push_to_talk` หรือเมื่อปิดแอปพลิเคชัน (`stop()` / Graceful Teardown ใน `main.py`) ระบบจะสั่งปลดโมเดลและเรียก `gc.collect()` คืน RAM ทันที
+- **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
+- **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
 - **2-Stage Smart Cutoff (Silence Detection):**
   - **กรณีที่ 1 (ยังไม่พบเสียงพูด):** รอคอยคำสั่งจนครบเวลาสูงสุด `VOICE_RECORD_TIMEOUT` (15 วินาที)
   - **กรณีที่ 2 (เริ่มพูดแล้ว):** ตรวจจับพลังงานเสียงพูด (RMS >= 0.015) เมื่อผู้ใช้พูดจบและเงียบต่อเนื่องครบ `VOICE_POST_SPEECH_SILENCE` (3.5 วินาที) ระบบจะตัดจบและส่งไปประมวลผลทันทีโดยไม่ต้องรอจนครบ 15s พร้อม Post-Session Cooldown (1.5s) ป้องกันการกดทับซ้ำ
-- **Groq Cloud STT (Default Primary):**
-  - เมื่อบันทึกคำสั่งเสร็จสิ้น จะส่งเสียงคำสั่งไปยัง Groq Audio API (`whisper-large-v3-turbo`) เป็นหลัก เพื่อความเร็วและแม่นยำระดับ 0.2 - 0.4s โดยใช้ CPU และ RAM เครื่อง 0%
-  - เมื่อ `STT_MODE="groq"` และมี `GROQ_API_KEY` ระบบจะไม่โหลด Local Whisper ขึ้น RAM ตอนบูตเครื่อง (Lazy Loading)
+- **Groq Cloud STT (Default Primary สำหรับคำสั่ง):**
+  - เมื่อตรวจพบคำปลุกหรือกดสั่งงาน และบันทึกคำสั่งเสร็จสิ้น จะส่งเสียงคำสั่งไปยัง Groq Audio API (`whisper-large-v3-turbo`) เป็นหลัก เพื่อความเร็วและแม่นยำระดับ 0.2 - 0.4s
+  - หาก Groq ล่มหรือออฟไลน์ จึงจะสลับมาใช้ Local Faster-Whisper สำรองอัตโนมัติ
+  - เมื่อ `STT_MODE="groq"` และมี `GROQ_API_KEY` ระบบจะไม่โหลด Local Whisper ขึ้น RAM ตอนบูตเครื่อง (Lazy Loading) โดยพิมพ์ Log: `[Listener] STT Mode: groq (whisper-large-v3-turbo)`
+  - เมื่อผู้ใช้พูดจบ ระบบจะแปลงเสียงเป็น WAV ในหน่วยความจำ (`io.BytesIO`) แล้วส่งไปยัง Groq Audio API (`whisper-large-v3-turbo`) พร้อม `WHISPER_INITIAL_PROMPT`
+  - ประมวลผลเสร็จในเวลาเพียง **0.2 - 0.4 วินาที** โดยใช้ CPU และ RAM เครื่อง 0%
 - **Automatic Local Fallback (Faster-Whisper):**
   - หากไม่มีอินเทอร์เน็ต, ไม่ได้ใส่ `GROQ_API_KEY`, หรือ Groq API ส่งกลับ Error ระบบจะแสดง Log: `[Listener] ⚠️ Fallback to Local Faster-Whisper...` แล้วโหลดและถอดความด้วย Local `Faster-Whisper` (`small`) อัตโนมัติทันที
   - ใช้ `beam_size=5`, `vad_filter=True` พร้อม `vad_parameters={"speech_pad_ms": 400}` ป้องกันคำหัวท้ายตกหล่น
@@ -197,7 +201,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ### 3.11 ส่วนติดต่อผู้ใช้ (`ui/`)
 - **Dynamic Island (`ui/dynamic_island.py`):** แคปซูลโปร่งแสงลอยอยู่กึ่งกลางด้านบนของหน้าจอ (Always-on-top, กว้าง 300px) แสดงสถานะและจุดสีแอนิเมชันตามสถานะปัจจุบัน และซ่อนตัวอัตโนมัติเมื่อเข้าสู่สถานะ `Idle`
 - **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight / Raycast สำหรับพิมพ์ข้อความ ดูประวัติการแชท และตรวจสอบ System / Tool Logs
-- **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์ (Cmd+Shift+J), ล้างประวัติ หรือออกจากโปรแกรม
+- **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์, เมนูย่อย `🎙️ Voice Listen Mode` สำหรับสลับโหมดรับเสียง (`Hybrid`, `Push-to-Talk`, `Wake Word Only`) แบบเรียลไทม์โดยไม่ต้องรีสตาร์ท, ล้างประวัติ หรือออกจากโปรแกรม
 
 ### 3.12 หน่วยความจำถาวร (`memory/`)
 - `memory/chat_history.json`: บันทึกประวัติการสนทนา 10 เทิร์นล่าสุด ทำให้เปิดโปรแกรมใหม่แล้วคุยต่อได้ทันที
