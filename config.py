@@ -38,14 +38,10 @@ TTS_VOLUME_EN = os.getenv("TTS_VOLUME_EN", "+40%")
 
 # Backward compatibility fallback
 TTS_VOICE = TTS_VOICE_TH
-# Voice Listener Settings
+
+# Voice Listener Settings (Push-to-Talk via Cmd+Shift+J)
 VOICE_INPUT_ENABLED = os.getenv("VOICE_INPUT_ENABLED", "true").lower() in ("true", "1", "yes")
 VOICE_TOGGLE_HOTKEY = os.getenv("VOICE_TOGGLE_HOTKEY", "<cmd>+<shift>+j")
-
-# Voice Listening Mode: "hybrid" (default), "push_to_talk", "hi_jarvis"
-VOICE_LISTEN_MODE = os.getenv("VOICE_LISTEN_MODE", "hybrid").lower().strip()
-if VOICE_LISTEN_MODE not in ("push_to_talk", "hi_jarvis", "hybrid"):
-    VOICE_LISTEN_MODE = "hybrid"
 
 # Speech-to-Text (STT) Settings: "groq" (default) or "local"
 STT_MODE = os.getenv("STT_MODE", "groq").lower().strip()
@@ -59,12 +55,6 @@ WHISPER_INITIAL_PROMPT = os.getenv(
     "WHISPER_INITIAL_PROMPT",
     "จาร์วิส, เปิดแอป Firefox, Google Chrome, YouTube, Spotify, ค้นหาเพลง Love 3000, Application Support"
 )
-_wake_words_raw = os.getenv("WAKE_WORDS", "hi jarvis,jarvis,จาร์วิส,จาวิส,ไฮ จาร์วิส")
-WAKE_WORDS = [w.strip().lower() for w in _wake_words_raw.split(",") if w.strip()]
-
-# Wake Word Acknowledgement Voice Response ("พร้อมครับ", "พร้อมทำงานแล้วครับ")
-WAKE_ACK_ENABLED = os.getenv("WAKE_ACK_ENABLED", "true").lower() in ("true", "1", "yes")
-WAKE_ACK_TEXT = os.getenv("WAKE_ACK_TEXT", "พร้อมครับ").strip()
 
 # Voice Listening Auto-Close & Anti-Repeat Cooldown (10 - 25 seconds auto-timeout)
 _timeout_raw = int(os.getenv("VOICE_RECORD_TIMEOUT", "15"))
@@ -75,10 +65,6 @@ VOICE_COOLDOWN_SECONDS = float(os.getenv("VOICE_COOLDOWN_SECONDS", "1.5"))
 _silence_raw = float(os.getenv("VOICE_POST_SPEECH_SILENCE", "3.5"))
 VOICE_POST_SPEECH_SILENCE = max(3.0, min(5.0, _silence_raw))  # Clamped to 3.0 - 5.0 seconds
 VOICE_ENERGY_THRESHOLD = float(os.getenv("VOICE_ENERGY_THRESHOLD", "0.015"))
-
-# Wake Word RMS Energy Threshold for buffering / wake detection in hi_jarvis & hybrid
-# Higher threshold (~0.025 - 0.035) prevents low background noise from falsely waking Jarvis
-WAKE_ENERGY_THRESHOLD = float(os.getenv("WAKE_ENERGY_THRESHOLD", "0.028"))
 
 # Antigravity Bridge Settings
 ANTIGRAVITY_WINDOW_TITLE = os.getenv("ANTIGRAVITY_WINDOW_TITLE", "Antigravity")

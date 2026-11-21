@@ -125,8 +125,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - `assistant_reply_ready(str)`: ส่งข้อความคำตอบฉบับเต็ม (พร้อมโค้ดและ Markdown) ไปแสดงผลในหน้าต่างแชท `OverlayChat`
 - `assistant_speak_ready(str)`: ส่งข้อความสรุปภาษาพูดสั้นๆ (ตัดโค้ดและสัญลักษณ์ Markdown) ไปยัง `JarvisSpeaker` เพื่ออ่านออกเสียง
 - `task_log_updated(str, str)`: ส่งบันทึกการทำงานของ Tool หรือข้อผิดพลาดไปแสดงผล
-- `toggle_overlay_signal()`, `toggle_voice_record_signal()`: สัญญาณสลับหน้าต่างและสลับไมค์
-- `voice_mode_changed(str)`: สัญญาณเปลี่ยนโหมดรับฟังเสียงแบบเรียลไทม์ (`push_to_talk`, `hi_jarvis`, `hybrid`) จากเมนูบาร์
+- `toggle_overlay_signal()`, `toggle_voice_record_signal()`: สัญญาณสลับหน้าต่างและสลับไมค์ (1-Tap Toggle: `Cmd + Shift + J`)
 
 ### 3.4 สมองหลักและการประมวลผล AI (`core/brain.py`)
 - **Static Tool Registry:** รวมฟังก์ชัน Native Tools (9 เครื่องมือ) และ Dynamic MCP Tools (31 เครื่องมือ) เข้าด้วยกันใน `GenerateContentConfig` เพียงครั้งเดียวตอนเริ่มต้นโปรแกรม รวมทั้งหมด **40 เครื่องมือ** ไม่มีการโหลดหรือสร้าง Schema ซ้ำ
@@ -171,34 +170,19 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **Result Watching:** ใช้ **`watchdog.observers.Observer`** เฝ้าดูการสร้างไฟล์ `.jarvis_result.md` เมื่อ Agent ทำงานเสร็จ จะส่งเนื้อหากลับมาให้ Jarvis สรุปผลด้วยเสียงทันที และบันทึกเข้า `task_manager` เพื่อรอให้ผู้ใช้สั่งเปิดดูเมื่อพร้อม
 
 ### 3.9 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)
-- **Discrete State Machine & Session Epoch (การแยกสถานะและป้องกันข้อมูลปนเปื้อน):**
-  - กำหนดสถานะการทำงานชัดเจน (`ListenerState.IDLE`, `WAKE_LISTENING`, `RECORDING`, `PROCESSING`) และแยก Audio Queues ออกจากกันโดยเด็ดขาด: `record_queue` สำหรับอัดเสียงคำสั่ง และ `wake_queue` สำหรับดักฟังคำปลุก
-  - ใช้ **Generational Session Epoch** (`session_epoch += 1`) ทุกครั้งที่มีการเริ่มอัดคำสั่งหรือสลับโหมด เพื่อตัดสิทธิ์และยกเลิก Thread ตรวจจับคำปลุกเก่าที่ค้างอยู่ในพื้นหลังทันที ขจัดปัญหาเสียงหลอนหรือสถานะรวนสะสมข้ามรอบ 100%
-- **3 Listening Modes & RAM Management (กติกาการถือครองและคืน RAM ตามโหมด):**
-  - `push_to_talk` (Strict Hotkey Mode): สั่งงานเฉพาะเมื่อกดคีย์ลัด `Cmd + Shift + J` (`toggle_voice_record_signal`) เท่านั้น ห้ามดักจับคำปลุกเบื้องหลังโดยเด็ดขาด ห้ามเริ่มอัดเสียงเองโดยอัตโนมัติ และห้ามส่งข้อความเข้า Brain หากเซสชันไม่ได้เกิดจากการกดปุ่มลัด โมเดล Local Faster-Whisper จะถูกปลดออกจาก RAM ทันที (`_unload_whisper_model` + `gc.collect()`) เพื่อคืนทรัพยากรหน่วยความจำ 100% ให้ระบบ (และหากมีการโหลดสำรองยาม Groq ขัดข้อง จะคืน RAM ทันทีหลังถอดเสียงเสร็จสิ้น)
-  - `hi_jarvis`: ดักจับคำปลุกเบื้องหลังแบบ Silent Background Listening โดยบังคับใช้ **Local `Faster-Whisper` (`small`, beam_size=1)** ตรวจสอบคำปลุกใน `WAKE_WORDS` เท่านั้น โดยโมเดลจะถูกโหลดค้างไว้ใน RAM เพื่อความรวดเร็วในการตรวจจับ
-  - `hybrid` (ค่าเริ่มต้น): รองรับทั้งกดคีย์ลัด `Cmd + Shift + J` และตรวจจับคำปลุกเบื้องหลังด้วย Local Faster-Whisper โดยโมเดลจะถูกโหลดค้างไว้ใน RAM
-  - **Zero Reload Overhead:** สลับไปมาระหว่าง `hi_jarvis` กับ `hybrid` ใช้โมเดลเดิมใน RAM ต่อทันที ไม่โหลดซ้ำ
-  - **Graceful RAM Cleanup:** เมื่อสลับกลับเป็น `push_to_talk` หรือเมื่อปิดแอปพลิเคชัน (`stop()`) ปลดโมเดลและเรียก `gc.collect()` คืน RAM ทันที
-- **Higher RMS Threshold & Anti-Hallucination Filter:**
-  - เพิ่มเกณฑ์พลังงานเสียงขั้นต่ำ (`WAKE_ENERGY_THRESHOLD=0.028` ปรับแต่งผ่าน `.env` ได้) ป้องกันเสียงรบกวนเบาๆ ในห้องกระตุ้นการทำงานเอง
-  - ระบบกรองการหลอนคำของ Whisper (Anti-Hallucination Safeguards): ตรวจสอบ `no_speech_prob > 0.60`, `compression_ratio > 2.4`, `avg_logprob < -1.2`, ความยาวเสียงขั้นต่ำ (0.45s–3.5s) และเกณฑ์พลังงาน RMS ก่อนยอมรับเป็น Wake Word หรือส่งคำสั่งไปประมวลผล
-- **Non-Blocking Wake Ack & Round-2 Continuous Operation:**
-  - เมื่อตรวจพบ Wake Word ระบบจะสั่งเล่นเสียงตอบรับ (`/tmp/jarvis_wake_ack.mp3` หรือ `Tink.aiff`) แยก Subprocess (`/usr/bin/afplay`) แบบ Non-Blocking โดยไม่บล็อกลูปการอัดเสียง
-  - ไม่ล็อก `is_speaking = True` ในช่วง Wake Ack ทำให้ไมโครโฟนไม่ถูก Mute และสามารถเริ่มอัดเสียงคำสั่งได้ทันทีต่อเนื่องทุกรอบ (Round 2 Ready)
+- **Pure 1-Tap Toggle Mode (Push-to-Talk via Cmd+Shift+J):**
+  - สั่งงานเฉพาะเมื่อกดคีย์ลัด `Cmd + Shift + J` เท่านั้น กดครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้ง (หรือหยุดพูดครบ 3.5s) เพื่อส่งไปถอดความ (เล่นเสียง *Pop*)
+  - ปราศจากระบบ Wake Word และ Background Listening ทำให้ระบบนิ่ง เสถียร 100% และไม่มีปัญหาเสียงหลอนหรือกระตุ้นการทำงานเองโดยไม่ตั้งใจ
+- **Persistent Mic Session (0% CPU & Zero Background Hallucination):**
+  - เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา แต่เมื่อไม่ได้อยู่ในระหว่างการบันทึกเสียง ฟังก์ชัน `_audio_callback` จะ `return` ทันที ทำให้ใช้ **CPU 0%** และไม่ดักจับหรือส่งเฟรมเสียงใดๆ เข้าคิวเมื่อไม่ได้กดสั่งงาน
 - **1D Float32 Audio Representation Guard:**
-  - บังคับแปลงสัญญาณเสียงทั้งหมดให้อยู่ในรูปแบบ 1D Float32 (`np.asarray(..., dtype=np.float32).reshape(-1)`) ตลอด Pipeline ทั้งใน `_audio_callback`, `_transcribe_and_dispatch`, `_audio_to_wav_bytes`, และ `_check_wake_snippet` ป้องกันบั๊กมิติ Array คลาดเคลื่อน
-- **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
-- **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
+  - บังคับแปลงสัญญาณเสียงทั้งหมดให้อยู่ในรูปแบบ 1D Float32 (`np.asarray(..., dtype=np.float32).reshape(-1)`) ตลอด Pipeline ทั้งใน `_audio_callback`, `_transcribe_and_dispatch`, และ `_audio_to_wav_bytes` ป้องกันข้อผิดพลาด Array Dimension Mismatch อย่างถาวร
 - **2-Stage Smart Cutoff (Silence Detection):**
   - **กรณีที่ 1 (ยังไม่พบเสียงพูด):** รอคอยคำสั่งจนครบเวลาสูงสุด `VOICE_RECORD_TIMEOUT` (15 วินาที)
   - **กรณีที่ 2 (เริ่มพูดแล้ว):** ตรวจจับพลังงานเสียงพูด (RMS >= 0.015) เมื่อผู้ใช้พูดจบและเงียบต่อเนื่องครบ `VOICE_POST_SPEECH_SILENCE` (3.5 วินาที) ระบบจะตัดจบและส่งไปประมวลผลทันทีโดยไม่ต้องรอจนครบ 15s พร้อม Post-Session Cooldown (1.5s) ป้องกันการกดทับซ้ำ
-- **Groq Cloud STT (Default Primary สำหรับคำสั่ง):**
-  - เมื่อตรวจพบคำปลุกหรือกดสั่งงาน และบันทึกคำสั่งเสร็จสิ้น จะส่งเสียงคำสั่งไปยัง Groq Audio API (`whisper-large-v3-turbo`) เป็นหลัก เพื่อความเร็วและแม่นยำระดับ 0.2 - 0.4s
-  - หาก Groq ล่มหรือออฟไลน์ จึงจะสลับมาใช้ Local Faster-Whisper สำรองอัตโนมัติ
-  - เมื่อ `STT_MODE="groq"` และมี `GROQ_API_KEY` ระบบจะไม่โหลด Local Whisper ขึ้น RAM ตอนบูตเครื่อง (Lazy Loading) โดยพิมพ์ Log: `[Listener] STT Mode: groq (whisper-large-v3-turbo)`
-  - เมื่อผู้ใช้พูดจบ ระบบจะแปลงเสียงเป็น WAV ในหน่วยความจำ (`io.BytesIO`) แล้วส่งไปยัง Groq Audio API (`whisper-large-v3-turbo`) พร้อม `WHISPER_INITIAL_PROMPT`
-  - ประมวลผลเสร็จในเวลาเพียง **0.2 - 0.4 วินาที** โดยใช้ CPU และ RAM เครื่อง 0%
+- **Groq Cloud STT (Default Primary):**
+  - เมื่อบันทึกคำสั่งเสร็จสิ้น จะส่งเสียงคำสั่งไปยัง Groq Audio API (`whisper-large-v3-turbo`) เป็นหลัก เพื่อความเร็วและแม่นยำระดับ 0.2 - 0.4s โดยใช้ CPU และ RAM เครื่อง 0%
+  - เมื่อ `STT_MODE="groq"` และมี `GROQ_API_KEY` ระบบจะไม่โหลด Local Whisper ขึ้น RAM ตอนบูตเครื่อง (Lazy Loading)
 - **Automatic Local Fallback (Faster-Whisper):**
   - หากไม่มีอินเทอร์เน็ต, ไม่ได้ใส่ `GROQ_API_KEY`, หรือ Groq API ส่งกลับ Error ระบบจะแสดง Log: `[Listener] ⚠️ Fallback to Local Faster-Whisper...` แล้วโหลดและถอดความด้วย Local `Faster-Whisper` (`small`) อัตโนมัติทันที
   - ใช้ `beam_size=5`, `vad_filter=True` พร้อม `vad_parameters={"speech_pad_ms": 400}` ป้องกันคำหัวท้ายตกหล่น
@@ -213,7 +197,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ### 3.11 ส่วนติดต่อผู้ใช้ (`ui/`)
 - **Dynamic Island (`ui/dynamic_island.py`):** แคปซูลโปร่งแสงลอยอยู่กึ่งกลางด้านบนของหน้าจอ (Always-on-top, กว้าง 300px) แสดงสถานะและจุดสีแอนิเมชันตามสถานะปัจจุบัน และซ่อนตัวอัตโนมัติเมื่อเข้าสู่สถานะ `Idle`
 - **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight / Raycast สำหรับพิมพ์ข้อความ ดูประวัติการแชท และตรวจสอบ System / Tool Logs
-- **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์, เมนูย่อย `🎙️ Voice Listen Mode` สำหรับสลับโหมดรับเสียง (`Hybrid`, `Push-to-Talk`, `Wake Word Only`) แบบเรียลไทม์โดยไม่ต้องรีสตาร์ท, ล้างประวัติ หรือออกจากโปรแกรม
+- **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์ (Cmd+Shift+J), ล้างประวัติ หรือออกจากโปรแกรม
 
 ### 3.12 หน่วยความจำถาวร (`memory/`)
 - `memory/chat_history.json`: บันทึกประวัติการสนทนา 10 เทิร์นล่าสุด ทำให้เปิดโปรแกรมใหม่แล้วคุยต่อได้ทันที
