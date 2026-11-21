@@ -8,6 +8,7 @@ Voice Listener module for Jarvis Desktop Assistant.
 """
 
 import os
+import re
 import sys
 import io
 import wave
@@ -310,11 +311,11 @@ class JarvisListener(threading.Thread):
             if not transcribed:
                 return
 
-            # Normalize text (lowercase, strip whitespace and punctuation)
-            norm_text = re.sub(r'[\s\.,!_?\'"\-]', '', transcribed.lower())
+            # Normalize text (lowercase, strip whitespace, punctuation, and symbols)
+            norm_text = re.sub(r'[\s\.,!_?\'"\-:;()\[\]{}—–~`*#]', '', transcribed.lower())
             matched_wake_word = None
             for w in self.wake_words:
-                norm_w = re.sub(r'[\s\.,!_?\'"\-]', '', w.lower())
+                norm_w = re.sub(r'[\s\.,!_?\'"\-:;()\[\]{}—–~`*#]', '', w.lower())
                 if norm_w and norm_w in norm_text:
                     matched_wake_word = w
                     break
