@@ -1,19 +1,36 @@
 # Environment & Secrets
 .env
+.env.local
+.env.*.local
 
-# Python Cache
+# Persistent Memory & Task Files (Private User Data)
+memory/*.json
+memory/raw_archive/
+!memory/.gitkeep
+
+# Python & Virtual Environments
 __pycache__/
 *.py[cod]
 *$py.class
+.venv/
+venv/
+env/
+ENV/
 
 # macOS System Files
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
 
-# IPC Sockets & Temp Result
+# IPC Sockets & Temp Task Files
 *.sock
 .jarvis_result.md
 .jarvis_task.md
+/tmp/jarvis_*
 
 # Audio Temp Files
 temp_*.mp3
 temp_*.wav
+*.mp3
+*.wav

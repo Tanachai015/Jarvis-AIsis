@@ -1,155 +1,231 @@
 # Jarvis Desktop Assistant 🚀
 
-ผู้ช่วยอัจฉริยะบนเดสก์ท็อป (macOS / Desktop) ที่ออกแบบสถาปัตยกรรมแบบแยกโมดูลชัดเจน (Decoupled Architecture) สื่อสารข้ามเธรดด้วย **PySide6 Signals / Event Bus**, ขับเคลื่อนด้วยสมองหลัก **Gemini API (`google-genai` SDK)**, มีหน้าต่าง **Dynamic Island** แจ้งเตือนสถานะแบบลอยตัว, หน้าต่าง **Overlay Chat** สไตล์ Spotlight/Raycast, สังเคราะห์เสียงพูดธรรมชาติด้วย **Edge-TTS**, และมีระบบ **Antigravity Bridge** เพื่อส่งต่องานโค้ดหรือการวิเคราะห์เข้าสู่ Antigravity IDE Agent อัตโนมัติ
+[![Platform](https://img.shields.io/badge/Platform-macOS%2014%2B%20(Tahoe%20%2F%20Sonoma%20%2F%20Sequoia)-blue?logo=apple)](https://www.apple.com/macos/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![GUI](https://img.shields.io/badge/UI-PySide6%20(Qt6)-41CD52?logo=qt)](https://www.qt.io/)
+[![AI Engine](https://img.shields.io/badge/AI-Google%20GenAI%20SDK-4285F4?logo=google)](https://aistudio.google.com/)
+[![Protocol](https://img.shields.io/badge/Standard-Model%20Context%20Protocol%20(MCP)-8B5CF6)](https://modelcontextprotocol.io/)
+[![Speech](https://img.shields.io/badge/STT-Groq%20Cloud%20%2B%20Faster--Whisper-F55036)](https://groq.com/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
+An agentic, event-driven, multimodal desktop AI companion built natively for macOS. Designed with a **decoupled PySide6 architecture**, a **Static Tool Registry combining Native macOS tools with Official Model Context Protocol (MCP) servers**, a **dual-engine hybrid Speech-to-Text pipeline**, **computer vision desktop automation**, and **100% stealth background execution**.
 
 ---
 
-## 📂 โครงสร้างโปรเจกต์ (Project Directory Structure)
+## 🌟 Key Features & Engineering Highlights
+
+### 1. 🎙️ Dual-Engine Hybrid STT Pipeline (~0.2s Latency)
+- **Primary Cloud Engine:** Integrates **Groq Cloud STT (`whisper-large-v3-turbo`)** via in-memory 16kHz WAV streaming (`io.BytesIO`), achieving sub-second response times (~0.2s - 0.4s) at **0% local CPU usage**.
+- **Automatic Local Fallback:** Seamlessly fails over to an on-device **`Faster-Whisper` (`small`, int8)** model if offline, rate-limited, or network-disconnected without interrupting the user.
+- **Smart Pacing & Silence Auto-Cutoff:** Real-time RMS audio energy detection automatically cuts off and submits queries after **3.5 seconds of silence** (`VOICE_POST_SPEECH_SILENCE`), with a 15-second maximum safety timeout.
+
+### 2. 🎛️ 3 Adaptive Voice Listening Modes (Real-Time Switcher)
+- **`push_to_talk`**: Triggers recording solely via macOS system hotkey (**`Cmd + Shift + J`**), consuming 0% mic CPU when idle.
+- **`hi_jarvis`**: Silent background wake-word detection powered strictly by **Local `Faster-Whisper`** (preserving Groq API quota). Supports *"Hi Jarvis"*, *"Jarvis"*, *"จาร์วิส"*, *"จาวิส"*, and *"ไฮ จาร์วิส"*.
+- **`hybrid` (Default)**: Dual trigger — seamlessly activate via hotkey or speak the wake word anytime.
+- **Runtime Mode Switcher:** Switch modes instantly without application restart via the macOS Menu Bar Status Item.
+- **RAM Lifecycle Management:** Pre-loads model in RAM for `hi_jarvis`/`hybrid`, and immediately unloads with `gc.collect()` when switching to `push_to_talk` or quitting.
+
+### 3. 👁️ macOS Vision GUI Automation (Retina-Aware Mouse & Keyboard)
+- **`click_on_screen`**: Captures screen, prompts Gemini Vision for coordinates, and calculates exact **Retina Display scale factors** (`img_w / screen_w`) for 100% accurate pixel-to-point mouse clicking.
+- **Inactive Window Focus Handling**: Automatically performs a two-stage click sequence (focus click + 0.15s window manager delay + action click) guaranteeing background windows (e.g. Firefox, Chrome) activate and play videos/links immediately.
+- **`type_text_on_screen`**: Injects text via macOS Clipboard (`pbcopy` + `Cmd+V`) supporting **Thai, English, Unicode, and Emoji** without dropping keystrokes, with asynchronous clipboard restoration.
+- **`click_and_type`**: Single-step GUI locator, window focus activator, and keyboard input tool.
+
+### 4. 🛠️ Static Tool Registry & Official MCP Ecosystem (40 Tools)
+- **Pre-Compiled Tool Registry:** Native tools and MCP tools are pre-compiled into `GenerateContentConfig` once at startup, eliminating per-request schema construction overhead.
+- **Instant Boot (0.005s):** Persistent tool schema cache (`memory/mcp_tools_cache.json`) with SHA-256 configuration checksum validation.
+- **Official MCP Servers:** Runs standard Stdio sub-processes:
+  - `@modelcontextprotocol/server-filesystem` (16 tools)
+  - `mcp-server-fetch` (1 tool)
+  - `mcp-server-git` (14 tools)
+  - Native macOS Tools: Vision, System Control, Antigravity Bridge, Memory, Reveal, Raw History, Mouse & Keyboard (9 tools)
+
+### 5. 🥷 100% Stealth Background Execution & On-Demand Reveal
+- Never steals desktop focus during background file edits, code refactoring, or IDE task delegations.
+- **On-Demand Reveal (`reveal_task_result`):** Results, modified files, and browser outputs open on-screen **only when explicitly commanded by the user** (e.g. *"เปิดดูผลงานล่าสุด"*, *"reveal"*).
+
+### 6. 🗣️ Dual-Output Protocol & Continuous Bilingual Speech
+- **Visual Display (Overlay Chat):** Full comprehensive Markdown, tables, and fenced code blocks.
+- **Natural Spoken Speech (Edge-TTS):** Clean spoken summary inside `[SPEAK]` tags across multi-line paragraphs without premature sentence cutoffs.
+- **Bilingual Tone:** Automatic script detection toggling between Thai (`th-TH-NiwatNeural`, -14Hz) and British Butler English (`en-GB-RyanNeural`, -8Hz).
+
+---
+
+## 🏛️ System Architecture
 
 ```text
-jarvis-desktop/
-├── .env                        # ไฟล์เก็บค่า Config และ GEMINI_API_KEY ส่วนตัว
-├── .env.example                # เทมเพลตตัวแปรสภาพแวดล้อม
-├── requirements.txt            # รายการ Dependencies ทั้งหมด
-├── config.py                   # ค่าคงที่หลักของระบบ (โมเดล, คีย์ลัด, เสียง, พาธไฟล์)
-├── main.py                     # Entry point เริ่มต้น QApplication, UI, Brain และ Voice
-│
-├── core/
-│   ├── __init__.py
-│   ├── event_bus.py            # ตัวกลางสื่อสารข้าม Thread (PySide6 Signals)
-│   ├── brain.py                # สมองหลักเชื่อมต่อ Gemini API + Function Calling Loop
-│   └── tools.py                # ฟังก์ชันเครื่องมือที่ Gemini เรียกใช้ (Tools)
-│
-├── integrations/
-│   ├── __init__.py
-│   └── antigravity_bridge.py   # เชื่อมต่อ Antigravity ด้วย AppleScript, pbcopy และ Watchdog
-│
-├── voice/
-│   ├── __init__.py
-│   ├── listener.py             # Worker Thread บันทึกเสียงและแปลงเป็นข้อความ (Faster-Whisper)
-│   └── speaker.py              # Worker Thread สังเคราะห์เสียงพูดธรรมชาติ (Edge-TTS + afplay/pygame)
-│
-└── ui/
-    ├── __init__.py
-    ├── tray.py                 # System Tray / Menu Bar Icon และ Context Menu
-    ├── dynamic_island.py       # หน้าต่างแคปซูลโปร่งแสงลอยบนหน้าจอ (Always-on-top)
-    └── overlay_chat.py         # หน้าต่าง Overlay Chat สไตล์ Spotlight / Raycast
+[User Trigger: Cmd+Shift+J / "Hi Jarvis"]
+                 │
+                 ▼
+     [Quartz CGEventTap / sounddevice Mic]
+                 │
+                 ├── Mode: push_to_talk ──> Hotkey only
+                 ├── Mode: hi_jarvis   ──> Local Faster-Whisper (Wake Word)
+                 └── Mode: hybrid      ──> Both triggers active
+                                 │
+                                 ▼
+                     [Speech-to-Text Pipeline]
+                                 │
+                     ┌───────────┴───────────┐
+                     ▼                       ▼
+            [Primary Cloud STT]     [Local Fallback STT]
+             Groq whisper-large        Faster-Whisper
+               (~0.2s latency)         (Offline / int8)
+                     │                       │
+                     └───────────┬───────────┘
+                                 │ (emit user_message_received)
+                                 ▼
+                     [JarvisBrain (core/brain.py)]
+                                 │
+                     ┌───────────┴───────────┐
+                     ▼                       ▼
+           [Explicit Fallback Chain]  [Static Tool Registry (40 Tools)]
+           gemini-3.5-flash-lite      • Native macOS Tools (9)
+           gemini-3.1-flash-lite        - Vision Screen Analysis
+           gemini-3.6-flash             - Retina Click / Clipboard Type
+           gemini-3.8-flash             - System Control & Memory
+                                        - Stealth Reveal & Raw Archive
+                                      • Official MCP Servers (31)
+                                        - filesystem, fetch, git
+                                 │
+                                 ▼
+                     [Dual-Output Protocol]
+                                 │
+                     ┌───────────┴───────────┐
+                     ▼                       ▼
+            [Visual Screen HUD]     [Neural Voice Synthesis]
+             OverlayChat Window      Microsoft Edge-TTS
+             (Markdown, Code)        (Dual-Tone TH/EN afplay)
 ```
 
 ---
 
-## 🛠️ ความต้องการของระบบและการเปิดสิทธิ์บน macOS (Permissions)
+## 📂 Project Directory Structure
 
-เนื่องจากระบบทำงานบน **macOS** และมีการดึงหน้าต่างแอปพลิเคชัน, ส่งคีย์ลัดด้วย AppleScript (`osascript`), ดักจับคีย์ลัดระดับ System Event Tap ด้วย macOS Quartz (`CGEventTapCreate`), และรับเสียงจากไมโครโฟนแบบ Persistent Mic Session กรุณาตั้งค่าสิทธิ์ใน macOS ดังนี้:
-
-### 1. สิทธิ์ Accessibility (การควบคุมและการจำลองการกดแป้นพิมพ์)
-จำเป็นสำหรับการใช้คีย์ลัด **`Alt+Space`** (Option+Space) และคำสั่งจำลองการกดคีย์ `Cmd+L`, `Cmd+V`, `Enter` ส่งให้ Antigravity:
-1. เปิด **System Settings** (การตั้งค่าระบบ)
-2. ไปที่ **Privacy & Security** (ความเป็นส่วนตัวและความปลอดภัย) ➔ **Accessibility** (การช่วยการเข้าถึง)
-3. กดปุ่ม `+` หรือเปิดสวิตช์อนุญาตให้กับ:
-   - **Terminal** หรือ **iTerm** หรือ **Visual Studio Code / Antigravity** (ขึ้นอยู่กับโปรแกรมที่คุณใช้รันคำสั่ง `python main.py`)
-   - **Python** (หากมีปรากฏในรายการ)
-
-### 2. สิทธิ์ Microphone (ไมโครโฟน)
-จำเป็นสำหรับโมดูล `voice/listener.py` เมื่อเปิดใช้งาน `VOICE_INPUT_ENABLED=true`:
-1. ไปที่ **Privacy & Security** ➔ **Microphone** (ไมโครโฟน)
-2. ตรวจสอบว่าแอปพลิเคชัน Terminal / IDE ของคุณได้รับอนุญาตให้เข้าถึงไมโครโฟนแล้ว
-
-> 💡 **หมายเหตุ**: หากยังไม่ได้เปิดสิทธิ์ไมโครโฟนหรือยังไม่ได้เชื่อมต่อไมค์ ระบบจะทำงานใน **Text-first Mode** ผ่าน Overlay Chat (`Alt+Space`) ได้อย่างราบรื่น 100% โดยไม่ทำให้แอปเกิดข้อผิดพลาด
+```text
+Javis Project/
+├── .env                        # Local environment secrets (Git-ignored)
+├── .env.example                # Safe environment configuration template
+├── .gitignore                  # Strict security & cache ignore rules
+├── requirements.txt            # Python dependencies
+├── config.py                   # Central configuration & runtime constants
+├── main.py                     # Entry point & application lifecycle manager
+├── mcp_servers.json            # Official MCP server configurations
+├── PROJECT_ARCHITECTURE.md     # In-depth architectural blueprint
+├── CHANGELOG.md                # Release version history
+├── README.md                   # Portfolio showcase & documentation
+│
+├── core/                       # Core system logic
+│   ├── event_bus.py            # Thread-safe PySide6 signal bus
+│   ├── brain.py                # Gemini cognitive processor & fallback chain
+│   ├── tools.py                # Native macOS tools (Vision, Mouse, Keyboard)
+│   ├── task_manager.py         # Stealth task registry & on-demand reveal
+│   ├── raw_archive.py          # 365-day monthly partitioned JSONL raw storage
+│   └── mcp_manager.py          # MCP client & persistent schema disk cache
+│
+├── integrations/               # External developer integrations
+│   └── antigravity_bridge.py   # Silent file-based task bridge + Watchdog
+│
+├── voice/                      # Voice I/O pipeline
+│   ├── listener.py             # Dual-engine STT, 3 listening modes, silence cutoff
+│   └── speaker.py              # Bilingual dual-tone Edge-TTS + macOS afplay
+│
+├── ui/                         # PySide6 desktop interface
+│   ├── dynamic_island.py       # Floating macOS pill status indicator
+│   ├── overlay_chat.py         # Spotlight/Raycast style chat HUD
+│   └── tray.py                 # Menu bar status icon & mode switcher
+│
+└── memory/                     # Local data storage (Git-ignored)
+    └── .gitkeep                # Repository directory anchor
+```
 
 ---
 
-## ⚙️ การติดตั้งและตั้งค่า (Installation & Setup)
+## 🛠️ Prerequisites & macOS Permissions
 
-### 1. ติดตั้ง Dependencies
+To enable seamless low-level system interaction on macOS:
+
+1. **Accessibility (`AXIsProcessTrustedWithOptions`)**:
+   - Required for Quartz System EventTap (`Cmd+Shift+J`, `Alt+Space`) and synthetic mouse/keyboard automation.
+   - Go to: **System Settings > Privacy & Security > Accessibility**
+   - Enable: **Terminal / iTerm / IDE / Python**
+2. **Microphone**:
+   - Required for `voice/listener.py`.
+   - Go to: **System Settings > Privacy & Security > Microphone**
+   - Enable your terminal or IDE.
+3. **Screen Recording**:
+   - Required for `screencapture -x` vision analysis and GUI coordinate detection.
+   - Go to: **System Settings > Privacy & Security > Screen Recording**
+   - Enable your terminal or IDE.
+
+---
+
+## ⚡ Quickstart & Installation
+
+### 1. Clone & Setup Environment
 ```bash
+git clone <your-repo-url>
+cd "Javis Project"
+
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. ตั้งค่าไฟล์สภาพแวดล้อม (`.env`)
-คัดลอกไฟล์เทมเพลตและระบุ `GEMINI_API_KEY` ของคุณ:
+### 2. Configure Environment (`.env`)
 ```bash
 cp .env.example .env
 ```
-เปิดไฟล์ `.env` แล้วแก้ไข:
-```env
-GEMINI_API_KEY=your_actual_gemini_api_key_here
-GEMINI_MODEL=gemini-3.5-flash-lite
-THINKING_LEVEL=low
-HOTKEY=alt+space
+Edit `.env` with your API keys:
+```ini
+# Google Gemini API Key (Required for Brain & Vision)
+GEMINI_API_KEY=AIzaSy...
 
-# Voice Settings (J.A.R.V.I.S. Tone for edge-tts)
-TTS_ENABLED=true
-TTS_VOICE_TH=th-TH-NiwatNeural
-TTS_PITCH_TH=-14Hz
-TTS_RATE_TH=+14%
-TTS_VOLUME_TH=+40%
-TTS_VOICE_EN=en-GB-RyanNeural
-TTS_PITCH_EN=-8Hz
-TTS_RATE_EN=+8%
-TTS_VOLUME_EN=+40%
+# Groq Cloud API Key (Recommended for ultra-fast ~0.2s STT)
+GROQ_API_KEY=gsk_...
+STT_MODE=groq
+GROQ_WHISPER_MODEL=whisper-large-v3-turbo
 
-# Voice Listener Settings (Faster-Whisper 1-Tap Toggle)
-VOICE_INPUT_ENABLED=true
-VOICE_TOGGLE_HOTKEY=<cmd>+<shift>+j
-WHISPER_MODEL_SIZE=small
-WAKE_WORDS=jarvis,จาร์วิส,จาวิส
+# Voice Listening Mode: hybrid, push_to_talk, or hi_jarvis
+VOICE_LISTEN_MODE=hybrid
 ```
 
----
-
-## 🚀 การเปิดใช้งาน (Running Jarvis)
-
-รันคำสั่งจากโฟลเดอร์โปรเจกต์:
+### 3. Launch Jarvis
 ```bash
 python3 main.py
 ```
 
-เมื่อโปรแกรมเริ่มทำงาน:
-1. จะมีไอคอนวงแหวนสีฟ้าปรากฏบน **Menu Bar (System Tray)** ด้านขวาบนของ macOS
-2. หน้าต่าง **Dynamic Island** แคปซูลจะแสดงสถานะด้านบนของหน้าจอ
-3. **การสั่งงานผ่านแชท:** กดคีย์ลัด **`Alt+Space`** (หรือ Option+Space) เพื่อเปิด-ปิดหน้าต่าง **Overlay Chat**
-4. **การสั่งงานด้วยเสียง (1-Tap Toggle + Auto Cooldown):** กดคีย์ลัด **`Cmd + Shift + J`** จากทุกหน้าจอ:
-   - **กดครั้งที่ 1 (เริ่มบันทึก):** ได้ยินเสียง *Tink*, Dynamic Island แสดง `Listening... (15s auto-send)` และเริ่มบันทึกเสียง
-   - **กดครั้งที่ 2 (หยุดและส่งคำสั่ง):** ได้ยินเสียง *Pop*, Dynamic Island แสดง `Thinking...` และส่งคำสั่งให้ถอดความทันที (หากพูดต่อเนื่องครบ 10 - 25 วินาที เช่น 15 วินาที ระบบจะตัดส่งให้อัตโนมัติ พร้อมระบบ Cooldown ป้องกันการกดทับซ้ำ)
+---
+
+## ⌨️ Control & Shortcuts
+
+| Action | Shortcut / Trigger | Description |
+| :--- | :--- | :--- |
+| **Toggle Chat HUD** | `Alt + Space` | Show/hide Spotlight-style overlay chat window |
+| **Toggle Voice Mic** | `Cmd + Shift + J` | Press to record (Tink), press again to send (Pop) |
+| **Wake Word Trigger** | *"Hi Jarvis"* | Wake up assistant via speech in `hybrid` or `hi_jarvis` mode |
+| **Silence Cutoff** | *3.5s pause* | Automatically dispatches voice query after speaking ends |
+| **Switch Voice Mode** | Status Bar Menu | Change between `Hybrid`, `Push-to-Talk`, and `Hi Jarvis` |
+| **Inspect Work** | *"เปิดดูผลงานล่าสุด"* | Reveals completed background files/URLs on screen |
 
 ---
 
-## 💡 ตัวอย่างคำสั่งที่สามารถทดสอบได้ทันที (Native macOS + Official MCP)
+## 📋 Technology Stack
 
-- **1. วิเคราะห์หน้าจอปัจจุบัน (Native macOS - `analyze_current_screen`):**
-  - *"หน้าจอนี้เปิดอะไรอยู่บ้าง ช่วยสรุปเนื้อหาให้ฟังที"*
-  - *"ดูโค้ดบนหน้าจอให้หน่อย มีตรงไหนเขียนผิดไหม"*
-- **2. ควบคุมระบบ macOS (Native macOS - `control_mac_system`):**
-  - *"เปิดแอป Safari ให้หน่อย"* (open_app)
-  - *"เปิดเว็บ google.com ที"* (open_url)
-  - *"ปรับระดับเสียงเป็น 50 เปอร์เซ็นต์"* (set_volume)
-  - *"เช็กสถานะ CPU แรม และแบตเตอรี่เครื่อง Mac ตอนนี้หน่อย"* (get_system_info)
-- **3. จัดการไฟล์โปรเจกต์ (Official MCP - `@modelcontextprotocol/server-filesystem`):**
-  - *"ช่วยดูรายชื่อไฟล์ในโฟลเดอร์ core ให้หน่อย"* (list_directory)
-  - *"อ่านโค้ดในไฟล์ config.py ให้ฟังที"* (read_text_file)
-  - *"ค้นหาไฟล์ที่มีคำว่า listener ในชื่อหน่อย"* (search_files)
-- **4. ดึงข้อมูลจากหน้าเว็บ (Official MCP - `mcp-server-fetch`):**
-  - *"ช่วยดึงข้อมูลสรุปจากเว็บ https://example.com ให้หน่อย"* (fetch)
-- **5. ความจำระยะยาวข้ามเซสชัน (Native - `manage_memory`):**
-  - *"จดจำไว้ว่า บอสชอบดื่มกาแฟดำไม่ใส่น้ำตาล"* (save)
-  - *"คุณจำอะไรเกี่ยวกับตัวผมได้บ้าง"* (read)
-- **6. สั่งงาน Antigravity IDE (Native Bridge - `delegate_to_antigravity`):**
-  - *"Jarvis ส่งงานนี้ให้ Antigravity: ช่วยสร้างฟังก์ชันคำนวณภาษีและเขียน unit test"*
+- **Core Runtime:** Python 3.11+, PySide6 (Qt for Python 6.6+)
+- **Large Language Models:** Google GenAI SDK (`gemini-3.5-flash-lite`, `gemini-3.6-flash`, `gemini-3.8-flash`)
+- **Speech-to-Text:** Groq Cloud API (`whisper-large-v3-turbo`), Faster-Whisper (CTranslate2, int8)
+- **Speech Synthesis:** Microsoft Edge-TTS (`th-TH-NiwatNeural`, `en-GB-RyanNeural`), macOS `/usr/bin/afplay`
+- **Protocols & Standards:** Model Context Protocol (MCP) Stdio Client
+- **macOS Low-Level APIs:** Quartz Event Tap (`CGEventTapCreate`), ApplicationServices Accessibility, `screencapture`, `pbcopy`/`pbpaste`
+- **GUI Automation:** PyAutoGUI, Pillow (PIL), NumPy, SoundDevice
 
 ---
 
-## 🧩 รายละเอียดสถาปัตยกรรม (Architecture Highlights)
+## 📄 License
 
-1. **Hybrid Tools: Native macOS + Official MCP Servers (`core/mcp_manager.py` & `core/tools.py`):**
-   - เชื่อมต่อกับ Official MCP Servers (`filesystem`, `fetch`) ผ่าน stdio เพียงครั้งเดียวตอนเปิดแอป (`main.py`)
-   - แปลงเครื่องมือ MCP ทั้ง 17 ตัวเป็น Dynamic Python Callables รวมกับ Native macOS Tools เข้าสู่ `GenerateContentConfig` ของ Gemini ล่วงหน้า ตอบสนองฉับไวและประหยัด Token สูงสุด
-   - ปิดเซสชัน MCP Process อย่างสะอาดเมื่อปิดโปรแกรม
-2. **Persistent Context & Memory (`memory/`):**
-   - กักเก็บประวัติการสนทนาต่อเนื่องใน `memory/chat_history.json` (โหลดอัตโนมัติ 10 รอบล่าสุดตอนเปิดแอป และบันทึกแบบ Background)
-   - จัดเก็บความจำระยะยาวใน `memory/jarvis_memory.json`
-3. **Decoupled Event Bus (`core/event_bus.py`):**
-   - ใช้งาน PySide6 `QObject` และ `Signal` ป้องกันปัญหา Race Conditions ระหว่าง Thread การประมวลผล AI / Voice กับ Main UI Loop
-4. **Native macOS Bridge (`integrations/antigravity_bridge.py`):**
-   - สลับหน้าต่างและส่งคีย์ลัดด้วย AppleScript (`osascript`) และคัดลอกด้วย `pbcopy` ซึ่งเข้ากันได้กับ macOS Tahoe / Sonoma / Sequoia โดยตรง
-   - เฝ้าดูผลลัพธ์ผ่าน `watchdog.observers.Observer` แบบ Asynchronous
+This project is open-sourced under the [MIT License](LICENSE).
