@@ -34,3 +34,7 @@ temp_*.mp3
 temp_*.wav
 *.mp3
 *.wav
+
+# Local scratch notes
+Project Directory Structure.txt
+system_flow_notes.txt
