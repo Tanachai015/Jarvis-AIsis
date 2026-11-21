@@ -62,6 +62,10 @@ WHISPER_INITIAL_PROMPT = os.getenv(
 _wake_words_raw = os.getenv("WAKE_WORDS", "hi jarvis,jarvis,จาร์วิส,จาวิส,ไฮ จาร์วิส")
 WAKE_WORDS = [w.strip().lower() for w in _wake_words_raw.split(",") if w.strip()]
 
+# Wake Word Acknowledgement Voice Response ("พร้อมครับ", "พร้อมทำงานแล้วครับ")
+WAKE_ACK_ENABLED = os.getenv("WAKE_ACK_ENABLED", "true").lower() in ("true", "1", "yes")
+WAKE_ACK_TEXT = os.getenv("WAKE_ACK_TEXT", "พร้อมครับ").strip()
+
 # Voice Listening Auto-Close & Anti-Repeat Cooldown (10 - 25 seconds auto-timeout)
 _timeout_raw = int(os.getenv("VOICE_RECORD_TIMEOUT", "15"))
 VOICE_RECORD_TIMEOUT = max(10, min(25, _timeout_raw))  # Clamped to 10 - 25 seconds

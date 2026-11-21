@@ -133,9 +133,10 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **Dual-Output Protocol (`[SPEAK]` Tags):** ปรับแต่งคำสั่งระบบ (System Instruction) ให้โมเดลสร้างผลลัพธ์ 2 รูปแบบในรอบเดียว: ข้อความฉบับเต็มพร้อมโค้ดสำหรับแสดงผลบนจอ และข้อความสรุปฉบับเต็มในแท็ก `[SPEAK]...[/SPEAK]` สำหรับส่งให้อ่านออกเสียงอย่างลื่นหู ต่อเนื่องทุกประโยคและทุกย่อหน้าโดยไม่ตัดจบกลางคัน
 - **macOS GUI Automation Policy:** ให้สิทธิ์และคำสั่งเด็ดขาดแก่ Jarvis ในการมองเห็นหน้าจอ คลิกเมาส์ และพิมพ์ข้อความลงในแอปใดก็ได้บน macOS ผ่าน `click_on_screen`, `type_text_on_screen`, และ `click_and_type` โดยไม่ปฏิเสธคำสั่งผู้ใช้
 - **Phonetic Mistranscription & Ambiguous Speech Guard:** กฎดักจับคำพูดที่ถอดเสียงเพี้ยน หากได้ยินคำภาษาไทยหรือคำแปลกๆ ที่มีเค้าโครงของชื่อเพลง/ศิลปิน/แอปภาษาอังกฤษ (เช่น "เลิก 3,000" แทนที่จะเป็น "Love 3000") ระบบจะหยุดเรียก Tool ค้นหาหรือเปิดเว็บทันที แล้วถามยืนยันด้วยความสุภาพรอบเดียวก่อนดำเนินการ
-- **Explicit Fallback Chain:** ลำดับโมเดลสำรองแบบกำหนดชัดเจน:
+- **Explicit Fallback Chain & Transient Error Retries:** ลำดับโมเดลสำรองแบบกำหนดชัดเจน:
   `["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]`
-  รองรับการสลับโมเดลอัตโนมัติเมื่อพบ Error 429 (Quota), 503 (Overloaded), 504 (Timeout), หรือ 404
+  - **Automatic Transient Retries:** เมื่อพบปัญหาชั่วคราวจากเซิร์ฟเวอร์ เช่น `500 INTERNAL`, `503 UNAVAILABLE`, หรือ `504 DEADLINE_EXCEEDED` ระบบจะลองซ้ำอัตโนมัติ (Retry with Backoff 2–3 รอบ) พร้อมแจ้งเตือนผ่าน UI (`event_bus.task_log_updated`) ให้ผู้ใช้ทราบแบบเรียลไทม์ก่อนตัดใจสลับโมเดล
+  - **Auto-Switching:** สลับโมเดลสำรองถัดไปทันทีเมื่อพบ Error 429 (Quota), 503 (Overloaded หลังลองซ้ำครบ), หรือ 404 โดยบันทึกโมเดลที่ทำงานได้จริงไว้ใช้อย่างต่อเนื่อง
 - **ThinkingConfig Handling:** ตั้งค่า `thinking_budget=0` เฉพาะโมเดลที่รองรับ (ยกเว้นตระกูล Lite เพื่อป้องกันข้อผิดพลาด 400)
 - **Persistent Chat History:** โหลดประวัติ 10 รอบล่าสุดจาก `memory/chat_history.json` ตอนเปิดโปรแกรม และบันทึกประวัติแบบ Asynchronous หลังจบแต่ละรอบ
 
@@ -176,6 +177,13 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
   3. `hybrid` (ค่าเริ่มต้น): รองรับทั้งกดคีย์ลัด `Cmd + Shift + J` และตรวจจับคำปลุกเบื้องหลังด้วย Local Faster-Whisper โดยโมเดลจะถูกโหลดค้างไว้ใน RAM เช่นเดียวกัน
   - **Zero Reload Overhead:** เมื่อผู้ใช้สลับโหมดไปมาระหว่าง `hi_jarvis` กับ `hybrid` ระบบจะใช้โมเดลเดิมที่ค้างอยู่ใน RAM ต่อทันที ไม่มีการ Unload แล้วโหลดใหม่ซ้ำ
   - **Graceful RAM Cleanup:** เมื่อสลับกลับเป็น `push_to_talk` หรือเมื่อปิดแอปพลิเคชัน (`stop()` / Graceful Teardown ใน `main.py`) ระบบจะสั่งปลดโมเดลและเรียก `gc.collect()` คืน RAM ทันที
+- **Non-Blocking Wake Ack & Round-2 Continuous Operation:**
+  - เมื่อตรวจพบ Wake Word (`hi jarvis`, `jarvis`, `จาร์วิส`, `จาวิส`, `ไฮ จาร์วิส`) ในโหมด `hi_jarvis` หรือ `hybrid` ระบบจะสั่งเล่นเสียงตอบรับ (`/tmp/jarvis_wake_ack.mp3` หรือ `Tink.aiff`) แยก Subprocess (`/usr/bin/afplay`) แบบ Non-Blocking โดยไม่บล็อกลูปการอัดเสียง
+  - ปลดล็อกสถานะการพูด (`is_speaking = False`) ทันที เพื่อป้องกันไม่ให้ไมโครโฟนถูกปิดเสียง (Mute) ทำให้การสั่งการในรอบที่ 2 (Round 2) หรือคำสั่งถัดไปรับเสียงและถอดความได้อย่างราบรื่นต่อเนื่อง 100%
+  - รีเซ็ตตัวแปรสถานะและค้างหลงเหลือ (`is_recording`, `is_speaking`, `is_processing`) อย่างสมบูรณ์ทั้งใน `_start_recording` และ `set_listen_mode` เพื่อป้องกันปัญหา Deadlock
+- **1D Float32 Audio Representation Guard:**
+  - บังคับแปลงสัญญาณเสียงทั้งหมดให้อยู่ในรูปแบบ 1D Float32 (`np.asarray(..., dtype=np.float32).reshape(-1)`) ตลอด Pipeline ทั้งใน `_audio_callback`, `_transcribe_and_dispatch`, `_audio_to_wav_bytes`, และ `_check_wake_snippet`
+  - ป้องกันข้อผิดพลาด Array Dimension Mismatch (1D vs 2D) ระหว่าง `sounddevice`, `numpy`, และ `Groq Cloud STT` อย่างเบ็ดเสร็จ
 - **1-Tap Toggle Mode:** กด `Cmd + Shift + J` ครั้งแรกเพื่อเริ่มอัด (เล่นเสียง *Tink*) และกดอีกครั้งเพื่อส่ง (เล่นเสียง *Pop*)
 - **Persistent Mic Session:** เปิดสตรีม `sounddevice.InputStream` ค้างไว้ตลอดเวลา โดยในขณะไม่ได้อัดเสียงฟังก์ชัน Callback จะคืนค่าทันที ทำให้ใช้ **CPU 0%** และลดอาการหน่วงตอนเริ่มอัดเสียง
 - **2-Stage Smart Cutoff (Silence Detection):**
