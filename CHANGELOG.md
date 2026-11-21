@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] - 2026-11-22
+
+### Added
+- **Full-Duplex & Instant Barge-in (> 0.6s)**:
+  - Enabled parallel microphone monitoring during assistant audio playback in `voice/listener.py`.
+  - Added `stop_speaking()` to `voice/speaker.py` to immediately terminate the native `/usr/bin/afplay` process and clear pending queues upon interruption.
+  - Implemented continuous speech duration threshold (`barge_in_min_duration_sec: 0.6`) and acoustic energy threshold (`barge_in_rms_threshold: 0.055`) to prevent speaker echo or transient room noises from triggering interruptions.
+  - Added seamless **Pre-roll Buffer Stitching**: the initial 0.6s speech burst is automatically retained and prepended into `ACTIVE_PTT`, ensuring the user's first spoken words are preserved without loss.
+  - Added configurable parameters (`barge_in_enabled`, `barge_in_min_duration_sec`, `barge_in_rms_threshold`) to `voice_settings.json`.
+
+---
+
 ## [1.3.0] - 2026-11-22
 
 ### Added

@@ -143,6 +143,9 @@ class JarvisSpeaker(threading.Thread):
         self.queue = queue.Queue()
         self.is_running = True
         self._pygame_initialized = False
+        self.current_process: Optional[subprocess.Popen] = None
+        self.is_interrupted = False
+        self._playback_lock = threading.Lock()
         self._init_audio_player()
 
     def _init_audio_player(self):
@@ -205,6 +208,7 @@ class JarvisSpeaker(threading.Thread):
 
     def _synthesize_and_play(self, raw_text: str):
         """Prepares text, generates TTS, and plays audio."""
+        self.is_interrupted = False
         speech_text = clean_markdown_for_speech(raw_text)
         if not speech_text:
             return
@@ -226,6 +230,10 @@ class JarvisSpeaker(threading.Thread):
                     volume=volume,
                 )
             )
+
+            # Check if interrupted during synthesis
+            if self.is_interrupted:
+                return
 
             # Play audio file
             self._play_audio_file(output_file)
@@ -258,22 +266,72 @@ class JarvisSpeaker(threading.Thread):
         )
         await communicate.save(output_path)
 
-    def _play_audio_file(self, file_path: str):
-        """Plays the mp3 audio file using native macOS afplay or pygame."""
-        if sys.platform == "darwin":
+    def stop_speaking(self):
+        """Instantly interrupts any ongoing speech playback and drains the pending queue."""
+        self.is_interrupted = True
+        # Drain queue
+        while not self.queue.empty():
             try:
-                subprocess.run(["afplay", file_path], check=True)
-                return
-            except Exception as e:
-                print(f"[Speaker] afplay error: {e}, falling back to pygame")
+                self.queue.get_nowait()
+                self.queue.task_done()
+            except (queue.Empty, ValueError):
+                break
+
+        # Terminate active audio player process
+        with self._playback_lock:
+            if self.current_process is not None:
+                try:
+                    self.current_process.terminate()
+                    self.current_process.kill()
+                except Exception:
+                    pass
+                self.current_process = None
 
         if self._pygame_initialized:
             try:
                 import pygame
+                pygame.mixer.music.stop()
+            except Exception:
+                pass
+
+        print("[Speaker] 🛑 Speech interrupted immediately (Barge-in).")
+        event_bus.state_changed.emit("idle")
+
+    def _play_audio_file(self, file_path: str):
+        """Plays the mp3 audio file using native macOS afplay or pygame with interrupt support."""
+        if self.is_interrupted:
+            return
+
+        if sys.platform == "darwin":
+            try:
+                with self._playback_lock:
+                    if self.is_interrupted:
+                        return
+                    self.current_process = subprocess.Popen(
+                        ["/usr/bin/afplay", file_path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+
+                # Wait for playback to complete or terminate
+                while self.current_process and self.current_process.poll() is None:
+                    time.sleep(0.04)
+
+                with self._playback_lock:
+                    self.current_process = None
+                return
+            except Exception as e:
+                print(f"[Speaker] afplay error: {e}, falling back to pygame")
+                with self._playback_lock:
+                    self.current_process = None
+
+        if self._pygame_initialized and not self.is_interrupted:
+            try:
+                import pygame
                 pygame.mixer.music.load(file_path)
                 pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    time.sleep(0.05)
+                while pygame.mixer.music.get_busy() and not self.is_interrupted:
+                    time.sleep(0.04)
                 return
             except Exception as e:
                 print(f"[Speaker] pygame playback error: {e}")

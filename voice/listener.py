@@ -76,11 +76,12 @@ class JarvisListener(threading.Thread):
     STATE_ACTIVE_PTT = "ACTIVE_PTT"
     STATE_FOLLOWUP_LOOP = "FOLLOWUP_LOOP"
 
-    def __init__(self):
+    def __init__(self, speaker: Optional[Any] = None):
         super().__init__(daemon=True)
         self.is_running = False
         self._enabled = config.VOICE_INPUT_ENABLED
         self.wake_trigger_enabled = getattr(config, "WAKE_TRIGGER_ENABLED", True)
+        self.speaker = speaker
 
         # Load dynamic voice settings
         self._load_voice_settings()
@@ -128,7 +129,10 @@ class JarvisListener(threading.Thread):
             "exit_conversation_phrases": ["พอแค่นี้", "ขอบคุณครับ", "หยุดฟัง", "พักก่อน", "ไม่มีอะไรแล้ว", "ปิดไมค์"],
             "post_speech_silence_sec": 3.0,
             "followup_timeout_sec": 60.0,
-            "wake_rms_threshold": 0.025
+            "wake_rms_threshold": 0.025,
+            "barge_in_enabled": True,
+            "barge_in_min_duration_sec": 0.6,
+            "barge_in_rms_threshold": 0.055
         }
         if VOICE_SETTINGS_PATH.exists():
             try:
@@ -144,7 +148,14 @@ class JarvisListener(threading.Thread):
         self.post_speech_silence = float(defaults["post_speech_silence_sec"])
         self.followup_timeout = float(defaults["followup_timeout_sec"])
         self.wake_rms_threshold = float(defaults["wake_rms_threshold"])
+        self.barge_in_enabled = bool(defaults.get("barge_in_enabled", True))
+        self.barge_in_min_duration = float(defaults.get("barge_in_min_duration_sec", 0.6))
+        self.barge_in_rms_threshold = float(defaults.get("barge_in_rms_threshold", 0.055))
         self.speech_energy_threshold = config.VOICE_ENERGY_THRESHOLD
+
+        # State tracking for barge-in detection
+        self.barge_in_buffer: List[np.ndarray] = []
+        self.barge_in_frames_count = 0
 
     def _on_voice_mode_signal(self, mode: str):
         """Allows toggling wake trigger via System Tray."""
@@ -166,13 +177,19 @@ class JarvisListener(threading.Thread):
         if clean_state == "speaking":
             self.is_speaking = True
             self.is_processing = False
+            self.barge_in_buffer.clear()
+            self.barge_in_frames_count = 0
         elif clean_state == "thinking":
             self.is_processing = True
             self.is_speaking = False
+            self.barge_in_buffer.clear()
+            self.barge_in_frames_count = 0
         elif clean_state in ("idle", "running_tool"):
             was_speaking = self.is_speaking
             self.is_speaking = False
             self.is_processing = False
+            self.barge_in_buffer.clear()
+            self.barge_in_frames_count = 0
 
             # If assistant just finished speaking, initiate Continuous Followup Loop!
             if was_speaking:
@@ -182,6 +199,9 @@ class JarvisListener(threading.Thread):
         """Waits 0.35s after assistant finishes speaking to prevent acoustic echo, then enters followup loop."""
         time.sleep(0.35)
         with self.state_lock:
+            # Check if speaker was interrupted by barge-in; if so, do NOT enter followup loop!
+            if self.speaker and getattr(self.speaker, "is_interrupted", False):
+                return
             if not self.is_speaking and not self.is_processing and not self.is_recording:
                 print(f"[Listener] 🔄 Continuous Followup Loop active (Window: {self.followup_timeout}s)...")
                 self.current_state = self.STATE_FOLLOWUP_LOOP
@@ -221,16 +241,19 @@ class JarvisListener(threading.Thread):
                 self.last_toggle_time = now
                 self._stop_and_process()
 
-    def _start_recording(self, is_followup: bool = False):
+    def _start_recording(self, is_followup: bool = False, initial_chunks: Optional[List[np.ndarray]] = None):
         """Starts capturing microphone frames for a user command."""
         self.is_recording = True
         self.record_start_time = time.time()
-        self.has_spoken = False
-        self.speech_frames = 0
-        self.last_speech_time = 0.0
+        self.has_spoken = True if initial_chunks else False
+        self.speech_frames = 2 if initial_chunks else 0
+        self.last_speech_time = time.time() if initial_chunks else 0.0
 
         with self.chunks_lock:
             self.recorded_chunks.clear()
+            if initial_chunks:
+                for c in initial_chunks:
+                    self.recorded_chunks.append(np.asarray(c, dtype=np.float32).reshape(-1))
 
         # Drain leftover chunks from queue
         while not self.audio_queue.empty():
@@ -240,10 +263,13 @@ class JarvisListener(threading.Thread):
                 break
 
         timeout_sec = self.followup_timeout if is_followup else config.VOICE_RECORD_TIMEOUT
-        state_label = "Followup Loop (พูดต่อได้เลย)" if is_followup else "Push-to-Talk"
+        if initial_chunks:
+            state_label = "Barge-in Interrupted (พูดแทรกทันที)"
+        else:
+            state_label = "Followup Loop (พูดต่อได้เลย)" if is_followup else "Push-to-Talk"
 
         print(f"[Listener] 🎤 Recording started [{state_label}]. Auto-cutoff: {self.post_speech_silence}s, Timeout: {timeout_sec}s...")
-        if not is_followup:
+        if not is_followup and not initial_chunks:
             _play_system_sound("Tink")
 
         event_bus.state_changed.emit("listening")
@@ -596,7 +622,10 @@ class JarvisListener(threading.Thread):
             import sounddevice as sd
 
             def _audio_callback(indata, frames, time_info, status):
+                # When assistant is speaking, only capture if barge-in monitoring is active
                 if self.is_speaking:
+                    if self.barge_in_enabled:
+                        self.audio_queue.put(indata.copy())
                     return
                 # Put frames if recording or if standby wake listening
                 if self.is_recording or (self.wake_trigger_enabled and not self.is_processing):
@@ -617,6 +646,59 @@ class JarvisListener(threading.Thread):
 
                 while self.is_running:
                     now = time.time()
+
+                    # 0. Barge-in Monitoring during Speaker Playback
+                    if self.is_speaking:
+                        if self.barge_in_enabled:
+                            try:
+                                chunk = self.audio_queue.get(timeout=0.06)
+                                chunk_1d = np.asarray(chunk, dtype=np.float32).reshape(-1)
+                                rms = float(np.sqrt(np.mean(chunk_1d**2))) if len(chunk_1d) > 0 else 0.0
+
+                                if rms >= self.barge_in_rms_threshold:
+                                    self.barge_in_buffer.append(chunk_1d)
+                                    self.barge_in_frames_count += 1
+                                    accumulated_sec = len(self.barge_in_buffer) * self.BLOCK_SIZE / self.SAMPLE_RATE
+
+                                    if accumulated_sec >= self.barge_in_min_duration:
+                                        print(
+                                            f"[Listener] ⚡ Barge-in trigger! Continuous user speech detected "
+                                            f"({accumulated_sec:.2f}s >= {self.barge_in_min_duration}s, RMS: {rms:.4f} >= {self.barge_in_rms_threshold}). "
+                                            f"Stopping speaker immediately..."
+                                        )
+                                        event_bus.task_log_updated.emit(
+                                            "Barge-in Triggered",
+                                            f"⚡ ตรวจพบเสียงผู้ใช้พูดแทรก ({accumulated_sec:.2f}s) - ยุติเสียงตอบและเริ่มรับคำสั่งใหม่ทันที"
+                                        )
+                                        # Stop speaker immediately
+                                        if self.speaker:
+                                            self.speaker.stop_speaking()
+                                        self.is_speaking = False
+
+                                        # Transition state to ACTIVE_PTT and start recording with pre-roll
+                                        with self.state_lock:
+                                            pre_roll = list(self.barge_in_buffer)
+                                            self.barge_in_buffer.clear()
+                                            self.barge_in_frames_count = 0
+                                            self.current_state = self.STATE_ACTIVE_PTT
+                                            self._start_recording(is_followup=False, initial_chunks=pre_roll)
+                                        continue
+                                else:
+                                    # Reset buffer if speech drops below threshold (e.g. echo spike, tap)
+                                    if len(self.barge_in_buffer) > 0:
+                                        self.barge_in_buffer.clear()
+                                        self.barge_in_frames_count = 0
+                            except queue.Empty:
+                                pass
+                        else:
+                            # Discard any audio in queue while speaking when barge-in is disabled
+                            while not self.audio_queue.empty():
+                                try:
+                                    self.audio_queue.get_nowait()
+                                except queue.Empty:
+                                    break
+                            time.sleep(0.05)
+                        continue
 
                     # 1. Active Recording Mode (Push-to-Talk or Continuous Followup)
                     if self.is_recording:

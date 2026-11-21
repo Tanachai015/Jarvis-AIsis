@@ -235,7 +235,7 @@ def main():
     speaker = JarvisSpeaker()
     speaker.start()
 
-    listener = JarvisListener()
+    listener = JarvisListener(speaker=speaker)
     listener.start_listening()
 
     # 4. Initialize UI Components

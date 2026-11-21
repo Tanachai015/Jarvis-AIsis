@@ -23,5 +23,8 @@
   ],
   "post_speech_silence_sec": 3.0,
   "followup_timeout_sec": 60.0,
-  "wake_rms_threshold": 0.025
+  "wake_rms_threshold": 0.025,
+  "barge_in_enabled": true,
+  "barge_in_min_duration_sec": 0.6,
+  "barge_in_rms_threshold": 0.055
 }
