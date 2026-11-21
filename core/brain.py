@@ -27,10 +27,96 @@ from core.raw_archive import raw_archive
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MEMORY_DIR = PROJECT_ROOT / "memory"
 CHAT_HISTORY_FILE = MEMORY_DIR / "chat_history.json"
+SOUL_CORE_FILE = MEMORY_DIR / "soul_core.md"
+EVENTS_FILE = MEMORY_DIR / "events.jsonl"
+JARVIS_MEMORY_FILE = MEMORY_DIR / "jarvis_memory.json"
 
-SYSTEM_INSTRUCTION = """
-You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), the refined, calm, intellectual, and witty personal AI assistant to the user.
+DEFAULT_SOUL_CORE = """
+# J.A.R.V.I.S. Soul & Behavioral Core
+- Core Identity & Candor: สุขุม สุภาพ ตรงไปตรงมา กล้าทักท้วงเมื่อเห็นว่าแผนหรือโค้ดมีความเสี่ยง ไม่ตอบรับแบบเหมาเข่ง
+- Confidence Transparency: ระบุระดับความมั่นใจ [ความมั่นใจ: สูง / ปานกลาง / ต่ำ] พร้อมสมมติฐานสั้นๆ เมื่อตอบเชิงวิเคราะห์
+- Contextual Tone Adaptation: โหมดงานกระชับตรงจุด, โหมดทบทวนยอมรับข้อผิดพลาดตรงๆ, โหมดเครียดนุ่มนวลเป็นกันเอง
+- Rule of Direct Action: คำสั่ง Action ระบบพื้นฐาน (เปิดแอป, ปรับเสียง, แคปจอ, จัดการไฟล์/Git) ให้เรียก Tool ทำงานทันที 100% ไม่ต้องเกริ่นความมั่นใจ
+- Hard Guardrails: ซื่อสัตย์ ไม่เดามั่ว ยืนยันก่อนทำคำสั่งเสี่ยง และรักษา Dual-Output [SPEAK] สรุปสั้น 1-2 ประโยคเสมอ
+""".strip()
 
+def safe_read_soul_core() -> str:
+    """Safely reads soul_core.md with fallback to DEFAULT_SOUL_CORE."""
+    try:
+        if SOUL_CORE_FILE.exists():
+            content = SOUL_CORE_FILE.read_text(encoding="utf-8").strip()
+            if content:
+                return content
+    except Exception as e:
+        print(f"[Brain] Note reading soul_core.md: {e}")
+    return DEFAULT_SOUL_CORE
+
+def safe_read_user_facts(max_items: int = 8) -> List[str]:
+    """Safely reads confirmed facts from jarvis_memory.json (L1)."""
+    facts = []
+    try:
+        if JARVIS_MEMORY_FILE.exists():
+            with open(JARVIS_MEMORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    for item in data[-max_items:]:
+                        content = item.get("content", "").strip()
+                        if content:
+                            facts.append(f"- {content}")
+    except Exception as e:
+        print(f"[Brain] Note reading jarvis_memory.json: {e}")
+    return facts
+
+def safe_read_recent_events(max_items: int = 5) -> List[str]:
+    """Safely reads recent lessons and states from events.jsonl (L2)."""
+    events = []
+    try:
+        if EVENTS_FILE.exists():
+            with open(EVENTS_FILE, "r", encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+            for line in lines[-max_items:]:
+                try:
+                    ev = json.loads(line)
+                    ev_type = ev.get("type", "event")
+                    note = ev.get("note", "") or ev.get("context", "")
+                    if note:
+                        events.append(f"- [{ev_type}] {note[:120]}")
+                except Exception:
+                    continue
+    except Exception as e:
+        print(f"[Brain] Note reading events.jsonl: {e}")
+    return events
+
+def record_event(event_type: str, note: str, extra: Optional[Dict[str, Any]] = None):
+    """Safely appends a lesson or context state to memory/events.jsonl with auto-truncation."""
+    def _worker():
+        try:
+            MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+            import datetime
+            record = {
+                "ts": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "type": event_type,
+                "note": note[:150],
+            }
+            if extra:
+                record.update(extra)
+
+            with open(EVENTS_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+            # Auto-truncate to keep file lightweight (rotate if > 150 lines)
+            if EVENTS_FILE.exists():
+                with open(EVENTS_FILE, "r", encoding="utf-8") as f:
+                    all_lines = f.readlines()
+                if len(all_lines) > 150:
+                    with open(EVENTS_FILE, "w", encoding="utf-8") as f:
+                        f.writelines(all_lines[-50:])
+        except Exception as e:
+            print(f"[Brain] Note recording event: {e}")
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+BASE_PROTOCOL = """
 Key Persona & Communication Protocol:
 1. Tone & Manner: Speak with effortless composure, intellectual poise, British wit, and polite Thai particles ("ครับ", "เรียบร้อยครับบอส", "พร้อมรับคำสั่งครับบอส"). Address the user as "บอส" (Boss) or "sir".
 2. Dual-Output Protocol (Visual Screen vs. Neural Voice):
@@ -97,7 +183,37 @@ Tools & Capabilities (Choose accurately and execute immediately without asking u
    - read_text_file, read_multiple_files, write_file, edit_file, list_directory, directory_tree, search_files: Official Model Context Protocol filesystem tools for inspecting and editing project files.
    - fetch: Official Model Context Protocol fetch tool to retrieve and extract clean markdown content from web URLs.
    - git_status, git_diff, git_diff_staged, git_diff_unstaged, git_commit, git_add, git_reset, git_log: Official Model Context Protocol Git tools to inspect git status, review branch diffs, and inspect repository commits.
-"""
+""".strip()
+
+def build_tiered_system_instruction() -> str:
+    """
+    Constructs Tiered Context Instruction:
+    - L0: Soul & Behavioral Core (memory/soul_core.md)
+    - L1: Confirmed User Facts (memory/jarvis_memory.json)
+    - L2: Recent Lessons & State (memory/events.jsonl)
+    - Base Protocol: Dual-Output, Background execution, Tool capabilities
+    """
+    l0_soul = safe_read_soul_core()
+    l1_facts = safe_read_user_facts()
+    l2_events = safe_read_recent_events()
+
+    sections = [
+        "You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), the refined, calm, intellectual, and witty personal AI assistant to the user.\n",
+        "=== [L0: Soul & Behavioral Core] ===",
+        l0_soul,
+        "\n=== [System Protocols & Tools] ===",
+        BASE_PROTOCOL,
+    ]
+
+    if l1_facts:
+        sections.append("\n=== [L1: Confirmed User Facts & Preferences] ===")
+        sections.extend(l1_facts)
+
+    if l2_events:
+        sections.append("\n=== [L2: Recent Lessons & Context States] ===")
+        sections.extend(l2_events)
+
+    return "\n\n".join(sections)
 
 
 def split_display_and_spoken_text(raw_text: str) -> Tuple[str, str]:
@@ -164,9 +280,12 @@ class JarvisBrain:
         # Combine Native macOS Tools and Official MCP Tools into Static Registry
         all_tools: List[Any] = list(AVAILABLE_TOOLS) + mcp_manager.get_callable_tools()
 
+        # Build initial Tiered Context Instruction (L0: Soul, L1: Facts, L2: Events)
+        initial_instruction = build_tiered_system_instruction()
+
         # Pre-compile Static Tool Registry once at startup
         self.gen_config = types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
+            system_instruction=initial_instruction,
             tools=all_tools,
             temperature=0.7,
         )
@@ -395,10 +514,15 @@ class JarvisBrain:
                 self.history.append(user_content)
                 self._trim_history()
 
-                # Send request using pre-compiled static configuration
+                # Refresh Tiered System Instruction (L0, L1, L2) dynamically
+                active_instruction = build_tiered_system_instruction()
+                active_config = self.gen_config.model_copy()
+                active_config.system_instruction = active_instruction
+
+                # Send request using dynamic tiered context
                 response = self._generate_with_fallback(
                     contents=self.history,
-                    gen_config=self.gen_config,
+                    gen_config=active_config,
                 )
 
                 # Process potential Function Calls
@@ -469,7 +593,7 @@ class JarvisBrain:
                     event_bus.state_changed.emit("thinking")
                     response = self._generate_with_fallback(
                         contents=self.history,
-                        gen_config=self.gen_config,
+                        gen_config=active_config,
                     )
 
                 # Extract final text cleanly (suppressing thought_signature warnings from Gemini thinking models)
@@ -544,7 +668,7 @@ class JarvisBrain:
 
             try:
                 gen_config = types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
+                    system_instruction=build_tiered_system_instruction(),
                     temperature=0.5,
                 )
                 res = self._generate_with_fallback(

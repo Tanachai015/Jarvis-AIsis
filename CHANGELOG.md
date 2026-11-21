@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-11-22
+
+### Added
+- **Tiered Context Architecture (L0 - L3)** in `core/brain.py`:
+  - **L0 (Soul & Behavioral Core):** Externalized personality, candor, and transparency rules into `memory/soul_core.md`.
+  - **L1 (Confirmed Facts):** Dynamically injects verified user facts and preferences from `memory/jarvis_memory.json`.
+  - **L2 (Recent Lessons & Context States):** Integrates recent lightweight corrections and user states from `memory/events.jsonl`.
+  - **L3 (Active Conversation):** Maintains recent multi-turn conversation from `memory/chat_history.json`.
+- **Candor & Confidence Transparency**:
+  - Direct, honest feedback with explicit confidence levels (`[ความมั่นใจ: สูง / ปานกลาง / ต่ำ]`) for analytical, architectural, and debugging tasks.
+- **Rule of Direct Action**:
+  - Differentiates direct action commands (apps, volume, files, git, screen capture) to execute immediately via tools with 0 preliminary hesitation, reserving analytical candor for planning and reviews.
+- **Event Journaling & Auto-Rotation (`memory/events.jsonl`)**:
+  - Lightweight append-only event logging with safe read fallback and auto-truncation to prevent unbounded growth.
+
+---
+
+## [1.1.0] - 2026-11-22
+
+### Added
+- **In-Car Voice Assistant Engine**:
+  - Configured 5.0s post-speech silence auto-cutoff and 60s total listening timeout for natural, uninterrupted speech.
+  - Added bilingual Thai/English code-switching support via `WHISPER_LANGUAGE=th` and context prompts.
+  - Implemented automatic wake word stripping and silence-only filtering to eliminate hallucinations.
+  - Fixed audio buffer array dimension mismatch during wake-to-record transitions.
+- **PROJECT_SUMMARY.md**:
+  - Comprehensive technical architecture documentation.
+
+---
+
 ## [1.0.0] - 2026-11-21
 
 ### Added

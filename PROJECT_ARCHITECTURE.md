@@ -203,9 +203,11 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight / Raycast สำหรับพิมพ์ข้อความ ดูประวัติการแชท และตรวจสอบ System / Tool Logs
 - **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์, เมนูย่อย `🎙️ Voice Listen Mode` สำหรับสลับโหมดรับเสียง (`Hybrid`, `Push-to-Talk`, `Wake Word Only`) แบบเรียลไทม์โดยไม่ต้องรีสตาร์ท, ล้างประวัติ หรือออกจากโปรแกรม
 
-### 3.12 หน่วยความจำถาวร (`memory/`)
-- `memory/chat_history.json`: บันทึกประวัติการสนทนา 10 เทิร์นล่าสุด ทำให้เปิดโปรแกรมใหม่แล้วคุยต่อได้ทันที
-- `memory/jarvis_memory.json`: บันทึกข้อมูลสำคัญที่ผู้ใช้สั่งให้จำ (เช่น ความชอบ, ข้อมูลส่วนตัว)
+### 3.12 หน่วยความจำถาวรและแก่นความคิด (`memory/`)
+- `memory/soul_core.md`: แก่นแท้บุคลิกภาพและความคิด (L0) เน้นความตรงไปตรงมา (Candor), การบอกระดับความมั่นใจอย่างโปร่งใส, การแยกงาน Action พื้นฐานออกจากงานคิดวิเคราะห์, และ Hard Guardrails
+- `memory/jarvis_memory.json`: ข้อมูลความจำถาวร (L1) ที่ผู้ใช้สั่งให้จำผ่าน `manage_memory`
+- `memory/events.jsonl`: บันทึกบทเรียนและสถานะบริบทสำคัญ (L2) แบบ Append-only พร้อมระบบ Auto-rotation
+- `memory/chat_history.json`: บันทึกประวัติการสนทนา 10 เทิร์นล่าสุด (L3) ทำให้เปิดโปรแกรมใหม่แล้วคุยต่อได้ทันที
 - `memory/background_tasks.json`: บันทึกประวัติและรายการไฟล์ผลลัพธ์ของงานเบื้องหลัง สำหรับการเปิดดูแบบ On-Demand
 - `memory/mcp_tools_cache.json`: แคชโครงสร้างเครื่องมือ MCP ทั้งหมด เพื่อการบูตเครื่องใน 0.005 วินาที
 
