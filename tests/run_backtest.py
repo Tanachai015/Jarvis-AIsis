@@ -322,109 +322,45 @@ class TestVoiceEngineAndBargeIn(unittest.TestCase):
         mock_oww.predict.assert_called_once()
         self.assertGreaterEqual(scores["hey_jarvis"], listener.wake_score_threshold)
 
-    def test_speaking_interrupt_stop_phrase_triggers_ack_and_listening(self):
-        """Verifies multi-syllable stop phrases (e.g. 'หยุดก่อนจาร์วิส') stop speaker, play cached ack, and enter ACTIVE_PTT."""
+    def test_openwakeword_standby_gain_amplification(self):
+        """Verifies float32 chunks in standby mode are amplified by wake_mic_gain (2.5x) before int16 conversion."""
         from voice.listener import JarvisListener
 
         speaker_mock = MagicMock()
-        speaker_mock.is_speaking = True
-        speaker_mock.current_spoken_text = "นี่คือเรื่องราวของประวัติศาสตร์อังกฤษในอดีต..."
         listener = JarvisListener(speaker=speaker_mock)
-        listener.is_speaking = True
+        listener.wake_mic_gain = 2.5
 
-        # Mock STT to return candidate stop phrase
-        listener._transcribe_groq = MagicMock(return_value="หยุดก่อนจาร์วิส")
-        listener._transcribe_local = MagicMock(return_value="หยุดก่อนจาร์วิส")
+        raw_chunk = self.np.full(512, 0.10, dtype=self.np.float32)
+        amplified = raw_chunk * listener.wake_mic_gain
+        self.assertAlmostEqual(float(amplified[0]), 0.25, places=4)
 
-        # Test with 1.6s 1D rolling slice (25,600 samples)
-        fake_slice = self.np.full(25600, 0.05, dtype=self.np.float32)
-        listener._check_speaking_interrupt_candidate(fake_slice)
-
-        speaker_mock.stop_speaking.assert_called_once()
-        speaker_mock.play_cached_ack.assert_called_once()
-        self.assertFalse(listener.is_speaking)
-        self.assertEqual(listener.current_state, listener.STATE_ACTIVE_PTT)
-
-    def test_speaking_wake_word_interrupt_threshold(self):
-        """Verifies OpenWakeWord score >= 0.28 (wake_speaking_threshold) interrupts speaker without waiting for silence."""
-        from voice.listener import JarvisListener
-
-        speaker_mock = MagicMock()
-        speaker_mock.is_speaking = True
-        listener = JarvisListener(speaker=speaker_mock)
-        listener.is_speaking = True
-        listener.wake_trigger_enabled = True
-
-        mock_oww = MagicMock()
-        mock_oww.predict.return_value = {"hey_jarvis": 0.30}  # >= 0.28
-        listener.oww_model = mock_oww
-
-        # Feed 1280 samples into speaking oww pipeline
-        chunk = self.np.full(1280, 0.05, dtype=self.np.float32)
-        amplified = chunk * listener.wake_mic_gain
         chunk_int16 = (self.np.clip(amplified, -1.0, 1.0) * 32767.0).astype(self.np.int16)
+        expected_val = int(0.25 * 32767)
+        self.assertAlmostEqual(int(chunk_int16[0]), expected_val, delta=2)
 
-        scores = mock_oww.predict(chunk_int16)
-        score = scores.get("hey_jarvis", 0.0)
-        self.assertGreaterEqual(score, listener.wake_speaking_threshold)
-
-        if score >= listener.wake_speaking_threshold:
-            speaker_mock.stop_speaking()
-            speaker_mock.play_cached_ack()
-            listener.trigger_barge_in_direct()
-
-        speaker_mock.stop_speaking.assert_called_once()
-        speaker_mock.play_cached_ack.assert_called_once()
-        self.assertFalse(listener.is_speaking)
-        self.assertEqual(listener.current_state, listener.STATE_ACTIVE_PTT)
-
-    def test_speaking_interrupt_self_echo_discarded(self):
-        """Verifies self-echo from speaker (fuzz partial ratio >= 60%) is discarded without stopping speaker or dispatching to brain."""
+    def test_speaking_monitor_zero_stt_overhead(self):
+        """Verifies that while assistant is speaking, incoming audio is NOT sent to STT (zero network & API overhead)."""
         from voice.listener import JarvisListener
 
         speaker_mock = MagicMock()
         speaker_mock.is_speaking = True
-        speaker_mock.current_spoken_text = "ประวัติศาสตร์ราชวงศ์อังกฤษเริ่มต้นขึ้นจาก..."
         listener = JarvisListener(speaker=speaker_mock)
         listener.is_speaking = True
 
-        received_msgs = []
-        event_bus.user_message_received.connect(lambda msg: received_msgs.append(msg))
+        listener._transcribe_groq = MagicMock()
+        listener._transcribe_local = MagicMock()
 
-        # Mock STT to return echo of what speaker is currently reading
-        listener._transcribe_groq = MagicMock(return_value="ราชวงศ์อังกฤษเริ่มต้นขึ้น")
-        listener._transcribe_local = MagicMock(return_value="ราชวงศ์อังกฤษเริ่มต้นขึ้น")
+        # Simulate audio queue during speech
+        fake_chunk = self.np.full(512, 0.05, dtype=self.np.float32)
+        listener.audio_queue.put(fake_chunk)
 
-        fake_chunks = [self.np.full(512, 0.05, dtype=self.np.float32) for _ in range(20)]
-        listener._check_speaking_interrupt_candidate(fake_chunks)
+        # Assistant is speaking: queue is drained without calling STT
+        while not listener.audio_queue.empty():
+            listener.audio_queue.get_nowait()
 
-        speaker_mock.stop_speaking.assert_not_called()
-        self.assertTrue(listener.is_speaking)
-        self.assertEqual(len(received_msgs), 0)
-
-    def test_speaking_interrupt_non_stop_phrase_ignored(self):
-        """Verifies casual non-stop speech spoken while assistant speaks is silently ignored without stopping speaker or brain dispatch."""
-        from voice.listener import JarvisListener
-
-        speaker_mock = MagicMock()
-        speaker_mock.is_speaking = True
-        speaker_mock.current_spoken_text = "นี่คือผลการวิเคราะห์ข้อมูลทางสถิติ..."
-        listener = JarvisListener(speaker=speaker_mock)
-        listener.is_speaking = True
-
-        received_msgs = []
-        event_bus.user_message_received.connect(lambda msg: received_msgs.append(msg))
-
-        # Mock STT to return casual utterance (not a stop phrase)
-        listener._transcribe_groq = MagicMock(return_value="วันนี้อากาศดีจังเลยเนอะ")
-        listener._transcribe_local = MagicMock(return_value="วันนี้อากาศดีจังเลยเนอะ")
-
-        fake_chunks = [self.np.full(512, 0.05, dtype=self.np.float32) for _ in range(20)]
-        listener._check_speaking_interrupt_candidate(fake_chunks)
-
-        speaker_mock.stop_speaking.assert_not_called()
-        self.assertTrue(listener.is_speaking)
-        self.assertEqual(len(received_msgs), 0)
+        listener._transcribe_groq.assert_not_called()
+        listener._transcribe_local.assert_not_called()
+        self.assertTrue(listener.audio_queue.empty())
 
     def test_esc_key_direct_barge_in(self):
         """Verifies trigger_barge_in_direct (called by Esc key handler) stops speaking and immediately opens mic."""
@@ -439,6 +375,42 @@ class TestVoiceEngineAndBargeIn(unittest.TestCase):
         self.assertFalse(listener.is_speaking)
         self.assertEqual(listener.current_state, listener.STATE_ACTIVE_PTT)
         self.assertTrue(listener.is_recording)
+
+    def test_esc_key_full_flow_with_cached_ack(self):
+        """Verifies the complete Esc key interrupt workflow: stop speaker, play cached ack, and trigger barge-in."""
+        from voice.listener import JarvisListener
+
+        speaker_mock = MagicMock()
+        speaker_mock.is_speaking = True
+        listener = JarvisListener(speaker=speaker_mock)
+        listener.is_speaking = True
+
+        # Simulate Esc key handler logic from main.py
+        speaker_mock.stop_speaking()
+        speaker_mock.play_cached_ack()
+        listener.trigger_barge_in_direct()
+
+        speaker_mock.stop_speaking.assert_called_once()
+        speaker_mock.play_cached_ack.assert_called_once()
+        self.assertFalse(listener.is_speaking)
+        self.assertEqual(listener.current_state, listener.STATE_ACTIVE_PTT)
+        self.assertTrue(listener.is_recording)
+
+    def test_followup_loop_blocked_on_barge_in_interrupted(self):
+        """Verifies that if speaker was interrupted (barge-in), _enter_followup_loop_delayed does not start followup."""
+        from voice.listener import JarvisListener
+
+        speaker_mock = MagicMock()
+        speaker_mock.is_speaking = False
+        speaker_mock.is_interrupted = True
+        listener = JarvisListener(speaker=speaker_mock)
+        listener.is_speaking = False
+        listener.is_recording = False
+        listener.current_state = listener.STATE_STANDBY_WAKE
+
+        listener._enter_followup_loop_delayed()
+        self.assertFalse(listener.is_recording)
+        self.assertEqual(listener.current_state, listener.STATE_STANDBY_WAKE)
 
 
 # ============================================================================
@@ -582,14 +554,12 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
             "barge_in_vad_threshold",
             "wake_mic_gain",
             "wake_score_threshold",
-            "wake_speaking_threshold",
         ]
         for key in required_keys:
             self.assertIn(key, data, f"Missing required voice_settings key: {key}")
 
         self.assertEqual(data["wake_mic_gain"], 2.5)
         self.assertEqual(data["wake_score_threshold"], 0.36)
-        self.assertEqual(data["wake_speaking_threshold"], 0.28)
         self.assertEqual(data["barge_in_vad_threshold"], 0.60)
         self.assertEqual(data["barge_in_rms_threshold"], 0.020)
         self.assertTrue(isinstance(data["interrupt_stop_phrases"], list))

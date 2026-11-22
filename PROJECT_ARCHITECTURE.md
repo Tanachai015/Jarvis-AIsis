@@ -191,11 +191,13 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
    - ตัดส่งคำสั่งอัตโนมัติเมื่อหยุดพูดครบ 3.0 วินาที (`post_speech_silence_sec`)
    - ถอดความด้วย Groq Cloud STT (`whisper-large-v3-turbo`, ~0.2s) สำรองด้วย Local Faster-Whisper
    - **Exit Phrase Detection:** หากพบคำปิดบทสนทนา (เช่น *"พักก่อน"*, *"ขอบคุณครับ"*) จะตั้งค่า `suppress_next_followup = True`, ตอบรับสั้นๆ และกลับสู่ `STANDBY_WAKE` โดยไม่เปิดลูปต่อ
-3. **`SPEAKING_MONITOR` (โหมดควบคุมขณะ Jarvis กำลังพูด — v1.8.4):**
-   - **ช่องทางที่ 1 (ปุ่ม Esc — Emergency Stop):** กดปุ่ม Esc เพื่อตัดเสียงพูดทันที ตอบรับ "Ok ครับ" และเริ่มฟังคำสั่งใหม่ (Latency 0ms)
-   - **ช่องทางที่ 2 (ทางด่วน Hey Jarvis — Non-Blocking):** รัน `OpenWakeWord` อิสระตลอดเวลาขณะพูดด้วยเกณฑ์พิเศษ `"wake_speaking_threshold": 0.28` (ชดเชยการรบกวนของเสียงลำโพง) ไม่ขึ้นกับ VAD พร้อมแสดง Log เมื่อคะแนน $\ge 0.20$ สั่งตัดเสียงทันทีเมื่อปลุกติด
-   - **ช่องทางที่ 3 (คำสั่งเบรก 2 พยางค์ผ่าน Fixed Rolling Window 1.6s):** ยกเลิกการรอความเงียบ 0.45s โดยเก็บเสียงลง Rolling Buffer ขนาด `1.6 วินาที` (25,600 samples @ 16kHz) และตรวจเช็กทุกๆ `1.2 วินาที` ผ่านเธรดแยกพร้อมตัวล็อก `is_checking_stop_phrase` เพื่อป้องกัน API Overload
-   - **Whole-Chunk Self-Echo Filter:** นำข้อความที่ถอดได้มาเทียบกับ `speaker.current_spoken_text` ด้วย `RapidFuzz` หากเหมือนกัน $\ge 60\%$ จะถือว่าเป็นเสียงสะท้อนจากลำโพงตัวเองและทิ้งทันที โดย**ไม่ตัดเสียง** และ**ไม่ส่งเข้าสมองเด็ดขาด**
+3. **`SPEAKING_MONITOR` (โหมดควบคุมขณะ Jarvis กำลังพูด — v1.8.4 Zero-Overhead):**
+   - **ปุ่ม Esc (Direct Instant Barge-in — Keycode 53):** ใช้ปุ่ม `Esc` ผ่าน Quartz System EventTap เป็นกลไกตัดเสียงพูดทันที (Latency 0ms) เมื่อกดปุ่ม ระบบจะ:
+     1. สั่ง `speaker.stop_speaking()` หยุดเสียงพูดทันที
+     2. เรียก `speaker.play_cached_ack()` เล่นเสียง "Ok ครับ" สั้นๆ ยืนยัน
+     3. เรียก `listener.trigger_barge_in_direct()` เปลี่ยนสถานะเป็น `ACTIVE_PTT` พร้อมรับคำสั่งใหม่ทันที
+   - **Zero API / CPU Overhead:** ขณะที่ Jarvis กำลังอ่านข้อความ ไมโครโฟนจะปิดการส่งข้อมูลเข้าคิว (Drain Audio Queue) ไม่มีการส่งเสียงขึ้น Groq Whisper และไม่รันโมเดลคำปลุกซ้อน เพื่อป้องกันปัญหาเสียงลำโพงรบกวนไมค์ (Acoustic Feedback Loop) และประหยัดโควต้า API 100%
+   - **Future Roadmap (v1.9.0+):** การพูดแทรกด้วยเสียง (Full-Duplex Voice Barge-in) ถูกกำหนดแผนงานพัฒนาโดยใช้ **macOS Native Audio Unit (`AUVoiceProcessingIO`)** ซึ่งมีระบบ Acoustic Echo Cancellation (AEC) ระดับ Hardware/CoreAudio เพื่อหักลบสัญญาณเสียงลำโพงออกจากไมโครโฟนโดยตรง
 
 ### 3.11 ระบบสังเคราะห์เสียงพูดและ Pre-Cached Acks (`voice/speaker.py`)
 - สลับโทนเสียงภาษาไทย (`th-TH-NiwatNeural`) และอังกฤษ (`en-GB-RyanNeural`) อัตโนมัติ
@@ -230,7 +232,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 [ผู้ใช้เรียกใช้งานผ่าน 3 ช่องทาง]
   ├── ช่องทาง 1: กดปุ่มลัด Cmd+Shift+J (Quartz Event Tap ดูดกลืนคีย์)
   ├── ช่องทาง 2: พูดคำปลุก "Hey Jarvis" (OpenWakeWord + wake_mic_gain 2.5x)
-  └── ช่องทาง 3: กดปุ่ม Esc หรือพูด "หยุดก่อนจาร์วิส" ระหว่างที่ Jarvis กำลังพูด
+  └── ช่องทาง 3: กดปุ่ม Esc (Direct Barge-in) เพื่อตัดเสียงพูดและสั่งงานใหม่ทันที
          │
          ▼
  [JarvisListener Single-Pipeline (voice/listener.py)]
@@ -240,19 +242,8 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
          │      • เมื่อคะแนน 'hey_jarvis' >= 0.36 ➔ เล่นเสียง Ack ➔ เข้าสู่ ACTIVE_PTT
          │
          ├── [สถานะ SPEAKING_MONITOR (ขณะ Jarvis กำลังพูด)]:
-         │      ├── ทางด่วน 1: กดปุ่ม Esc (Keycode 53) ➔ stop_speaking() ➔ play_cached_ack() ➔ ACTIVE_PTT
-         │      ├── ทางด่วน 2: เรียก "Hey Jarvis" ➔ stop_speaking() ➔ play_cached_ack() ➔ ACTIVE_PTT
-         │      └── ทางคำสั่งเบรก: ตรวจจับเสียงพูดช่วง 0.55s–2.2s
-         │            │
-         │            ├──> [Whole-Chunk Self-Echo Filter (RapidFuzz >= 60%)]
-         │            │         │ (ตรงกับข้อความที่ Jarvis กำลังอ่าน)
-         │            │         ▼
-         │            │    [ทิ้งเสียงสะท้อนทันที ไม่ตัดเสียง และไม่ส่งเข้าสมอง]
-         │            │
-         │            └──> [ตรวจจับคำใน interrupt_stop_phrases]
-         │                      │ (พบคำว่า "หยุดก่อน", "พอก่อนจาร์วิส", "ok stop")
-         │                      ▼
-         │                 [stop_speaking() ➔ เล่นเสียง "Ok ครับ" ➔ ACTIVE_PTT]
+         │      • Drain Audio Queue ไม่ส่งเสียงขึ้น Groq STT และไม่รันโมเดลปลุก (Zero Overhead)
+         │      • กดปุ่ม Esc (Keycode 53) ➔ stop_speaking() ➔ play_cached_ack() ➔ ACTIVE_PTT ทันที
          │
          └── [สถานะ ACTIVE_PTT]:
                 • Silero VAD ตรวจจับเสียงมนุษย์แท้จริง ตัดส่งเมื่อหยุดพูดครบ 3.0s
@@ -342,12 +333,10 @@ python3 tests/run_backtest.py
 2. **Suite 2: Voice Engine & State Transitions (`voice/listener.py` & `voice/speaker.py`) — 12/12 PASS:**
    - ตรวจสอบ Standby Silence และ OpenWakeWord int16 PCM 1280-sample Accumulation
    - ตรวจสอบตัวขยายสัญญาณไมค์ **`wake_mic_gain: 2.5x`** ก่อนป้อนเข้าโมเดล
-   - ตรวจสอบ **Wake Word Interrupt During Speech (`wake_speaking_threshold: 0.28`)**: เรียก "Hey Jarvis" ขณะผู้ช่วยกำลังพูดเพื่อเบรกและเริ่มรับคำสั่งใหม่ทันที
    - ตรวจสอบการตัดจบลูปด้วยคำปิดสนทนา พร้อมตั้งแฟล็ก `suppress_next_followup` ระงับการเด้ง Followup ซ้ำ
-   - ตรวจสอบ **Context-Aware Interrupt:** คำสั่งเบรก (`"หยุดก่อนจาร์วิส"`) ตรวจจับผ่าน Rolling Window 1.6s ทุก 1.2s สั่งตัดเสียง, เล่นเสียง "Ok ครับ", และเข้าสู่ `ACTIVE_PTT`
-   - ตรวจสอบ **Whole-Chunk Self-Echo Filter:** เสียงสะท้อนของลำโพงตัวเอง ($\ge 60\%$) ถูกทิ้งทันที ไม่ตัดเสียง และไม่ส่งเข้าสมอง
-   - ตรวจสอบ **Non-Stop Utterance Rejection:** ประโยคทั่วไปที่ไม่ใช่คำเบรกขณะพูดถูกละเลยเงียบๆ ไม่ตัดเสียง
-   - ตรวจสอบการทำงานของปุ่ม **`Esc` (Direct Barge-in)**
+   - ตรวจสอบ **Zero-Overhead Speaking Monitor:** เมื่อผู้ช่วยกำลังพูด จะไม่มีการส่งเสียงเข้า STT หรือรันโมเดลปลุกซ้อน (Zero API & CPU overhead)
+   - ตรวจสอบการทำงานของปุ่ม **`Esc` (Direct Barge-in)**: ตัดเสียงพูดทันที (`stop_speaking`), เล่นเสียงยืนยัน `"Ok ครับ"` (`play_cached_ack`), และเข้าสู่ `ACTIVE_PTT`
+   - ตรวจสอบการบล็อก Followup Loop เมื่อผู้ช่วยถูกสั่งเบรกด้วย Barge-in
 3. **Suite 3: Brain Tiered Context & OS Subprocess Sandbox (`core/brain.py` & `core/tools.py`) — 4/4 PASS:**
    - ตรวจสอบการแยกแท็ก `[SPEAK]` และ Fallback กรองโค้ดบล็อก
    - ตรวจสอบการประกอบ Tiered Context (`L0`, `L1`, `L2`) บนโฟลเดอร์จำลองโดยไม่แตะต้องไฟล์หน่วยความจำจริง
