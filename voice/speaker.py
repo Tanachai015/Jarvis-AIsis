@@ -23,6 +23,33 @@ from core.event_bus import event_bus
 
 # Cache directory for wake acknowledgment audios
 CACHE_ACK_DIR = "/tmp/jarvis_acks"
+CACHED_OK_KRUB_PATH = str(config.PROJECT_ROOT / "memory" / "cached_ok_krub.mp3")
+
+
+def ensure_cached_ok_krub() -> str:
+    """
+    Ensures memory/cached_ok_krub.mp3 exists.
+    Synthesizes 'Ok ครับ' using edge_tts with th-TH-NiwatNeural if missing or empty.
+    Returns the file path.
+    """
+    target_path = CACHED_OK_KRUB_PATH
+    if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+        return target_path
+
+    try:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        comm = edge_tts.Communicate(
+            text="Ok ครับ",
+            voice=config.TTS_VOICE_TH,
+            pitch=config.TTS_PITCH_TH,
+            rate=config.TTS_RATE_TH,
+            volume=config.TTS_VOLUME_TH
+        )
+        asyncio.run(comm.save(target_path))
+        print(f"[Speaker] ✅ Cached 'Ok ครับ' audio generated at: {target_path}")
+    except Exception as e:
+        print(f"[Speaker] ⚠️ Failed to generate cached 'Ok ครับ': {e}")
+    return target_path
 
 
 def ensure_cached_ack_phrases(phrases: list[str]) -> list[str]:
@@ -146,8 +173,10 @@ class JarvisSpeaker(threading.Thread):
         self.current_process: Optional[subprocess.Popen] = None
         self.is_interrupted = False
         self.is_speaking = False
+        self.current_spoken_text: str = ""
         self._playback_lock = threading.Lock()
         self._init_audio_player()
+        ensure_cached_ok_krub()
 
     def _init_audio_player(self):
         """Initializes fallback audio player for non-macOS systems."""
@@ -226,6 +255,7 @@ class JarvisSpeaker(threading.Thread):
         output_file = "/tmp/jarvis_tts.mp3"
 
         self.is_speaking = True
+        self.current_spoken_text = speech_text
         event_bus.state_changed.emit("speaking")
 
         try:
@@ -249,6 +279,7 @@ class JarvisSpeaker(threading.Thread):
             self._play_audio_file(output_file)
         finally:
             self.is_speaking = False
+            self.current_spoken_text = ""
             # Cleanup temporary file if needed
             if os.path.exists(output_file):
                 try:
@@ -308,6 +339,34 @@ class JarvisSpeaker(threading.Thread):
 
         print("[Speaker] 🛑 Speech interrupted immediately (Barge-in).")
         event_bus.state_changed.emit("idle")
+
+    def play_cached_ack(self):
+        """
+        Plays cached 'Ok ครับ' synchronously via native macOS afplay (or pygame),
+        blocking until complete to give instant audible feedback without latency.
+        """
+        ack_file = ensure_cached_ok_krub()
+        if os.path.exists(ack_file) and os.path.getsize(ack_file) > 0:
+            if sys.platform == "darwin":
+                try:
+                    subprocess.run(
+                        ["/usr/bin/afplay", ack_file],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False
+                    )
+                    time.sleep(0.08)
+                except Exception as e:
+                    print(f"[Speaker] afplay cached ack error: {e}")
+            elif self._pygame_initialized:
+                try:
+                    import pygame
+                    pygame.mixer.music.load(ack_file)
+                    pygame.mixer.music.play()
+                    while pygame.mixer.music.get_busy():
+                        time.sleep(0.02)
+                except Exception as e:
+                    print(f"[Speaker] pygame cached ack error: {e}")
 
     def _play_audio_file(self, file_path: str):
         """Plays the mp3 audio file using native macOS afplay or pygame with interrupt support."""

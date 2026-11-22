@@ -147,11 +147,17 @@ class JarvisListener(threading.Thread):
         self.wake_words = [w.strip().lower() for w in defaults["wake_words"] if w.strip()]
         self.wake_ack_phrases = defaults["wake_ack_phrases"]
         self.exit_phrases = [p.strip().lower() for p in defaults["exit_conversation_phrases"] if p.strip()]
+        self.interrupt_stop_phrases = [p.strip().lower() for p in defaults.get("interrupt_stop_phrases", [
+            "หยุดก่อน", "โอเคหยุด", "โอเคหยุดก่อน", "หยุดก่อนจาร์วิส", "จาร์วิสหยุดก่อน",
+            "โอเคพอ", "พอก่อน", "พอก่อนจาร์วิส", "จาร์วิสพอก่อน",
+            "ok stop", "stop stop", "stop please", "please stop"
+        ]) if p.strip()]
         self.post_speech_silence = float(defaults["post_speech_silence_sec"])
         self.followup_timeout = float(defaults["followup_timeout_sec"])
         self.wake_rms_threshold = float(defaults["wake_rms_threshold"])
         self.wake_model_name = str(defaults.get("wake_model_name", "hey_jarvis"))
-        self.wake_score_threshold = float(defaults.get("wake_score_threshold", 0.34))
+        self.wake_mic_gain = float(defaults.get("wake_mic_gain", 2.5))
+        self.wake_score_threshold = float(defaults.get("wake_score_threshold", 0.36))
         self.vad_speech_threshold = float(defaults.get("vad_speech_threshold", 0.5))
         self.barge_in_vad_threshold = float(defaults.get("barge_in_vad_threshold", 0.60))
         self.barge_in_enabled = bool(defaults.get("barge_in_enabled", True))
@@ -159,10 +165,12 @@ class JarvisListener(threading.Thread):
         self.barge_in_rms_threshold = float(defaults.get("barge_in_rms_threshold", 0.020))
         self.speech_energy_threshold = config.VOICE_ENERGY_THRESHOLD
 
-        # State tracking for barge-in detection
+        # State tracking for barge-in and speaking monitor
         self.barge_in_buffer: List[np.ndarray] = []
         self.barge_in_frames_count = 0
         self.barge_in_silence_grace_frames = 0
+        self.speaking_candidate_chunks: List[np.ndarray] = []
+        self.speaking_silence_frames: int = 0
 
         # Audio buffer for OpenWakeWord 1280-sample (80ms) accumulation
         self.oww_audio_buffer: np.ndarray = np.empty(0, dtype=np.int16)
@@ -254,6 +262,8 @@ class JarvisListener(threading.Thread):
             self.barge_in_buffer.clear()
             self.barge_in_frames_count = 0
             self.barge_in_silence_grace_frames = 0
+            self.speaking_candidate_chunks.clear()
+            self.speaking_silence_frames = 0
             self.oww_audio_buffer = np.empty(0, dtype=np.int16)
             self._reset_vad_states()
         elif clean_state == "thinking":
@@ -262,6 +272,8 @@ class JarvisListener(threading.Thread):
             self.barge_in_buffer.clear()
             self.barge_in_frames_count = 0
             self.barge_in_silence_grace_frames = 0
+            self.speaking_candidate_chunks.clear()
+            self.speaking_silence_frames = 0
             self.oww_audio_buffer = np.empty(0, dtype=np.int16)
             self._reset_vad_states()
         elif clean_state in ("idle", "running_tool"):
@@ -271,6 +283,8 @@ class JarvisListener(threading.Thread):
             self.barge_in_buffer.clear()
             self.barge_in_frames_count = 0
             self.barge_in_silence_grace_frames = 0
+            self.speaking_candidate_chunks.clear()
+            self.speaking_silence_frames = 0
             self.oww_audio_buffer = np.empty(0, dtype=np.int16)
             self._reset_vad_states()
 
@@ -300,6 +314,94 @@ class JarvisListener(threading.Thread):
                 print(f"[Listener] 🔄 Continuous Followup Loop active (Window: {self.followup_timeout}s)...")
                 self.current_state = self.STATE_FOLLOWUP_LOOP
                 self._start_recording(is_followup=True)
+
+    def trigger_barge_in_direct(self):
+        """Called directly by global hotkey (Esc key) or wake/stop interrupt to start listening immediately."""
+        self.is_speaking = False
+        self.barge_in_buffer.clear()
+        self.speaking_candidate_chunks.clear()
+        self.speaking_silence_frames = 0
+        self.oww_audio_buffer = np.empty(0, dtype=np.int16)
+        self._reset_vad_states()
+        with self.state_lock:
+            self.current_state = self.STATE_ACTIVE_PTT
+            self._start_recording(is_followup=False)
+
+    def _check_speaking_interrupt_candidate(self, candidate_chunks: List[np.ndarray]):
+        """
+        Transcribes a candidate audio slice captured while speaker is speaking.
+        Performs Whole-Chunk Self-Echo Filtering against current_spoken_text and checks for interrupt_stop_phrases.
+        NEVER emits user_message_received or dispatches to JarvisBrain.
+        """
+        try:
+            flat_chunks = [np.asarray(c, dtype=np.float32).reshape(-1) for c in candidate_chunks if len(c) > 0]
+            if not flat_chunks:
+                return
+            audio_data = np.concatenate(flat_chunks, axis=0)
+
+            # Fast STT
+            transcribed = None
+            if config.STT_MODE == "groq" and config.GROQ_API_KEY:
+                transcribed = self._transcribe_groq(audio_data)
+            if transcribed is None:
+                transcribed = self._transcribe_local(audio_data)
+
+            if not transcribed or not transcribed.strip():
+                return
+
+            clean_text = transcribed.strip()
+            print(f"[Listener] 🔍 Speaking interrupt candidate: \"{clean_text}\"")
+
+            # 1. Whole-Chunk Self-Echo Filter:
+            # Compare transcribed text against what speaker is currently reading
+            current_spoken = ""
+            if self.speaker and hasattr(self.speaker, "current_spoken_text"):
+                current_spoken = getattr(self.speaker, "current_spoken_text", "")
+
+            if current_spoken:
+                try:
+                    from rapidfuzz import fuzz
+                    ratio = fuzz.partial_ratio(clean_text.lower(), current_spoken.lower())
+                    if ratio >= 60:
+                        print(f"[Listener] 🛡️ Discarded self-echo from speaker (fuzz ratio {ratio:.1f}% >= 60%): \"{clean_text}\"")
+                        return
+                except Exception as ex:
+                    print(f"[Listener] Self-echo filter note: {ex}")
+
+            # 2. Check for stop phrases (multi-syllable, e.g. "หยุดก่อน", "จาร์วิสหยุด", "ok stop")
+            norm_text = re.sub(r'[\s\.,!_?\'"\-:;()\[\]{}—–~`*#]', '', clean_text.lower())
+            is_stop = False
+            matched_stop = None
+
+            for sp in self.interrupt_stop_phrases:
+                norm_sp = re.sub(r'[\s\.,!_?\'"\-:;()\[\]{}—–~`*#]', '', sp.lower())
+                if norm_sp and norm_sp in norm_text:
+                    is_stop = True
+                    matched_stop = sp
+                    break
+
+            if not is_stop and len(clean_text) < 40:
+                try:
+                    from core.thai_nlp import fuzzy_match_phrase
+                    match = fuzzy_match_phrase(clean_text, self.interrupt_stop_phrases, threshold=75.0)
+                    if match:
+                        is_stop = True
+                        matched_stop = f"{match} (fuzzy)"
+                except Exception:
+                    pass
+
+            if is_stop:
+                print(f"[Listener] 🛑 Stop phrase confirmed ('{matched_stop}'): \"{clean_text}\". Interrupting speaker...")
+                event_bus.task_log_updated.emit("Interrupt", f"ตรวจพบคำสั่งหยุด: \"{clean_text}\"")
+                if self.speaker:
+                    self.speaker.stop_speaking()
+                    self.speaker.play_cached_ack()
+                self.trigger_barge_in_direct()
+            else:
+                print(f"[Listener] ℹ️ Candidate ignored (not a stop phrase): \"{clean_text}\"")
+
+        except Exception as e:
+            print(f"[Listener] Error in speaking interrupt candidate check: {e}")
 
     def toggle_push_to_talk(self):
         """
@@ -708,7 +810,7 @@ class JarvisListener(threading.Thread):
                 while self.is_running:
                     now = time.time()
 
-                    # 0. Barge-in Monitoring during Speaker Playback (Dual Guard: Silero VAD + RMS)
+                    # 0. Context-Aware Interrupt during Speaker Playback (SPEAKING_MONITOR)
                     speaker_busy = self.is_speaking or (self.speaker is not None and getattr(self.speaker, "is_speaking", False))
                     if speaker_busy:
                         if self.barge_in_enabled:
@@ -716,48 +818,51 @@ class JarvisListener(threading.Thread):
                                 chunk = self.audio_queue.get(timeout=0.04)
                                 chunk_1d = np.asarray(chunk, dtype=np.float32).reshape(-1)
                                 if len(chunk_1d) == 512:
-                                    rms = float(np.sqrt(np.mean(chunk_1d**2)))
-                                    is_human = self._is_human_speech(chunk_1d, threshold=self.barge_in_vad_threshold)
+                                    # Way 1: Fast Wake Word detection ("Hey Jarvis") during speech with wake_mic_gain
+                                    if self.oww_model is not None and self.wake_trigger_enabled:
+                                        amplified = chunk_1d * self.wake_mic_gain
+                                        chunk_int16 = (np.clip(amplified, -1.0, 1.0) * 32767.0).astype(np.int16)
+                                        self.oww_audio_buffer = np.concatenate((self.oww_audio_buffer, chunk_int16)) if len(self.oww_audio_buffer) > 0 else chunk_int16
 
-                                    if is_human and rms >= self.barge_in_rms_threshold:
-                                        self.barge_in_silence_grace_frames = 0
-                                        self.barge_in_buffer.append(chunk_1d)
-                                        self.barge_in_frames_count += 1
-                                        accumulated_sec = len(self.barge_in_buffer) * self.BLOCK_SIZE / self.SAMPLE_RATE
+                                        while len(self.oww_audio_buffer) >= 1280:
+                                            oww_chunk = self.oww_audio_buffer[:1280]
+                                            self.oww_audio_buffer = self.oww_audio_buffer[1280:]
+                                            scores = self.oww_model.predict(oww_chunk)
+                                            score = float(scores.get(self.wake_model_name, 0.0))
 
-                                        if accumulated_sec >= self.barge_in_min_duration:
-                                            print(
-                                                f"[Listener] ⚡ Barge-in trigger! Continuous user speech confirmed via Silero VAD "
-                                                f"({accumulated_sec:.2f}s >= {self.barge_in_min_duration}s, RMS: {rms:.4f} >= {self.barge_in_rms_threshold}). "
-                                                f"Stopping speaker immediately..."
-                                            )
-                                            event_bus.task_log_updated.emit(
-                                                "Barge-in Triggered",
-                                                f"⚡ ตรวจพบเสียงผู้ใช้พูดแทรก (Silero VAD, {accumulated_sec:.2f}s) - ยุติเสียงตอบและเริ่มรับคำสั่งใหม่ทันที"
-                                            )
-                                            # Stop speaker immediately
-                                            if self.speaker:
-                                                self.speaker.stop_speaking()
-                                            self.is_speaking = False
+                                            if score >= self.wake_score_threshold:
+                                                print(f"[Listener] ⚡ Fast Wake Word Interrupt ('{self.wake_model_name}') during speech (Score: {score:.3f} >= {self.wake_score_threshold}). Stopping speaker...")
+                                                event_bus.task_log_updated.emit("Interrupt", f"⚡ เรียก 'Hey Jarvis' แทรกขณะพูด (Score: {score:.3f})")
+                                                if self.speaker:
+                                                    self.speaker.stop_speaking()
+                                                    self.speaker.play_cached_ack()
+                                                self.trigger_barge_in_direct()
+                                                break
 
-                                            # Transition state to ACTIVE_PTT and start recording with pre-roll
-                                            with self.state_lock:
-                                                pre_roll = list(self.barge_in_buffer)
-                                                self.barge_in_buffer.clear()
-                                                self.barge_in_frames_count = 0
-                                                self.barge_in_silence_grace_frames = 0
-                                                self._reset_vad_states()
-                                                self.current_state = self.STATE_ACTIVE_PTT
-                                                self._start_recording(is_followup=False, initial_chunks=pre_roll)
-                                            continue
+                                    # Way 2: Stop Phrase detection (0.55s - 2.2s + 0.45s pause)
+                                    is_human = self._is_human_speech(chunk_1d, threshold=self.vad_speech_threshold)
+                                    if is_human:
+                                        self.speaking_candidate_chunks.append(chunk_1d)
+                                        self.speaking_silence_frames = 0
+                                        # Cap buffer to ~2.5s (80 frames)
+                                        if len(self.speaking_candidate_chunks) > 80:
+                                            self.speaking_candidate_chunks.pop(0)
                                     else:
-                                        # Allow up to 2 grace frames (~64ms) for unvoiced consonants and syllable gaps
-                                        if len(self.barge_in_buffer) > 0:
-                                            self.barge_in_silence_grace_frames += 1
-                                            if self.barge_in_silence_grace_frames > 2:
-                                                self.barge_in_buffer.clear()
-                                                self.barge_in_frames_count = 0
-                                                self.barge_in_silence_grace_frames = 0
+                                        if len(self.speaking_candidate_chunks) > 0:
+                                            self.speaking_silence_frames += 1
+                                            # 14 frames * 32ms = ~0.448s pause
+                                            if self.speaking_silence_frames >= 14:
+                                                duration = len(self.speaking_candidate_chunks) * self.BLOCK_SIZE / self.SAMPLE_RATE
+                                                candidate_to_check = list(self.speaking_candidate_chunks)
+                                                self.speaking_candidate_chunks.clear()
+                                                self.speaking_silence_frames = 0
+
+                                                if 0.55 <= duration <= 2.2:
+                                                    threading.Thread(
+                                                        target=self._check_speaking_interrupt_candidate,
+                                                        args=(candidate_to_check,),
+                                                        daemon=True
+                                                    ).start()
                             except queue.Empty:
                                 pass
                         else:
@@ -827,8 +932,9 @@ class JarvisListener(threading.Thread):
                                     continue
 
                                 if self.oww_model is not None:
-                                    # Convert 1D float32 audio chunk to 16-bit PCM for OpenWakeWord
-                                    chunk_int16 = (np.clip(chunk_1d, -1.0, 1.0) * 32767.0).astype(np.int16)
+                                    # Convert 1D float32 audio chunk to 16-bit PCM for OpenWakeWord with wake_mic_gain
+                                    amplified = chunk_1d * self.wake_mic_gain
+                                    chunk_int16 = (np.clip(amplified, -1.0, 1.0) * 32767.0).astype(np.int16)
                                     self.oww_audio_buffer = np.concatenate((self.oww_audio_buffer, chunk_int16)) if len(self.oww_audio_buffer) > 0 else chunk_int16
 
                                     # OpenWakeWord performs optimal feature extraction on 1280-sample chunks (80ms @ 16kHz)

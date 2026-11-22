@@ -75,11 +75,14 @@ def check_accessibility_permission() -> bool:
         return False
 
 
-def start_global_hotkey_listener():
+def start_global_hotkey_listener(speaker=None, listener=None, overlay_chat=None):
     """
     Sets up system-level global hotkey listener.
     On macOS: uses Quartz CGEventTapCreate in a dedicated background thread.
-    Intercepts Cmd+Shift+J (and Alt+Space) from ANY active window/application.
+    Intercepts:
+    - Esc (keycode 53): Interrupts speaker if speaking, or closes overlay chat if visible
+    - Cmd+Shift+J (keycode 38): Toggles voice recording
+    - Alt+Space (keycode 49): Toggles overlay chat
     Returns None in the callback to swallow the event so active apps do not react.
     """
     if sys.platform == "darwin":
@@ -103,6 +106,22 @@ def start_global_hotkey_listener():
                         is_cmd = bool(flags & Quartz.kCGEventFlagMaskCommand)
                         is_shift = bool(flags & Quartz.kCGEventFlagMaskShift)
                         is_alt = bool(flags & Quartz.kCGEventFlagMaskAlternate)
+
+                        # Esc Key (Keycode 53 on macOS)
+                        if keycode == 53:
+                            # 1. If speaker is speaking, interrupt immediately!
+                            if speaker and getattr(speaker, "is_speaking", False):
+                                print("[Hotkey] 🛑 Esc key pressed: Interrupting speaker immediately...")
+                                speaker.stop_speaking()
+                                speaker.play_cached_ack()
+                                if listener:
+                                    listener.trigger_barge_in_direct()
+                                return None  # Swallow Esc
+
+                            # 2. If overlay chat is open and active, toggle / hide it
+                            if overlay_chat and overlay_chat.isVisible():
+                                trigger_toggle_overlay()
+                                return None
 
                         # Cmd + Shift + J (Keycode 38 is 'J' on macOS)
                         if is_cmd and is_shift and keycode == 38:
@@ -139,7 +158,7 @@ def start_global_hotkey_listener():
                 current_loop = Quartz.CFRunLoopGetCurrent()
                 Quartz.CFRunLoopAddSource(current_loop, run_loop_source, Quartz.kCFRunLoopCommonModes)
                 Quartz.CGEventTapEnable(tap, True)
-                print("[Hotkey] ✅ Quartz System EventTap active: Cmd+Shift+J (Voice Toggle) | Alt+Space (Chat)")
+                print("[Hotkey] ✅ Quartz System EventTap active: Esc (Interrupt/Close) | Cmd+Shift+J (Voice) | Alt+Space (Chat)")
                 Quartz.CFRunLoopRun()
 
             def _setup_cocoa_fallback():
@@ -156,6 +175,16 @@ def start_global_hotkey_listener():
                         try:
                             flags = event.modifierFlags()
                             code = event.keyCode()
+                            if code == 53:
+                                if speaker and getattr(speaker, "is_speaking", False):
+                                    speaker.stop_speaking()
+                                    speaker.play_cached_ack()
+                                    if listener:
+                                        listener.trigger_barge_in_direct()
+                                    return
+                                if overlay_chat and overlay_chat.isVisible():
+                                    trigger_toggle_overlay()
+                                    return
                             is_alt_space = bool(flags & NSEventModifierFlagOption) and code == 49
                             is_cmd_shift_j = (
                                 bool(flags & NSEventModifierFlagCommand)
@@ -249,7 +278,7 @@ def main():
     event_bus.assistant_speak_ready.connect(speaker.speak)
 
     # 6. Start Global Hotkey Listener
-    _hotkey_monitor = start_global_hotkey_listener()
+    _hotkey_monitor = start_global_hotkey_listener(speaker=speaker, listener=listener, overlay_chat=overlay_chat)
 
     # Allow Python to handle Ctrl+C in terminal
     signal.signal(signal.SIGINT, lambda *args: app.quit())
