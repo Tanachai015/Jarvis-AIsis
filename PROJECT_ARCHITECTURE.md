@@ -215,17 +215,15 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - `fuzzy_match_phrase()`: จับคู่คำสแลงเพี้ยนด้วย RapidFuzz WRatio สำหรับคำบอกลาและคำสั่งเบรก
 
 ### 3.13 ส่วนติดต่อผู้ใช้ (`ui/`)
-- **Dynamic Island (`ui/dynamic_island.py` — v1.9.1 Multi-Screen Menu Bar Docked & Cyber Mini-Robot Avatar):**
+- **Dynamic Island (`ui/dynamic_island.py` — v1.9.0 iPhone-Pill Dual-Layer & Chill Pixel Life Standby):**
+  - **Coordinated Dual-Layer Architecture:**
+    1. **Menu Bar Standby Pill (`88x22` px):** แสดงผลรูปทรงแคปซูลกลมมนเต็มวงแบบ iPhone (`radius = 11px`) ฝังตัวบนแถบระบบของทุกหน้าจอ ไม่แย่งสายตาตอนทำงาน แสดงผลลัพธ์ **Chill Pixel Life** (14x16 พิกเซลอวตาร 7 สี พร้อม 13 กิจกรรม เช่น เดิน, วิ่งสปีด, แอบส่อง, กิน, นอนหลับ, ทำงานพิมพ์คีย์บอร์ด, ค้นคว้าข้อมูล, อ่านหนังสือ) กั้นด้วยเส้นแบ่ง `|` และกราฟเสียง **4-Bar Pill Waveform** + จุดไฟสถานะไมค์กระพริบตามจังหวะ
+    2. **Expanded Pop-out Window (`360x70` px, radius 18/28):** เมื่อมีสถานะตอบโต้ (`speaking`, `listening`, `thinking`, `running_tool`, `wake_ack`, `confused`) หรือเมื่อคลิกเมาส์ซ้ายที่ตัวแคปซูล จะเด้งสปริง Pop-out (OutBack 320ms) ออกมาแสดงหุ่นยนต์เวกเตอร์ **Cyber Mini-Robot Avatar (60 FPS)** เต็มตัว พร้อมข้อความสถานะ และ 4 ปุ่มสั่งงานด่วน: `🎙️ Voice` (Cmd+Shift+J), `💬 Chat` (Alt+Space), `⚡ Wake: ON/OFF`, และ `⚙️ More`
   - **Multi-Screen Synchronization (`DynamicIslandManager`):** รองรับการแสดงผล Dynamic Island บนทุกหน้าจอที่เชื่อมต่อ (เช่น จอ Built-in ของ MacBook ร่วมกับจอแยก External HDMI/USB-C) สตรีมสถานะและแอนิเมชันพร้อมเพรียงกัน และรองรับ Hotplug หน้าจออัตโนมัติ (`screenAdded` / `screenRemoved`)
-  - **Menu Bar Docked Architecture:** ฝังตัวบน macOS Menu Bar อย่างแนบเนียน ไม่เคยเรียก `hide()` เพื่อหลีกเลี่ยงกระตุก วางระดับหน้าต่างที่ `NSMainMenuWindowLevel + 1` และคงอยู่ข้ามทุก Spaces (`CanJoinAllSpaces | Stationary`)
-  - **Unified Single Interface (Zero Redundant Tray):** ยุบรวมไอคอน System Tray แบบเดิมเข้ามาไว้ภายใน Dynamic Island 100% เพื่อให้ Menu Bar สะอาดตา มีเพียงแคปซูล Dynamic Island เดียว พร้อมคลิกขวาเปิด Cyber Context Menu (สลับเปิดแชท, เปิด/ปิดไมค์, สลับคำปลุก Wake Word, ล้างประวัติ, ออกจากโปรแกรม)
+  - **Unified Single Interface (Zero Redundant Tray):** ยุบรวมไอคอน System Tray แบบเดิมเข้ามาไว้ภายใน Dynamic Island 100% เพื่อให้ Menu Bar สะอาดตา มีเพียงแคปซูล Dynamic Island เดียว พร้อมคลิกขวาเปิด Cyber Context Menu (สลับเปิดแชท, เปิด/ปิดไมค์, สลับคำปลุก Wake Word, ยุบ/ขยายเกาะ, ล้างประวัติ, ออกจากโปรแกรม)
   - **Adaptive Edge & Notch/Tray Collision Engine:** หลบติ่งกล้อง Notch ของ MacBook และสแกนตำแหน่งไอคอน Tray ด้านซ้ายสุดของแต่ละหน้าจออย่างแม่นยำ (Quartz Layer 25 แคช 5 วินาที Zero-overhead)
-  - **2-Stage Spring Pop-out (OutBack 320ms):**
-    - **Folded Mode (`idle`):** แคปซูลมินิแบบพับขนาดกะทัดรัด ($68 \times 24$ px) ฝังตัวเงียบๆ บน Menu Bar แสดงมินิอวตารและไฟสถานะไมค์ รันที่ 30 FPS เพื่อประหยัดพลังงาน
-    - **Expanded Mode (สถานะทำงาน หรือคลิกเลือกโหมด):** เด้งสปริงขยายเป็นแคปซูล $360 \times 70$ px แสดงหุ่นยนต์อวตารเต็มตัวพร้อมแถบเลือกโหมดคำสั่งด่วน 4 ปุ่ม: `🎙️ Voice` (Cmd+Shift+J), `💬 Chat` (Alt+Space), `⚡ Wake: ON/OFF`, และ `⚙️ More`
-  - **Pure Vector Graphics Cyber Mini-Robot Avatar (`QPainter` 100%):** วาดโครงสร้างเวกเตอร์ความคมชัดระดับ Retina ทั้งหมด (หู Antenna, Visor กระจกสะท้อน, ไฟอก Animated Equalizer, ตา Matrix ตาข่าย, ปาก Lip-sync อัตโนมัติ `abs(sin*cos)`, มือลอย Floating Paws) ปราศจากภาพ Raster หรือ GIF ภายนอก
-  - **Autonomous Quirks:** สุ่มแสดง 5 ท่าทางพิเศษยามว่าง (`look_around`, `double_blink`, `hum_hop`, `mini_yawn`, `curious_nod`)
-  - **Interactive Click & Pop-out:** คลิกที่แคปซูลตอนพักจะเด้งสปริงเปิดโหมดออกมาให้เลือกทันที พร้อมระบบพับเก็บอัตโนมัติ (Auto-fold) เมื่อไม่มีการใช้งาน 12 วินาที
+  - **Pure Vector & Pixel Art Graphics (`QPainter` 100%):** วาดโครงสร้างเวกเตอร์และสไปรต์พิกเซลทั้งหมดด้วยโค้ด Python/QPainter ปราศจากไฟล์รูปภาพหรือ GIF ภายนอก รองรับจอภาพ Retina Display คมชัด 100%
+  - **Autonomous Quirks & Chill Pacing:** ระบบสุ่มท่าทางและกิจกรรมว่างของหุ่นยนต์ (เดินไป-มาด้วยความเร็วชิลล์ 5.5 px/s ความถี่ 3.5 Hz แอบส่องขอบเส้นแบ่ง ยืนบิดขี้เกียจ งีบหลับ) พร้อมระบบพับเก็บอัตโนมัติ (Auto-fold) หลังไม่มีการใช้งาน 12 วินาที
 - **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight แยกแท็บสนทนาและข้อมูลดิบ
 
 ### 3.14 หน่วยความจำถาวรและแก่นความคิด (`memory/`)

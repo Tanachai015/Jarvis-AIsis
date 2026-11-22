@@ -788,6 +788,37 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
             painter.end()
             island.close()
 
+    def test_chill_pixel_life_engine_and_standby_render(self):
+        """Verifies ChillPixelLifeEngine kinematics, 13 activities, and 88x22 standby frame rendering."""
+        from ui.pixel_engine import ChillPixelLifeEngine, render_standby_frame
+        from ui.pixel_sprites import SPRITES, PALETTE
+
+        # Verify sprites and palette integrity
+        self.assertEqual(len(PALETTE), 7)
+        for name, frame in SPRITES.items():
+            self.assertEqual(len(frame), 16, f"Sprite {name} row count must be 16")
+            for r in frame:
+                self.assertEqual(len(r), 14, f"Sprite {name} col count must be 14")
+
+        # Verify ChillPixelLifeEngine kinematics
+        engine = ChillPixelLifeEngine()
+        self.assertEqual(engine.action, "walk")
+        engine.update(1.0)
+        self.assertGreater(engine.bot_x, 18.0)
+
+        # Verify trigger wake word state
+        engine.trigger_wake()
+        self.assertEqual(engine.action, "wake")
+
+        # Verify all activities render to crisp 88x22 (176x44 Retina) QImage
+        activities = ["walk", "dash", "peek", "eat", "sleep", "read", "work_typing", "wake"]
+        for act in activities:
+            engine.set_action(act)
+            img = render_standby_frame(engine, scale=2.0, is_wake_on=True, is_light_bg=False)
+            self.assertFalse(img.isNull())
+            self.assertEqual(img.width(), 176)
+            self.assertEqual(img.height(), 44)
+
 
 # ============================================================================
 # RUNNER & FORMATTED TERMINAL REPORTER

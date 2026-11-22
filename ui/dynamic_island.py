@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QWidget, QApplication, QMenu
 
 import config
 from core.event_bus import event_bus
+from ui.pixel_engine import ChillPixelLifeEngine, render_standby_frame
 
 
 class DynamicIsland(QWidget):
@@ -122,11 +123,14 @@ class DynamicIsland(QWidget):
         # Geometry & Dimension Settings
         self.edge = "top"
         self.bar_thickness = 24
-        self.folded_w = 68
-        self.folded_h = 24
+        self.folded_w = 88
+        self.folded_h = 22
         self.expanded_w = 360
         self.expanded_h = 70
         self.menubar_offset_x = 0
+
+        # Chill Pixel Life Standby Engine
+        self.pixel_engine = ChillPixelLifeEngine()
 
         # Auto-fold timer for manual expansion in idle state
         self._auto_fold_timer = QTimer(self)
@@ -254,8 +258,8 @@ class DynamicIsland(QWidget):
 
         # Enforce realistic menu bar height limits
         self.bar_thickness = max(22, min(40, self.bar_thickness))
-        self.folded_h = self.bar_thickness - 2
-        self.folded_w = int(self.folded_h * 2.8)
+        self.folded_h = 22
+        self.folded_w = 88
 
     def _get_leftmost_tray_x(self) -> float:
         """
@@ -612,11 +616,16 @@ class DynamicIsland(QWidget):
             self.update()
 
     def _on_animation_tick(self):
-        """60 FPS / 30 FPS tick updating kinematics and quirks."""
+        """60 FPS / 30 FPS tick updating kinematics, quirks, and Chill Pixel Life standby."""
         now = time.time()
         t = now - self.start_time
 
-        # Autonomous Quirks engine during idle or listening
+        # Update Chill Pixel Life standby engine (30 FPS dt ~ 0.033)
+        if hasattr(self, "pixel_engine"):
+            dt = 0.016 if self.is_expanded else 0.033
+            self.pixel_engine.update(dt)
+
+        # Autonomous Quirks engine during idle or listening (expanded mode)
         if (self.current_state in ("idle", "listening")) and (self.active_quirk is None) and (t >= self.next_auto_quirk_time):
             self.active_quirk = random.choice(self.QUIRK_NAMES)
             self.quirk_start_time = t
@@ -642,45 +651,46 @@ class DynamicIsland(QWidget):
         cfg = self.STATES.get(self.current_state, self.STATES["idle"])
         neon_color = cfg["color"]
 
-        # 1. Capsule Background with Frosting & Cyber Border
-        rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
-        radius = h / 2.0 if is_folded else 18.0
-
-        bg_color = QColor(7, 11, 19, 240)
-        border_alpha = 220 if (self._hovered_capsule and is_folded) else 100
-        border_pen = QPen(QColor(neon_color.red(), neon_color.green(), neon_color.blue(), border_alpha), 1.2)
-        border_pen.setCosmetic(True)
-
-        painter.setBrush(QBrush(bg_color))
-        painter.setPen(border_pen)
-        painter.drawRoundedRect(rect, radius, radius)
-
         t = time.time() - self.start_time
 
-        # 2. Render Avatar
+        # 2. Render Avatar / Standby Pill
         if is_folded:
-            # Folded Mode in Menu Bar (Peek-a-boo mini avatar centered on left)
-            painter.save()
-            # Mini avatar box 20x20
-            scale_s = (h - 4.0) / 48.0
-            painter.translate(6.0, 2.0)
-            painter.scale(scale_s, scale_s)
-            self._draw_cyber_robot(painter, t, cfg, is_mini=True)
-            painter.restore()
-
-            # Status dot on right (indicates wake trigger / mic armed)
-            dot_r = 3.0
-            dot_cx = w - 14.0
-            dot_cy = h / 2.0
-            pulse = 0.5 + 0.5 * math.sin(t * 3.0)
-            if config.WAKE_TRIGGER_ENABLED:
-                dot_alpha = int(140 + 115 * pulse)
-                painter.setBrush(QBrush(QColor(neon_color.red(), neon_color.green(), neon_color.blue(), dot_alpha)))
+            # Standby Mode in Menu Bar: Chill Pixel Life & Pill Waveform (88x22)
+            if hasattr(self, "pixel_engine"):
+                img = render_standby_frame(
+                    self.pixel_engine,
+                    scale=2.0,
+                    is_wake_on=config.WAKE_TRIGGER_ENABLED,
+                    is_light_bg=False
+                )
+                painter.drawImage(QRectF(0, 0, w, h), img)
             else:
-                painter.setBrush(QBrush(QColor(100, 116, 139, 160)))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(QPointF(dot_cx, dot_cy), dot_r, dot_r)
+                rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
+                radius = h / 2.0
+                bg_color = QColor(7, 11, 19, 240)
+                border_alpha = 220 if self._hovered_capsule else 100
+                border_pen = QPen(QColor(neon_color.red(), neon_color.green(), neon_color.blue(), border_alpha), 1.2)
+                border_pen.setCosmetic(True)
+                painter.setBrush(QBrush(bg_color))
+                painter.setPen(border_pen)
+                painter.drawRoundedRect(rect, radius, radius)
+                painter.save()
+                scale_s = (h - 4.0) / 48.0
+                painter.translate(6.0, 2.0)
+                painter.scale(scale_s, scale_s)
+                self._draw_cyber_robot(painter, t, cfg, is_mini=True)
+                painter.restore()
         else:
+            # Expanded Mode: Capsule Background with Frosting & Cyber Border
+            rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
+            radius = 18.0
+            bg_color = QColor(7, 11, 19, 240)
+            border_pen = QPen(QColor(neon_color.red(), neon_color.green(), neon_color.blue(), 100), 1.2)
+            border_pen.setCosmetic(True)
+            painter.setBrush(QBrush(bg_color))
+            painter.setPen(border_pen)
+            painter.drawRoundedRect(rect, radius, radius)
+
             # Expanded Mode: Full 48x48 animated avatar on the left
             painter.save()
             painter.translate(8.0, 11.0)
@@ -1165,3 +1175,9 @@ class DynamicIslandManager:
         """Folds all dynamic islands back into menu bar pills."""
         for island in self.islands:
             island.fold_manually()
+
+    def set_action_all(self, action_name: str):
+        """Sets pixel life action across all island instances (e.g. 'wake', 'walk')."""
+        for island in self.islands:
+            if hasattr(island, "pixel_engine"):
+                island.pixel_engine.set_action(action_name)
