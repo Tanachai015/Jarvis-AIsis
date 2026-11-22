@@ -1,9 +1,10 @@
 """
 Antigravity Bridge Integration for Jarvis Desktop Assistant.
-Optimized for macOS using native pbcopy and osascript (AppleScript),
-with Watchdog file monitoring to track completion results.
+100% Silent Background File-Bridge with Atomic File Write & Deduplication Guard.
+Monitors .jarvis_result.md using Watchdog for asynchronous completion.
 """
 
+import os
 import sys
 import time
 import subprocess
@@ -36,95 +37,6 @@ def set_clipboard_text(text: str) -> bool:
         return True
     except Exception as e:
         print(f"[Bridge] Fallback clipboard error: {e}")
-        return False
-
-
-def focus_antigravity_window(app_title: str = config.ANTIGRAVITY_WINDOW_TITLE) -> bool:
-    """
-    Activates and focuses the Antigravity window using AppleScript on macOS.
-    """
-    if sys.platform != "darwin":
-        print(f"[Bridge] Non-macOS platform ({sys.platform}) - Skipping AppleScript focus.")
-        return True
-
-    # Try activating the application directly or finding its process/window
-    applescript = f'''
-    try
-        tell application "{app_title}" to activate
-        return "true"
-    on error
-        tell application "System Events"
-            set matched to (every process whose name contains "{app_title}")
-            if (count of matched) > 0 then
-                set frontmost of (item 1 of matched) to true
-                return "true"
-            end if
-            repeat with p in (every process whose background only is false)
-                try
-                    repeat with w in (windows of p)
-                        if name of w contains "{app_title}" then
-                            set frontmost of p to true
-                            return "true"
-                        end if
-                    end repeat
-                end try
-            end repeat
-        end tell
-        return "false"
-    end try
-    '''
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", applescript],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        return "true" in result.stdout.lower()
-    except Exception as e:
-        print(f"[Bridge] Error focusing Antigravity via osascript: {e}")
-        return False
-
-
-def send_chat_shortcut_and_paste() -> bool:
-    """
-    Sends Cmd+L to open agent chat, Cmd+V to paste prompt, and Enter to submit
-    using native macOS AppleScript.
-    """
-    if sys.platform != "darwin":
-        # Fallback for other platforms using pyautogui
-        try:
-            import pyautogui
-            pyautogui.hotkey("ctrl", "l")
-            time.sleep(0.3)
-            pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.2)
-            pyautogui.press("enter")
-            return True
-        except Exception as e:
-            print(f"[Bridge] Cross-platform pyautogui error: {e}")
-            return False
-
-    applescript = '''
-    tell application "System Events"
-        delay 0.3
-        keystroke "l" using {command down}
-        delay 0.4
-        keystroke "v" using {command down}
-        delay 0.3
-        key code 36 -- Return key
-    end tell
-    '''
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", applescript],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        return result.returncode == 0
-    except Exception as e:
-        print(f"[Bridge] Error sending keystrokes via osascript: {e}")
         return False
 
 
@@ -180,12 +92,17 @@ class ResultFileHandler(FileSystemEventHandler):
 class AntigravityBridge:
     """
     Coordinates delegation to Antigravity and watches for completion output.
+    Operates 100% silently in background without stealing screen focus.
+    Includes Deduplication Guard to prevent rapid duplicate task triggers.
     """
 
     def __init__(self, on_result_callback: Optional[Callable[[str], None]] = None):
         self.on_result_callback = on_result_callback
         self.observer: Optional[Observer] = None
         self._watch_thread = None
+        self._last_task_prompt: str = ""
+        self._last_task_timestamp: float = 0.0
+        self._task_lock = threading.Lock()
         self.start_watching()
 
     def start_watching(self):
@@ -225,14 +142,45 @@ class AntigravityBridge:
     def delegate_task(self, task_prompt: str) -> str:
         """
         Delegates the task to Antigravity 100% in the background without stealing screen focus.
-        Writes the task instruction to .jarvis_task.md and waits for .jarvis_result.md via Watchdog.
+        Uses Atomic File Write and Deduplication Guard.
         """
+        clean_prompt = task_prompt.strip()
+        if not clean_prompt:
+            return "ไม่พบคำสั่งงานสำหรับ Antigravity"
+
+        now = time.time()
+        with self._task_lock:
+            # Deduplication Guard: Check if duplicate task within 60s or pending
+            is_pending = config.TASK_FILE_PATH.exists() and not config.RESULT_FILE_PATH.exists()
+            if self._last_task_prompt and (now - self._last_task_timestamp < 60.0 or is_pending):
+                is_similar = False
+                if clean_prompt.lower() == self._last_task_prompt.lower():
+                    is_similar = True
+                else:
+                    try:
+                        from rapidfuzz import fuzz
+                        ratio = fuzz.WRatio(clean_prompt.lower(), self._last_task_prompt.lower())
+                        if ratio >= 80.0:
+                            is_similar = True
+                    except Exception:
+                        if clean_prompt[:40].lower() == self._last_task_prompt[:40].lower():
+                            is_similar = True
+
+                if is_similar:
+                    dup_msg = "งานนี้ถูกส่งไปยัง Antigravity เรียบร้อยแล้วและกำลังดำเนินการอยู่เบื้องหลัง กรุณารอผลลัพธ์สักครู่ (ไม่ต้องส่งคำสั่งซ้ำ)"
+                    print(f"[Bridge] 🛡️ Duplicate task blocked by Deduplication Guard: \"{clean_prompt[:40]}...\"")
+                    event_bus.task_log_updated.emit("Bridge Deduplication", dup_msg)
+                    return dup_msg
+
+            self._last_task_prompt = clean_prompt
+            self._last_task_timestamp = now
+
         event_bus.task_log_updated.emit(
             "Delegating to Antigravity (Stealth Background)",
-            f"Task: {task_prompt}\nTarget File: {config.TASK_FILE_PATH}"
+            f"Task: {clean_prompt}\nTarget File: {config.TASK_FILE_PATH}"
         )
 
-        # Clear or prepare previous result file to avoid stale triggers
+        # Clear previous result file to avoid stale triggers
         try:
             if config.RESULT_FILE_PATH.exists():
                 config.RESULT_FILE_PATH.unlink()
@@ -247,27 +195,35 @@ class AntigravityBridge:
             f"- **Target Result File:** `{config.RESULT_FILE_NAME}`\n"
             f"- **Stealth Execution:** ทำงานเบื้องหลัง 100% ไม่แย่งโฟกัสหน้าจอ\n\n"
             f"## คำสั่ง / Prompt:\n"
-            f"{task_prompt.strip()}\n\n"
+            f"{clean_prompt}\n\n"
             f"---\n"
             f"### คำแนะนำสำหรับ Antigravity Agent:\n"
             f"1. ดำเนินการตามคำสั่งข้างต้นใน Workspace ให้เสร็จสมบูรณ์\n"
             f"2. เมื่อดำเนินการเสร็จสิ้น ให้เขียนสรุปผลลัพธ์และความคืบหน้าลงในไฟล์ `{config.RESULT_FILE_NAME}` โดยตรง เพื่อให้ Jarvis รับทราบผลลัพธ์\n"
         )
 
+        # Atomic File Write (.tmp + os.replace)
+        tmp_task_file = config.TASK_FILE_PATH.with_suffix(".tmp")
         try:
-            config.TASK_FILE_PATH.write_text(task_markdown, encoding="utf-8")
+            tmp_task_file.write_text(task_markdown, encoding="utf-8")
+            os.replace(tmp_task_file, config.TASK_FILE_PATH)
         except Exception as e:
+            if tmp_task_file.exists():
+                try:
+                    tmp_task_file.unlink()
+                except Exception:
+                    pass
             err = f"ไม่สามารถเขียนไฟล์งาน {config.TASK_FILE_NAME} ได้: {str(e)}"
             event_bus.task_log_updated.emit("Bridge Error", err)
             return err
 
         # Record in TaskManager as running background task
         task_manager.record_task(
-            title=f"งาน Antigravity: {task_prompt[:35]}...",
+            title=f"งาน Antigravity: {clean_prompt[:35]}...",
             summary=f"ส่งคำสั่งให้ Antigravity ผ่าน {config.TASK_FILE_NAME} กำลังรอผลลัพธ์ในเบื้องหลัง",
             files_affected=[str(config.TASK_FILE_PATH), str(config.RESULT_FILE_PATH)],
             app_or_url="Antigravity",
-            command_or_prompt=task_prompt,
+            command_or_prompt=clean_prompt,
             status="running"
         )
 

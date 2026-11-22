@@ -202,15 +202,8 @@ class TaskManager:
                 except Exception as e:
                     failed_items.append(f"URL ({str(e)})")
             elif app_or_url.lower() in ("antigravity", "antigravity ide"):
-                # Activate Antigravity IDE window
-                try:
-                    from integrations.antigravity_bridge import focus_antigravity_window
-                    if focus_antigravity_window():
-                        opened_items.append("หน้าต่าง Antigravity IDE")
-                    else:
-                        failed_items.append("ไม่พบหน้าต่าง Antigravity IDE บน macOS")
-                except Exception as e:
-                    failed_items.append(f"หน้าต่าง Antigravity ({str(e)})")
+                # Antigravity operates 100% silently in background via file bridge
+                opened_items.append("งาน Antigravity ดำเนินการผ่านไฟล์ .jarvis_task.md เรียบร้อยแล้ว (Silent File-Bridge)")
             else:
                 try:
                     res = subprocess.run(["open", "-a", app_or_url], capture_output=True, text=True, timeout=5)

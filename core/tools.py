@@ -55,6 +55,8 @@ def delegate_to_antigravity(task_prompt: str) -> str:
     """
     Delegates complex coding, file editing, refactoring, or repo analysis to the Antigravity IDE Agent.
     Use this whenever the user requests writing code, modifying files, or performing workspace tasks.
+    IMPORTANT: Invoke this tool ONLY ONCE per user request. Do NOT invoke repeatedly to check status.
+    The task runs silently in the background and will notify the user automatically upon completion.
 
     Args:
         task_prompt: Clear, detailed description of the task for Antigravity to perform.

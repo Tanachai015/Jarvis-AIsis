@@ -176,9 +176,11 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - **Empty Arguments Sanitization (v1.8.2):** กรองค่า `None` และสตริงว่าง `""` ออกจากพารามิเตอร์ที่เป็น Option ก่อนส่งเข้า MCP Server ป้องกันปัญหา Server Rejection
 - **Persistent Schema Cache:** โหลดสเปกเครื่องมือจาก `memory/mcp_tools_cache.json` ในเวลาเพียง 0.005 วินาที พร้อมตรวจสอบ SHA-256
 
-### 3.9 ระบบเชื่อมต่อ Antigravity IDE (`integrations/antigravity_bridge.py`)
-- ส่งคำสั่งงานผ่าน `.jarvis_task.md` โดยไม่แย่งโฟกัสหน้าจอ
-- เฝ้าดูผลลัพธ์ผ่าน `.jarvis_result.md` ด้วย `watchdog.observers.Observer` และแจ้งเตือนด้วยเสียงเมื่อเสร็จสิ้น
+### 3.9 ระบบเชื่อมต่อ Antigravity IDE (v1.8.5 — 100% Silent File-Bridge)
+- **Zero osascript Focus:** ตัดคำสั่ง AppleScript ที่พยายามแย่งโฟกัสหน้าจอออก 100% ป้องกันปัญหาค้าง Timeout 5 วินาที และรักษาปรัชญา Stealth Mode สมบูรณ์แบบ
+- **Atomic File Write:** เขียนไฟล์ผ่าน `.jarvis_task.md.tmp` แล้วใช้ `os.replace` สลับไฟล์ ป้องกัน Race Condition และความเสียหายของไฟล์
+- **Deduplication Guard:** ป้องกันโมเดล LLM เรียก `delegate_to_antigravity` ซ้ำซ้อน ด้วย RapidFuzz WRatio $\ge 80\%$ ภายใน Cooldown 60 วินาที หรือขณะที่งานเดิมยังค้างทำอยู่
+- **Watchdog Result Monitoring:** เฝ้าดูผลลัพธ์ผ่าน `.jarvis_result.md` ด้วย `watchdog.observers.Observer` และแจ้งเตือนด้วยเสียงเมื่อเสร็จสิ้น
 
 ### 3.10 ระบบรับเสียงพูดและ Context-Aware Interrupt (`voice/listener.py`)
 ยึดท่อส่งเสียง **Single-Pipeline Microphone Architecture** แบ่งเป็น 3 สถานะ:
@@ -315,9 +317,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 
 ---
 
-## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 25/25 PASS)
+## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 27/27 PASS)
 
-ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม **25 เคสทดสอบ** ใน 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
+ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม **27 เคสทดสอบ** ใน 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
 
 ```bash
 # รันการทดสอบครบทุกโมดูล
@@ -337,10 +339,12 @@ python3 tests/run_backtest.py
    - ตรวจสอบ **Zero-Overhead Speaking Monitor:** เมื่อผู้ช่วยกำลังพูด จะไม่มีการส่งเสียงเข้า STT หรือรันโมเดลปลุกซ้อน (Zero API & CPU overhead)
    - ตรวจสอบการทำงานของปุ่ม **`Esc` (Direct Barge-in)**: ตัดเสียงพูดทันที (`stop_speaking`), เล่นเสียงยืนยัน `"Ok ครับ"` (`play_cached_ack`), และเข้าสู่ `ACTIVE_PTT`
    - ตรวจสอบการบล็อก Followup Loop เมื่อผู้ช่วยถูกสั่งเบรกด้วย Barge-in
-3. **Suite 3: Brain Tiered Context & OS Subprocess Sandbox (`core/brain.py` & `core/tools.py`) — 4/4 PASS:**
+3. **Suite 3: Brain Tiered Context & OS Subprocess Sandbox (`core/brain.py` & `core/tools.py`) — 6/6 PASS:**
    - ตรวจสอบการแยกแท็ก `[SPEAK]` และ Fallback กรองโค้ดบล็อก
    - ตรวจสอบการประกอบ Tiered Context (`L0`, `L1`, `L2`) บนโฟลเดอร์จำลองโดยไม่แตะต้องไฟล์หน่วยความจำจริง
    - ตรวจสอบการเรียกคำสั่งระบบ (`open -a`, `osascript`, `screencapture`) ผ่าน Mock 100% ไม่เปิดหน้าต่างหรือแคปหน้าจอจริง
+   - ตรวจสอบ `AntigravityBridge` ปราศจากคำสั่ง `osascript` 100% และเขียนไฟล์แบบ Atomic Write
+   - ตรวจสอบ `Deduplication Guard` บล็อกคำสั่งงานซ้ำซ้อนภายใน Cooldown 60 วินาที
 4. **Suite 4: System Integrity, Lazy Loading & Schema Validation — 4/4 PASS:**
    - ทดสอบความเร็ว Cold Import ไม่บล็อกการบูตโปรแกรม ($< 0.3$s)
    - ตรวจสอบตัวกรอง Empty Arguments (`""` / `None`) ใน `MCPManager.call_tool`

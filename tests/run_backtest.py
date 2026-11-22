@@ -519,6 +519,40 @@ class TestBrainContextAndToolSandbox(unittest.TestCase):
                 self.assertEqual(mock_sub_run.call_args[0][0][0], "screencapture")
                 self.assertIn("1920x1080", res_vision)
 
+    def test_antigravity_bridge_zero_osascript_and_atomic_write(self):
+        """Verifies AntigravityBridge has 0 osascript calls and uses clean atomic file writing."""
+        bridge_file = PROJECT_ROOT / "integrations" / "antigravity_bridge.py"
+        source = bridge_file.read_text(encoding="utf-8")
+        self.assertNotIn("osascript", source, "antigravity_bridge.py must not contain any osascript calls")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_task = Path(tmp_dir) / ".jarvis_task.md"
+            tmp_result = Path(tmp_dir) / ".jarvis_result.md"
+            with patch("config.TASK_FILE_PATH", tmp_task), patch("config.RESULT_FILE_PATH", tmp_result):
+                from integrations.antigravity_bridge import AntigravityBridge
+                bridge = AntigravityBridge()
+                res = bridge.delegate_task("ทดสอบการส่งงาน")
+                self.assertTrue(tmp_task.exists())
+                self.assertIn("ทดสอบการส่งงาน", tmp_task.read_text(encoding="utf-8"))
+                self.assertIn("ส่งต่องานไปยัง Antigravity", res)
+                bridge.stop_watching()
+
+    def test_antigravity_bridge_deduplication_guard(self):
+        """Verifies Deduplication Guard blocks duplicate or highly similar tasks within cooldown."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_task = Path(tmp_dir) / ".jarvis_task.md"
+            tmp_result = Path(tmp_dir) / ".jarvis_result.md"
+            with patch("config.TASK_FILE_PATH", tmp_task), patch("config.RESULT_FILE_PATH", tmp_result):
+                from integrations.antigravity_bridge import AntigravityBridge
+                bridge = AntigravityBridge()
+                res1 = bridge.delegate_task("สร้างไฟล์ PDF สรุปหน้าเว็บ")
+                self.assertIn("ส่งต่องานไปยัง Antigravity", res1)
+
+                # Duplicate / very similar call within 60s
+                res2 = bridge.delegate_task("ช่วยสร้างไฟล์ PDF สรุปหน้าเว็บหน่อยครับ")
+                self.assertIn("งานนี้ถูกส่งไปยัง Antigravity เรียบร้อยแล้ว", res2)
+                bridge.stop_watching()
+
 
 # ============================================================================
 # SUITE 4: System Integrity, Lazy Loading & Config Validation
