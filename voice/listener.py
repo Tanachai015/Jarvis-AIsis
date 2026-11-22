@@ -435,14 +435,29 @@ class JarvisListener(threading.Thread):
 
                 # Check for conversation exit phrases ("ขอบคุณครับ", "พอแค่นี้", "พักก่อน")
                 is_exit_phrase = False
+                matched_exit_word = None
+
+                # 1. Exact/Substring check
                 for ep in self.exit_phrases:
                     norm_ep = re.sub(r'[\s\.,!_?\'"\-:;()\[\]{}—–~`*#]', '', ep.lower())
                     if norm_ep and norm_ep in norm_text:
                         is_exit_phrase = True
+                        matched_exit_word = ep
                         break
 
+                # 2. Fuzzy RapidFuzz check (only if short utterance < 30 chars to protect multi-clause commands)
+                if not is_exit_phrase and len(clean_text) < 30:
+                    try:
+                        from core.thai_nlp import fuzzy_match_phrase
+                        fuzzy_match = fuzzy_match_phrase(clean_text, self.exit_phrases, threshold=78.0)
+                        if fuzzy_match:
+                            is_exit_phrase = True
+                            matched_exit_word = f"{fuzzy_match} (fuzzy)"
+                    except Exception:
+                        pass
+
                 if is_exit_phrase:
-                    print(f"[Listener] 🚪 Exit conversation phrase detected: \"{clean_text}\"")
+                    print(f"[Listener] 🚪 Exit conversation phrase detected ({matched_exit_word}): \"{clean_text}\"")
                     ack_reply = "รับทราบครับ พักก่อนนะครับ"
                     event_bus.task_log_updated.emit("Voice Input", f"สิ้นสุดการสนทนา: \"{clean_text}\"")
                     event_bus.assistant_reply_ready.emit(ack_reply)

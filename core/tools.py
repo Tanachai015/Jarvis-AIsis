@@ -187,9 +187,20 @@ def control_mac_system(action: str, target: str = "", app: str = "") -> str:
         elif clean_action == "open_app":
             if not clean_target:
                 return "กรุณาระบุชื่อแอปพลิเคชันที่ต้องการเปิดครับบอส"
-            res = subprocess.run(["open", "-a", clean_target], capture_output=True, text=True, timeout=5)
+
+            target_app = clean_target
+            try:
+                from core.thai_nlp import resolve_macos_app_name
+                resolved = resolve_macos_app_name(clean_target)
+                if resolved:
+                    print(f"[Tools] 🎯 Resolved app name: '{clean_target}' -> '{resolved}'")
+                    target_app = resolved
+            except Exception:
+                pass
+
+            res = subprocess.run(["open", "-a", target_app], capture_output=True, text=True, timeout=5)
             if res.returncode == 0:
-                msg = f"เปิดแอปพลิเคชัน '{clean_target}' เรียบร้อยแล้วครับบอส"
+                msg = f"เปิดแอปพลิเคชัน '{target_app}' เรียบร้อยแล้วครับบอส"
                 event_bus.task_log_updated.emit("System Control", msg)
                 return msg
             else:
@@ -204,9 +215,19 @@ def control_mac_system(action: str, target: str = "", app: str = "") -> str:
             url = clean_target if clean_target.startswith(("http://", "https://")) else f"https://{clean_target}"
 
             if clean_app:
-                res = subprocess.run(["open", "-a", clean_app, url], capture_output=True, text=True, timeout=5)
+                target_browser = clean_app
+                try:
+                    from core.thai_nlp import resolve_macos_app_name
+                    resolved = resolve_macos_app_name(clean_app)
+                    if resolved:
+                        print(f"[Tools] 🎯 Resolved browser name: '{clean_app}' -> '{resolved}'")
+                        target_browser = resolved
+                except Exception:
+                    pass
+
+                res = subprocess.run(["open", "-a", target_browser, url], capture_output=True, text=True, timeout=5)
                 if res.returncode == 0:
-                    msg = f"เปิดเว็บไซต์ {url} ด้วยเบราว์เซอร์ '{clean_app}' เรียบร้อยแล้วครับบอส"
+                    msg = f"เปิดเว็บไซต์ {url} ด้วยเบราว์เซอร์ '{target_browser}' เรียบร้อยแล้วครับบอส"
                     event_bus.task_log_updated.emit("System Control", msg)
                     return msg
                 else:

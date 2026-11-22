@@ -19,5 +19,7 @@ pillow>=10.0.0
 openwakeword>=0.6.0
 silero-vad>=6.2.0
 pythainlp>=5.4.0
+rapidfuzz>=3.9.0
+
 
 

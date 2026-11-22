@@ -122,3 +122,189 @@ def tokenize_for_search(text: str) -> List[str]:
     except Exception:
         # Fallback to simple whitespace splitting
         return [w for w in clean_text.split() if len(w) > 1]
+
+
+def fuzzy_match_phrase(text: str, candidates: List[str], threshold: float = 80.0) -> Optional[str]:
+    """
+    Fuzzy matches text against a list of candidates using RapidFuzz.
+    Returns the best matching candidate if similarity score >= threshold, else None.
+    """
+    if not text or not candidates:
+        return None
+
+    clean_text = text.strip()
+    try:
+        from rapidfuzz import process, fuzz
+        res = process.extractOne(clean_text, candidates, scorer=fuzz.WRatio)
+        if res and res[1] >= threshold:
+            return res[0]
+    except Exception:
+        # Fallback to simple substring
+        for c in candidates:
+            if c.lower() in clean_text.lower():
+                return c
+    return None
+
+
+_INSTALLED_APPS_CACHE: Optional[List[str]] = None
+
+COMMON_APP_ALIASES = {
+    "chrome": "Google Chrome",
+    "google chrome": "Google Chrome",
+    "vscode": "Visual Studio Code",
+    "vs code": "Visual Studio Code",
+    "code": "Visual Studio Code",
+    "firefox": "Firefox",
+    "safari": "Safari",
+    "terminal": "Terminal",
+    "finder": "Finder",
+    "spotify": "Spotify",
+    "line": "LINE",
+    "telegram": "Telegram",
+    "discord": "Discord",
+    "antigravity": "Antigravity IDE",
+    "iterm": "iTerm",
+    "iterm2": "iTerm",
+    "sublime": "Sublime Text",
+    "calc": "Calculator",
+    "calculator": "Calculator",
+    "notes": "Notes",
+    "settings": "System Settings",
+    "system preferences": "System Settings",
+    "mail": "Mail",
+    "calendar": "Calendar",
+    "music": "Music",
+    "photos": "Photos",
+}
+
+
+def get_installed_macos_apps() -> List[str]:
+    """
+    Scans macOS standard application directories and caches the list of installed application names.
+    Lazy-scanned only once per session.
+    """
+    global _INSTALLED_APPS_CACHE
+    if _INSTALLED_APPS_CACHE is not None:
+        return _INSTALLED_APPS_CACHE
+
+    from pathlib import Path
+    app_dirs = [
+        Path("/Applications"),
+        Path("/System/Applications"),
+        Path("/System/Applications/Utilities"),
+        Path.home() / "Applications"
+    ]
+    apps = set()
+    for d in app_dirs:
+        if d.exists():
+            for item in d.glob("*.app"):
+                apps.add(item.stem)
+
+    _INSTALLED_APPS_CACHE = sorted(list(apps))
+    return _INSTALLED_APPS_CACHE
+
+
+def match_macos_app_name(query_name: str, installed_apps: List[str], threshold: float = 72.0) -> Optional[str]:
+    """
+    Matches a user or AI-provided application name against the list of installed macOS apps.
+    Uses alias dictionary, Thai Soundex mapping, and RapidFuzz WRatio.
+    """
+    clean_query = query_name.strip()
+    if not clean_query:
+        return None
+
+    # Strip .app suffix if present
+    if clean_query.lower().endswith(".app"):
+        clean_query = clean_query[:-4].strip()
+
+    # 1. Exact match (case-insensitive)
+    for app in installed_apps:
+        if app.lower() == clean_query.lower():
+            return app
+
+    # 2. Known common aliases dictionary
+    alias = COMMON_APP_ALIASES.get(clean_query.lower())
+    if alias and alias in installed_apps:
+        return alias
+
+    # 3. Thai Phonetic / Soundex mapping
+    if any("\u0E00" <= c <= "\u0E7F" for c in clean_query):
+        try:
+            from pythainlp.soundex import soundex
+            sx = soundex(clean_query, engine="lk82")
+            thai_phonetic_map = {
+                soundex("โครม", engine="lk82"): "Google Chrome",
+                soundex("กูเกิลโครม", engine="lk82"): "Google Chrome",
+                soundex("ไฟร์ฟอกซ์", engine="lk82"): "Firefox",
+                soundex("ไฟฟอก", engine="lk82"): "Firefox",
+                soundex("ไฟ๊ฟ๊กอ", engine="lk82"): "Firefox",
+                soundex("ซาฟารี", engine="lk82"): "Safari",
+                soundex("ไลน์", engine="lk82"): "LINE",
+                soundex("สปอติฟาย", engine="lk82"): "Spotify",
+                soundex("ดิสคอร์ด", engine="lk82"): "Discord",
+                soundex("เทอร์มินอล", engine="lk82"): "Terminal",
+            }
+            if sx in thai_phonetic_map:
+                target_app = thai_phonetic_map[sx]
+                if target_app in installed_apps:
+                    return target_app
+        except Exception:
+            pass
+
+    # 4. RapidFuzz fuzzy matching
+    try:
+        from rapidfuzz import process, fuzz
+        res = process.extractOne(clean_query, installed_apps, scorer=fuzz.WRatio)
+        if res and res[1] >= threshold:
+            return res[0]
+    except Exception:
+        pass
+
+    return None
+
+
+def resolve_macos_app_name(query_name: str, threshold: float = 72.0) -> Optional[str]:
+    """Convenience helper to resolve query_name against all installed apps on macOS."""
+    apps = get_installed_macos_apps()
+    return match_macos_app_name(query_name, apps, threshold=threshold)
+
+
+def match_search_terms(query_terms: List[str], text: str, threshold: float = 80.0) -> bool:
+    """
+    Checks if any query term matches the target text either via exact substring,
+    Thai phonetic Soundex, or RapidFuzz token similarity.
+    """
+    if not query_terms or not text:
+        return False
+
+    text_lower = text.lower()
+
+    # 1. Fast direct substring check
+    if any(t in text_lower for t in query_terms):
+        return True
+
+    # 2. Phonetic Soundex and RapidFuzz check for Thai tokens
+    try:
+        from pythainlp.soundex import soundex
+        from rapidfuzz import fuzz
+
+        # Extract words from text (both whitespace and punctuation split)
+        words = [w for w in re.split(r"[\s,;:\.!?\-_/\\\[\]\(\)\{\}\"']+", text_lower) if len(w) >= 2]
+
+        for term in query_terms:
+            if len(term) < 2:
+                continue
+            is_thai = any("\u0E00" <= c <= "\u0E7F" for c in term)
+            term_sx = soundex(term, engine="lk82") if is_thai else None
+
+            for word in words:
+                if is_thai and term_sx and any("\u0E00" <= c <= "\u0E7F" for c in word):
+                    if soundex(word, engine="lk82") == term_sx:
+                        return True
+                if fuzz.partial_ratio(term, word) >= threshold:
+                    return True
+    except Exception:
+        pass
+
+    return False
+

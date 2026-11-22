@@ -150,7 +150,18 @@ class RawArchive:
                             " ".join(record.get("related_paths", []))
                         ).lower()
 
+                        # Search matching (Substring + Thai Soundex & RapidFuzz fallback)
+                        matched = False
                         if any(term in text_to_search for term in query_terms):
+                            matched = True
+                        else:
+                            try:
+                                from core.thai_nlp import match_search_terms
+                                matched = match_search_terms(query_terms, text_to_search, threshold=80.0)
+                            except Exception:
+                                pass
+
+                        if matched:
                             results.append(record)
                             if len(results) >= limit:
                                 return results

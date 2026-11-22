@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.0] - 2026-11-22
+
+### Added
+- **Fuzzy String & Phonetic Matching with `RapidFuzz` + `Thai Soundex` (`core/thai_nlp.py`)**:
+  - Integrated high-performance C++ `RapidFuzz` and `pythainlp.soundex` (lk82) with 100% lazy-loading.
+  - **Fuzzy Conversation Exit Detection (`voice/listener.py`)**:
+    - Detects colloquial or slightly mistranscribed exit phrases (e.g., *"ขอบคุณคับ"*, *"พอแค่นี้เด้อ"*, *"พักก่อนนะ"*) via `fuzzy_match_phrase(threshold=78.0)` for short utterances (< 30 chars), immediately terminating listening sessions and saving Gemini API calls.
+  - **Intelligent macOS Application Name Resolution (`core/tools.py`)**:
+    - Added `resolve_macos_app_name()` to scan and cache installed applications from `/Applications`, `/System/Applications`, and `~/Applications`.
+    - Automatically maps aliases (e.g. *"Chrome"* -> *"Google Chrome"*, *"VS Code"* -> *"Visual Studio Code"*) and phonetic Thai transcriptions (e.g. *"ไฟ๊ฟ๊กอ"* -> *"Firefox"*, *"ซาฟารี"* -> *"Safari"*) to prevent `open -a` execution failures.
+  - **Phonetic & Fuzzy Archive Search (`core/raw_archive.py`)**:
+    - Enhanced `search_raw_history` to match homophones and spelling variations (e.g. *"โปรเจค"* vs *"โปรเจกต์"*, *"แอป"* vs *"แอพ"*) in long-term raw archives.
+
+---
+
 ## [1.6.0] - 2026-11-22
 
 ### Added
