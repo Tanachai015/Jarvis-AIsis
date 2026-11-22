@@ -8,7 +8,7 @@
 [![Speech](https://img.shields.io/badge/STT-Groq%20Cloud%20%2B%20Faster--Whisper-F55036)](https://groq.com/)
 [![Wake Engine](https://img.shields.io/badge/Wake%20Word-OpenWakeWord%20ONNX-orange)](https://github.com/dscripka/openWakeWord)
 [![VAD](https://img.shields.io/badge/VAD-Silero%20VAD%20v5-purple)](https://github.com/snakers4/silero-vad)
-[![Testing](https://img.shields.io/badge/Automated%20Tests-24%2F24%20PASS%20(100%25)-success)](file:///Volumes/WorkDrive/Javis%20Project/automated_backtest_full_report.md)
+[![Testing](https://img.shields.io/badge/Automated%20Tests-25%2F25%20PASS%20(100%25)-success)](file:///Volumes/WorkDrive/Javis%20Project/automated_backtest_full_report.md)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 An agentic, event-driven, multimodal desktop AI companion built natively for macOS. Designed with a **decoupled PySide6 architecture**, a **Single-Pipeline Unified Microphone Architecture combining Silero VAD neural filtering and OpenWakeWord ONNX edge detection**, a **True Full-Duplex Barge-in engine with pre-roll buffer stitching**, **specialized Thai NLP & RapidFuzz Phonetic Matching**, **computer vision desktop automation**, and **100% stealth background execution**.

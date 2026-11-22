@@ -336,8 +336,42 @@ class TestVoiceEngineAndBargeIn(unittest.TestCase):
         listener._transcribe_groq = MagicMock(return_value="หยุดก่อนจาร์วิส")
         listener._transcribe_local = MagicMock(return_value="หยุดก่อนจาร์วิส")
 
-        fake_chunks = [self.np.full(512, 0.05, dtype=self.np.float32) for _ in range(20)]
-        listener._check_speaking_interrupt_candidate(fake_chunks)
+        # Test with 1.6s 1D rolling slice (25,600 samples)
+        fake_slice = self.np.full(25600, 0.05, dtype=self.np.float32)
+        listener._check_speaking_interrupt_candidate(fake_slice)
+
+        speaker_mock.stop_speaking.assert_called_once()
+        speaker_mock.play_cached_ack.assert_called_once()
+        self.assertFalse(listener.is_speaking)
+        self.assertEqual(listener.current_state, listener.STATE_ACTIVE_PTT)
+
+    def test_speaking_wake_word_interrupt_threshold(self):
+        """Verifies OpenWakeWord score >= 0.28 (wake_speaking_threshold) interrupts speaker without waiting for silence."""
+        from voice.listener import JarvisListener
+
+        speaker_mock = MagicMock()
+        speaker_mock.is_speaking = True
+        listener = JarvisListener(speaker=speaker_mock)
+        listener.is_speaking = True
+        listener.wake_trigger_enabled = True
+
+        mock_oww = MagicMock()
+        mock_oww.predict.return_value = {"hey_jarvis": 0.30}  # >= 0.28
+        listener.oww_model = mock_oww
+
+        # Feed 1280 samples into speaking oww pipeline
+        chunk = self.np.full(1280, 0.05, dtype=self.np.float32)
+        amplified = chunk * listener.wake_mic_gain
+        chunk_int16 = (self.np.clip(amplified, -1.0, 1.0) * 32767.0).astype(self.np.int16)
+
+        scores = mock_oww.predict(chunk_int16)
+        score = scores.get("hey_jarvis", 0.0)
+        self.assertGreaterEqual(score, listener.wake_speaking_threshold)
+
+        if score >= listener.wake_speaking_threshold:
+            speaker_mock.stop_speaking()
+            speaker_mock.play_cached_ack()
+            listener.trigger_barge_in_direct()
 
         speaker_mock.stop_speaking.assert_called_once()
         speaker_mock.play_cached_ack.assert_called_once()
@@ -548,12 +582,14 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
             "barge_in_vad_threshold",
             "wake_mic_gain",
             "wake_score_threshold",
+            "wake_speaking_threshold",
         ]
         for key in required_keys:
             self.assertIn(key, data, f"Missing required voice_settings key: {key}")
 
         self.assertEqual(data["wake_mic_gain"], 2.5)
         self.assertEqual(data["wake_score_threshold"], 0.36)
+        self.assertEqual(data["wake_speaking_threshold"], 0.28)
         self.assertEqual(data["barge_in_vad_threshold"], 0.60)
         self.assertEqual(data["barge_in_rms_threshold"], 0.020)
         self.assertTrue(isinstance(data["interrupt_stop_phrases"], list))

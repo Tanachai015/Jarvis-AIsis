@@ -1,5 +1,5 @@
 # เอกสารโครงสร้างสถาปัตยกรรมระบบ J.A.R.V.I.S. Desktop Assistant (Jarvis-AIsis) 🚀
-*(J.A.R.V.I.S. Architecture & Technical Reference Manual — Release v1.8.3)*
+*(J.A.R.V.I.S. Architecture & Technical Reference Manual — Release v1.8.4)*
 
 เอกสารฉบับนี้สรุปภาพรวม สถาปัตยกรรม โครงสร้างไฟล์ ลำดับการทำงานของข้อมูล (Data Flow) และรายละเอียดเชิงลึกของทุกโมดูลในระบบ **Jarvis Desktop Assistant (`Jarvis-AIsis`)** ซึ่งพัฒนาขึ้นเพื่อทำงานบน **macOS (Apple Silicon & Intel)** โดยเฉพาะ ภายใต้ขุมพลัง **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **Vision GUI Automation**, **Single-Pipeline Unified Microphone**, และ **Context-Aware Interrupt Architecture**
 
@@ -191,10 +191,10 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
    - ตัดส่งคำสั่งอัตโนมัติเมื่อหยุดพูดครบ 3.0 วินาที (`post_speech_silence_sec`)
    - ถอดความด้วย Groq Cloud STT (`whisper-large-v3-turbo`, ~0.2s) สำรองด้วย Local Faster-Whisper
    - **Exit Phrase Detection:** หากพบคำปิดบทสนทนา (เช่น *"พักก่อน"*, *"ขอบคุณครับ"*) จะตั้งค่า `suppress_next_followup = True`, ตอบรับสั้นๆ และกลับสู่ `STANDBY_WAKE` โดยไม่เปิดลูปต่อ
-3. **`SPEAKING_MONITOR` (โหมดควบคุมขณะ Jarvis กำลังพูด — v1.8.3):**
-   - **ช่องทางที่ 1 (ปุ่ม Esc):** กดปุ่ม Esc เพื่อตัดเสียงพูดทันที ตอบรับ "Ok ครับ" และเริ่มฟังคำสั่งใหม่
-   - **ช่องทางที่ 2 (ทางด่วน Hey Jarvis):** เรียกชื่อ "Hey Jarvis" แทรกกลางคันได้ทันที
-   - **ช่องทางที่ 3 (คำสั่งเบรก 2 พยางค์):** ดักจับเสียงพูดสั้น `0.55s – 2.2s` แล้วเว้นวรรค `0.45s` ถอดความเฉพาะคำใน `interrupt_stop_phrases`
+3. **`SPEAKING_MONITOR` (โหมดควบคุมขณะ Jarvis กำลังพูด — v1.8.4):**
+   - **ช่องทางที่ 1 (ปุ่ม Esc — Emergency Stop):** กดปุ่ม Esc เพื่อตัดเสียงพูดทันที ตอบรับ "Ok ครับ" และเริ่มฟังคำสั่งใหม่ (Latency 0ms)
+   - **ช่องทางที่ 2 (ทางด่วน Hey Jarvis — Non-Blocking):** รัน `OpenWakeWord` อิสระตลอดเวลาขณะพูดด้วยเกณฑ์พิเศษ `"wake_speaking_threshold": 0.28` (ชดเชยการรบกวนของเสียงลำโพง) ไม่ขึ้นกับ VAD พร้อมแสดง Log เมื่อคะแนน $\ge 0.20$ สั่งตัดเสียงทันทีเมื่อปลุกติด
+   - **ช่องทางที่ 3 (คำสั่งเบรก 2 พยางค์ผ่าน Fixed Rolling Window 1.6s):** ยกเลิกการรอความเงียบ 0.45s โดยเก็บเสียงลง Rolling Buffer ขนาด `1.6 วินาที` (25,600 samples @ 16kHz) และตรวจเช็กทุกๆ `1.2 วินาที` ผ่านเธรดแยกพร้อมตัวล็อก `is_checking_stop_phrase` เพื่อป้องกัน API Overload
    - **Whole-Chunk Self-Echo Filter:** นำข้อความที่ถอดได้มาเทียบกับ `speaker.current_spoken_text` ด้วย `RapidFuzz` หากเหมือนกัน $\ge 60\%$ จะถือว่าเป็นเสียงสะท้อนจากลำโพงตัวเองและทิ้งทันที โดย**ไม่ตัดเสียง** และ**ไม่ส่งเข้าสมองเด็ดขาด**
 
 ### 3.11 ระบบสังเคราะห์เสียงพูดและ Pre-Cached Acks (`voice/speaker.py`)
@@ -324,9 +324,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 
 ---
 
-## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 24/24 PASS)
+## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 25/25 PASS)
 
-ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม **24 เคสทดสอบ** ใน 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
+ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม **25 เคสทดสอบ** ใน 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
 
 ```bash
 # รันการทดสอบครบทุกโมดูล
@@ -339,11 +339,12 @@ python3 tests/run_backtest.py
    - ตรวจสอบ `fuzzy_match_phrase` สำหรับการดักคำปิดสนทนา (สแลงเพี้ยน vs ประโยคทั่วไป)
    - ตรวจสอบ `resolve_macos_app_name` แมตช์ชื่อแอปผ่าน Aliases, Thai Soundex (`lk82`), และ RapidFuzz
    - ตรวจสอบ `tokenize_for_search` และ `match_search_terms`
-2. **Suite 2: Voice Engine & State Transitions (`voice/listener.py` & `voice/speaker.py`) — 11/11 PASS:**
+2. **Suite 2: Voice Engine & State Transitions (`voice/listener.py` & `voice/speaker.py`) — 12/12 PASS:**
    - ตรวจสอบ Standby Silence และ OpenWakeWord int16 PCM 1280-sample Accumulation
    - ตรวจสอบตัวขยายสัญญาณไมค์ **`wake_mic_gain: 2.5x`** ก่อนป้อนเข้าโมเดล
+   - ตรวจสอบ **Wake Word Interrupt During Speech (`wake_speaking_threshold: 0.28`)**: เรียก "Hey Jarvis" ขณะผู้ช่วยกำลังพูดเพื่อเบรกและเริ่มรับคำสั่งใหม่ทันที
    - ตรวจสอบการตัดจบลูปด้วยคำปิดสนทนา พร้อมตั้งแฟล็ก `suppress_next_followup` ระงับการเด้ง Followup ซ้ำ
-   - ตรวจสอบ **Context-Aware Interrupt:** คำสั่งเบรก (`"หยุดก่อนจาร์วิส"`) สั่งตัดเสียง, เล่นเสียง "Ok ครับ", และเข้าสู่ `ACTIVE_PTT`
+   - ตรวจสอบ **Context-Aware Interrupt:** คำสั่งเบรก (`"หยุดก่อนจาร์วิส"`) ตรวจจับผ่าน Rolling Window 1.6s ทุก 1.2s สั่งตัดเสียง, เล่นเสียง "Ok ครับ", และเข้าสู่ `ACTIVE_PTT`
    - ตรวจสอบ **Whole-Chunk Self-Echo Filter:** เสียงสะท้อนของลำโพงตัวเอง ($\ge 60\%$) ถูกทิ้งทันที ไม่ตัดเสียง และไม่ส่งเข้าสมอง
    - ตรวจสอบ **Non-Stop Utterance Rejection:** ประโยคทั่วไปที่ไม่ใช่คำเบรกขณะพูดถูกละเลยเงียบๆ ไม่ตัดเสียง
    - ตรวจสอบการทำงานของปุ่ม **`Esc` (Direct Barge-in)**

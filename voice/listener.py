@@ -33,7 +33,7 @@ import random
 import subprocess
 import threading
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 import numpy as np
 import requests
@@ -158,6 +158,7 @@ class JarvisListener(threading.Thread):
         self.wake_model_name = str(defaults.get("wake_model_name", "hey_jarvis"))
         self.wake_mic_gain = float(defaults.get("wake_mic_gain", 2.5))
         self.wake_score_threshold = float(defaults.get("wake_score_threshold", 0.36))
+        self.wake_speaking_threshold = float(defaults.get("wake_speaking_threshold", 0.28))
         self.vad_speech_threshold = float(defaults.get("vad_speech_threshold", 0.5))
         self.barge_in_vad_threshold = float(defaults.get("barge_in_vad_threshold", 0.60))
         self.barge_in_enabled = bool(defaults.get("barge_in_enabled", True))
@@ -169,8 +170,9 @@ class JarvisListener(threading.Thread):
         self.barge_in_buffer: List[np.ndarray] = []
         self.barge_in_frames_count = 0
         self.barge_in_silence_grace_frames = 0
-        self.speaking_candidate_chunks: List[np.ndarray] = []
-        self.speaking_silence_frames: int = 0
+        self.speaking_rolling_buffer: np.ndarray = np.empty(0, dtype=np.float32)
+        self.last_speaking_check_time: float = 0.0
+        self.is_checking_stop_phrase: bool = False
 
         # Audio buffer for OpenWakeWord 1280-sample (80ms) accumulation
         self.oww_audio_buffer: np.ndarray = np.empty(0, dtype=np.int16)
@@ -262,8 +264,9 @@ class JarvisListener(threading.Thread):
             self.barge_in_buffer.clear()
             self.barge_in_frames_count = 0
             self.barge_in_silence_grace_frames = 0
-            self.speaking_candidate_chunks.clear()
-            self.speaking_silence_frames = 0
+            self.speaking_rolling_buffer = np.empty(0, dtype=np.float32)
+            self.last_speaking_check_time = 0.0
+            self.is_checking_stop_phrase = False
             self.oww_audio_buffer = np.empty(0, dtype=np.int16)
             self._reset_vad_states()
         elif clean_state == "thinking":
@@ -272,8 +275,9 @@ class JarvisListener(threading.Thread):
             self.barge_in_buffer.clear()
             self.barge_in_frames_count = 0
             self.barge_in_silence_grace_frames = 0
-            self.speaking_candidate_chunks.clear()
-            self.speaking_silence_frames = 0
+            self.speaking_rolling_buffer = np.empty(0, dtype=np.float32)
+            self.last_speaking_check_time = 0.0
+            self.is_checking_stop_phrase = False
             self.oww_audio_buffer = np.empty(0, dtype=np.int16)
             self._reset_vad_states()
         elif clean_state in ("idle", "running_tool"):
@@ -283,8 +287,9 @@ class JarvisListener(threading.Thread):
             self.barge_in_buffer.clear()
             self.barge_in_frames_count = 0
             self.barge_in_silence_grace_frames = 0
-            self.speaking_candidate_chunks.clear()
-            self.speaking_silence_frames = 0
+            self.speaking_rolling_buffer = np.empty(0, dtype=np.float32)
+            self.last_speaking_check_time = 0.0
+            self.is_checking_stop_phrase = False
             self.oww_audio_buffer = np.empty(0, dtype=np.int16)
             self._reset_vad_states()
 
@@ -319,25 +324,33 @@ class JarvisListener(threading.Thread):
         """Called directly by global hotkey (Esc key) or wake/stop interrupt to start listening immediately."""
         self.is_speaking = False
         self.barge_in_buffer.clear()
-        self.speaking_candidate_chunks.clear()
-        self.speaking_silence_frames = 0
+        self.speaking_rolling_buffer = np.empty(0, dtype=np.float32)
+        self.last_speaking_check_time = 0.0
+        self.is_checking_stop_phrase = False
         self.oww_audio_buffer = np.empty(0, dtype=np.int16)
         self._reset_vad_states()
         with self.state_lock:
             self.current_state = self.STATE_ACTIVE_PTT
             self._start_recording(is_followup=False)
 
-    def _check_speaking_interrupt_candidate(self, candidate_chunks: List[np.ndarray]):
+    def _check_speaking_interrupt_candidate(self, audio_input: Union[np.ndarray, List[np.ndarray]]):
         """
-        Transcribes a candidate audio slice captured while speaker is speaking.
+        Transcribes a candidate audio slice captured while speaker is speaking (e.g. 1.6s rolling window).
         Performs Whole-Chunk Self-Echo Filtering against current_spoken_text and checks for interrupt_stop_phrases.
         NEVER emits user_message_received or dispatches to JarvisBrain.
+        Always resets self.is_checking_stop_phrase in finally.
         """
         try:
-            flat_chunks = [np.asarray(c, dtype=np.float32).reshape(-1) for c in candidate_chunks if len(c) > 0]
-            if not flat_chunks:
+            if isinstance(audio_input, list):
+                flat_chunks = [np.asarray(c, dtype=np.float32).reshape(-1) for c in audio_input if len(c) > 0]
+                if not flat_chunks:
+                    return
+                audio_data = np.concatenate(flat_chunks, axis=0)
+            else:
+                audio_data = np.asarray(audio_input, dtype=np.float32).reshape(-1)
+
+            if len(audio_data) == 0:
                 return
-            audio_data = np.concatenate(flat_chunks, axis=0)
 
             # Fast STT
             transcribed = None
@@ -350,7 +363,7 @@ class JarvisListener(threading.Thread):
                 return
 
             clean_text = transcribed.strip()
-            print(f"[Listener] 🔍 Speaking interrupt candidate: \"{clean_text}\"")
+            print(f"[Listener] 🔍 Speaking interrupt candidate (Rolling 1.6s): \"{clean_text}\"")
 
             # 1. Whole-Chunk Self-Echo Filter:
             # Compare transcribed text against what speaker is currently reading
@@ -402,6 +415,8 @@ class JarvisListener(threading.Thread):
 
         except Exception as e:
             print(f"[Listener] Error in speaking interrupt candidate check: {e}")
+        finally:
+            self.is_checking_stop_phrase = False
 
     def toggle_push_to_talk(self):
         """
@@ -830,8 +845,12 @@ class JarvisListener(threading.Thread):
                                             scores = self.oww_model.predict(oww_chunk)
                                             score = float(scores.get(self.wake_model_name, 0.0))
 
-                                            if score >= self.wake_score_threshold:
-                                                print(f"[Listener] ⚡ Fast Wake Word Interrupt ('{self.wake_model_name}') during speech (Score: {score:.3f} >= {self.wake_score_threshold}). Stopping speaker...")
+                                            # Diagnostic log for speaking wake word
+                                            if score >= 0.20:
+                                                print(f"[WakeWord Speaking] 🎙️ Score: {score:.3f} (Threshold: {self.wake_speaking_threshold})")
+
+                                            if score >= self.wake_speaking_threshold:
+                                                print(f"[Listener] ⚡ Fast Wake Word Interrupt ('{self.wake_model_name}') during speech (Score: {score:.3f} >= {self.wake_speaking_threshold}). Stopping speaker...")
                                                 event_bus.task_log_updated.emit("Interrupt", f"⚡ เรียก 'Hey Jarvis' แทรกขณะพูด (Score: {score:.3f})")
                                                 if self.speaker:
                                                     self.speaker.stop_speaking()
@@ -839,30 +858,29 @@ class JarvisListener(threading.Thread):
                                                 self.trigger_barge_in_direct()
                                                 break
 
-                                    # Way 2: Stop Phrase detection (0.55s - 2.2s + 0.45s pause)
-                                    is_human = self._is_human_speech(chunk_1d, threshold=self.vad_speech_threshold)
-                                    if is_human:
-                                        self.speaking_candidate_chunks.append(chunk_1d)
-                                        self.speaking_silence_frames = 0
-                                        # Cap buffer to ~2.5s (80 frames)
-                                        if len(self.speaking_candidate_chunks) > 80:
-                                            self.speaking_candidate_chunks.pop(0)
+                                    # Way 2: Fixed Rolling Window for Stop Phrases (1.6s window, checked every 1.2s)
+                                    if len(self.speaking_rolling_buffer) == 0:
+                                        self.speaking_rolling_buffer = chunk_1d
                                     else:
-                                        if len(self.speaking_candidate_chunks) > 0:
-                                            self.speaking_silence_frames += 1
-                                            # 14 frames * 32ms = ~0.448s pause
-                                            if self.speaking_silence_frames >= 14:
-                                                duration = len(self.speaking_candidate_chunks) * self.BLOCK_SIZE / self.SAMPLE_RATE
-                                                candidate_to_check = list(self.speaking_candidate_chunks)
-                                                self.speaking_candidate_chunks.clear()
-                                                self.speaking_silence_frames = 0
+                                        self.speaking_rolling_buffer = np.concatenate((self.speaking_rolling_buffer, chunk_1d))
+                                    if len(self.speaking_rolling_buffer) > 25600:
+                                        self.speaking_rolling_buffer = self.speaking_rolling_buffer[-25600:]
 
-                                                if 0.55 <= duration <= 2.2:
-                                                    threading.Thread(
-                                                        target=self._check_speaking_interrupt_candidate,
-                                                        args=(candidate_to_check,),
-                                                        daemon=True
-                                                    ).start()
+                                    now_t = time.time()
+                                    if (len(self.speaking_rolling_buffer) >= 25600 and
+                                        (now_t - self.last_speaking_check_time >= 1.2) and
+                                        not self.is_checking_stop_phrase):
+
+                                        rms = float(np.sqrt(np.mean(self.speaking_rolling_buffer**2)))
+                                        if rms >= 0.020:
+                                            self.last_speaking_check_time = now_t
+                                            self.is_checking_stop_phrase = True
+                                            window_slice = self.speaking_rolling_buffer.copy()
+                                            threading.Thread(
+                                                target=self._check_speaking_interrupt_candidate,
+                                                args=(window_slice,),
+                                                daemon=True
+                                            ).start()
                             except queue.Empty:
                                 pass
                         else:
