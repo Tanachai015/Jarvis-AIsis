@@ -60,9 +60,9 @@ def prepare_thai_tts_text(text: str) -> str:
     processed = re.sub(r"\bv?\d+\.\d+(?:\.\d+)*\b", _stash, processed)
     # Ports and clock times: :8080, 07:15
     processed = re.sub(r":\d+", _stash, processed)
-    # HTTP and error codes: HTTP 404, Error 500, port 8080, status 200
+    # HTTP and error codes: HTTP 404, Error 500, port 8080, status 200, พอร์ต 8080
     processed = re.sub(
-        r"\b(?:HTTP|Error|code|status|port|localhost)\s*[:=]?\s*\d+\b",
+        r"(?:HTTP|Error|code|status|port|localhost|พอร์ต)\s*[:=]?\s*\d+\b",
         _stash,
         processed,
         flags=re.IGNORECASE
@@ -222,9 +222,9 @@ def match_macos_app_name(query_name: str, installed_apps: List[str], threshold: 
         if app.lower() == clean_query.lower():
             return app
 
-    # 2. Known common aliases dictionary
+    # 2. Known common aliases dictionary (prioritize authoritative mapping)
     alias = COMMON_APP_ALIASES.get(clean_query.lower())
-    if alias and alias in installed_apps:
+    if alias:
         return alias
 
     # 3. Thai Phonetic / Soundex mapping
@@ -251,21 +251,26 @@ def match_macos_app_name(query_name: str, installed_apps: List[str], threshold: 
         except Exception:
             pass
 
-    # 4. RapidFuzz fuzzy matching
+    # 4. RapidFuzz fuzzy matching (filter out uninstallers unless explicitly requested)
     try:
         from rapidfuzz import process, fuzz
-        res = process.extractOne(clean_query, installed_apps, scorer=fuzz.WRatio)
-        if res and res[1] >= threshold:
-            return res[0]
+        candidates = [
+            app for app in installed_apps
+            if "uninstaller" not in app.lower() or "uninstaller" in clean_query.lower()
+        ]
+        if candidates:
+            res = process.extractOne(clean_query, candidates, scorer=fuzz.WRatio)
+            if res and res[1] >= threshold:
+                return res[0]
     except Exception:
         pass
 
     return None
 
 
-def resolve_macos_app_name(query_name: str, threshold: float = 72.0) -> Optional[str]:
+def resolve_macos_app_name(query_name: str, threshold: float = 72.0, installed_apps: Optional[List[str]] = None) -> Optional[str]:
     """Convenience helper to resolve query_name against all installed apps on macOS."""
-    apps = get_installed_macos_apps()
+    apps = installed_apps if installed_apps is not None else get_installed_macos_apps()
     return match_macos_app_name(query_name, apps, threshold=threshold)
 
 

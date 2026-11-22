@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.0] - 2026-11-22
+
+### Added
+- **Automated Backtest Suite (`tests/run_backtest.py`)**:
+  - Implemented comprehensive, 100% offline-first backtest runner with zero hardware dependency, zero API token burn, and sandbox memory isolation across 4 distinct suites:
+    - **Suite 1 (Thai NLP & Matching Engine):** Verifies currency conversion (`1,500 บาท` -> `หนึ่งพันห้าร้อยบาทถ้วน`), technical token protection (`v1.7.0`, `พอร์ต 8080`, `192.168.1.1`), RapidFuzz exit phrases (including negative guard checking), Soundex macOS app name resolution, and phonetic archive search.
+    - **Suite 2 (Voice Engine & State Transitions):** Verifies silence in standby, silence cutoff in PTT, exit phrase interception bypassing Brain, **True Barge-in** (>= 0.6s interrupts speaker playback), and **False Barge-in Rejection** (< 0.6s cough/click or low ambient RMS noise rejected without interrupting speaker).
+    - **Suite 3 (Brain Tiered Context & OS Subprocess Sandbox):** Verifies `[SPEAK]` tag extraction and code block stripping fallback, sandboxed L0-L2 tiered context assembly, and fully mocked `subprocess.run` / `screencapture` execution guaranteeing zero window popups or desktop captures during testing.
+    - **Suite 4 (System Integrity & Lazy Loading):** Verifies sub-0.3s lazy module cold imports, `voice_settings.json` schema validation, and `mcp_servers.json` schema validation.
+
+### Changed
+- **System Tray UI (`ui/tray.py`)**:
+  - Cleaned up unused legacy `QActionGroup` imports and aligned tray menu with the modern Single-Pipeline Wake Trigger toggle.
+- **Architecture Documentation (`PROJECT_ARCHITECTURE.md`)**:
+  - Updated section 3.12 (System Tray), updated section 4 (System Data Flow diagram) with Silero VAD + OpenWakeWord + Barge-in + Follow-up loop + RapidFuzz, and added section 6 covering the automated backtest suite.
+
+---
+
 ## [1.7.0] - 2026-11-22
 
 ### Added

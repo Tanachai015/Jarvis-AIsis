@@ -204,7 +204,7 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ### 3.12 ส่วนติดต่อผู้ใช้ (`ui/`)
 - **Dynamic Island (`ui/dynamic_island.py`):** แคปซูลโปร่งแสงลอยอยู่กึ่งกลางด้านบนของหน้าจอ (Always-on-top, กว้าง 300px) แสดงสถานะและจุดสีแอนิเมชันตามสถานะปัจจุบัน และซ่อนตัวอัตโนมัติเมื่อเข้าสู่สถานะ `Idle`
 - **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight / Raycast สำหรับพิมพ์ข้อความ ดูประวัติการแชท และตรวจสอบ System / Tool Logs
-- **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์, เมนูย่อย `🎙️ Voice Listen Mode` สำหรับสลับโหมดรับเสียง (`Hybrid`, `Push-to-Talk`, `Wake Word Only`) แบบเรียลไทม์โดยไม่ต้องรีสตาร์ท, ล้างประวัติ หรือออกจากโปรแกรม
+- **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์, เมนูเปิด/ปิดคำปลุก `🎙️ Wake Word Trigger (Active/Disabled)` ของระบบ Single-Pipeline เพื่อควบคุมการดักฟังคำปลุกแบบเรียลไทม์โดยไม่ต้องรีสตาร์ท, ล้างประวัติการสนทนา หรือออกจากโปรแกรม
 
 ### 3.13 หน่วยความจำถาวรและแก่นความคิด (`memory/`)
 - `memory/soul_core.md`: แก่นแท้บุคลิกภาพและความคิด (L0) เน้นความตรงไปตรงมา (Candor), การบอกระดับความมั่นใจอย่างโปร่งใส, การแยกงาน Action พื้นฐานออกจากงานคิดวิเคราะห์, และ Hard Guardrails
@@ -219,79 +219,96 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ## 4. แผนภาพลำดับการไหลของข้อมูล (System Data Flow)
 
 ```
-[ผู้ใช้กด Cmd+Shift+J]
+[ผู้ใช้เรียกใช้งานผ่าน 2 ช่องทาง]
+  ├── ช่องทาง 1: กดปุ่มลัด Cmd+Shift+J (Quartz Event Tap ดูดกลืนคีย์)
+  └── ช่องทาง 2: พูดคำปลุก "Hey Jarvis" / "ไฮ จาร์วิส" (OpenWakeWord + Silero VAD)
          │
          ▼
-[Quartz CGEventTapCreate (System-level)] ──> [ดูดกลืนคีย์ (Swallow Event)]
+ [JarvisListener Single-Pipeline (voice/listener.py)]
          │
-         ▼ (emit toggle_voice_record_signal)
-[JarvisListener (voice/listener.py)]
+         ├── [กรณี Standby Wake Trigger]:
+         │      • Silero VAD (512 float32, 16kHz) กรองเสียงมนุษย์ (RAM เบา 0% Faster-Whisper)
+         │      • OpenWakeWord ตรวจจับโมเดล 'hey_jarvis' (Threshold >= 0.5)
+         │      • เมื่อปลุกติด: เล่นเสียง Ack (สุ่มจาก 4 เสียง) ➔ เข้าสู่โหมดบันทึกเสียงทันที
          │
-         ├──> ครั้งที่ 1: เล่นเสียง Tink.aiff ➔ เปลี่ยนสถานะ "Listening..." ➔ เริ่มเก็บเฟรมเสียงลง Buffer
+         ├── [กรณี Full-Duplex Barge-in (ขณะ Jarvis กำลังพูด)]:
+         │      • ผู้ใช้พูดแทรกต่อเนื่อง >= 0.6s และ RMS >= 0.055
+         │      • สั่ง speaker.stop_speaking() ทันที
+         │      • นำเสียงที่แทรก (Pre-roll buffer) ไปต่อเป็นหัวคำสั่งใหม่
+         │      • (หากเสียงสั้น < 0.6s เช่น เสียงไอ/เคาะโต๊ะ หรือเสียงเบา ➔ ระบบจะปฏิเสธ ไม่ตัดเสียง Jarvis)
          │
-         └──> ครั้งที่ 2 (หรือครบ 15s): เล่นเสียง Pop.aiff ➔ เปลี่ยนสถานะ "Thinking..."
-                     │
-                     ▼
-             [Speech-to-Text Pipeline (voice/listener.py)]
-                     │
-                     ├──> Primary: Groq Cloud STT (whisper-large-v3-turbo) ──> ~0.2s, CPU 0%
-                     │         │
-                     │         └──> (Fallback เมื่อออฟไลน์ / ไร้ Key / ขัดข้อง)
-                     │                   │
-                     └──> Fallback: Local Faster-Whisper (small, int8, beam_size=5, speech_pad_ms=400)
-                               │
-                               ▼ (emit user_message_received)
-             [JarvisBrain (core/brain.py)]
-                     │
-                     ├──> ส่งประวัติและข้อความเข้า Gemini API (Explicit Fallback Chain)
-                     │
-                     ├──> Gemini ร้องขอ Function Call (Tools / MCP)
-                     │         │
-                     │         ├── [Native Tools (core/tools.py)]
-                     │         │     • click_on_screen / type_text_on_screen / click_and_type (GUI Automation)
-                     │         │     • delegate_to_antigravity (.jarvis_task.md + Watchdog)
-                     │         │     • reveal_task_result (On-Demand Reveal งานเบื้องหลัง)
-                     │         │     • search_raw_history (ค้นหาประวัติ Raw Archive 365 วัน)
-                     │         │     • analyze_current_screen (screencapture + Vision)
-                     │         │     • control_mac_system (open_path, browser url, volume, sysinfo)
-                     │         │     • manage_memory (jarvis_memory.json)
-                     │         │
-                     │         └── [Official MCP Tools (core/mcp_manager.py)]
-                     │               • @modelcontextprotocol/server-filesystem (read, write, list)
-                     │               • mcp-server-fetch (web fetcher)
-                     │               • mcp-server-git (status, diff, log)
-                     │
-                     ├──> [Raw Data Pipeline]
-                     │         ├──> (emit raw_data_received) ──> [OverlayChat ⚡ Process & Raw Tab]
-                     │         └──> บันทึกลงคลังรายเดือน ───> [memory/raw_archive/YYYY-MM.jsonl] (365+ วัน)
-                     │
-                     └──> ส่งผลลัพธ์ Tool กลับสู่ Gemini จนได้คำตอบสรุปสุดท้าย
-                               │
-                               ├──> บันทึกประวัติ 10 รอบลง memory/chat_history.json (Active History)
-                               ├──> บันทึกผลงานลง memory/background_tasks.json (Stealth Mode)
-                               │
-                               ├──> [Dual-Output Separator (core/brain.py)]
-                               │         │
-                               │         ├──> (emit assistant_reply_ready)
-                               │         │         ▼
-                               │         │   [OverlayChat 💬 Conversation Tab]
-                               │         │   (แสดงผลสรุปสะอาดตา + ตัวเลือก [1], [2], [3] สำหรับเลือกต่อ)
-                               │         │
-                               │         └──> (emit assistant_speak_ready)
-                               │                   ▼
-                               │             [JarvisSpeaker (voice/speaker.py)]
-                               │             (รับข้อความสรุปกระชับ 1-2 ประโยคจาก [SPEAK])
-                               │                   │
-                               │                   ├──> ตรวจภาษา (TH/EN) ➔ ล้างสัญลักษณ์ & ปรับจังหวะวรรคตอน
-                               │                   ├──> สังเคราะห์เสียงด้วย Edge-TTS (Rate +6%)
-                               │                   └──> ขับเสียงผ่าน macOS /usr/bin/afplay
-                               │
-                               ▼ (จบการทำงานในเบื้องหลัง - ไม่เปิดหน้าต่างเอง)
-                     [Dynamic Island แสดงสถานะ Idle ➔ ซ่อนตัวอัตโนมัติ]
-                               │
-                               │ (เมื่อผู้ใช้สั่ง: "เปิดดูผลงานล่าสุด" / "ขอดูผลหน่อย")
-                               ▼
-                     [reveal_task_result("latest")] ➔ สั่งเปิดไฟล์หรือโฟกัสหน้าต่างเฉพาะเมื่อสั่งเท่านั้น!
+         └── [กรณีผู้ใช้พูดจบประโยค]:
+                • ตรวจจับความเงียบ 3.0s ในลูปสนทนา หรือกด Cmd+Shift+J ครั้งที่ 2
+                • เล่นเสียง Pop.aiff ➔ เปลี่ยนสถานะเป็น "Thinking..."
+                      │
+                      ▼
+              [Speech-to-Text Pipeline (voice/listener.py)]
+                      │
+                      ├──> Primary: Groq Cloud STT (whisper-large-v3-turbo) ──> ~0.2s, CPU 0%
+                      │         │
+                      │         └──> (Fallback เมื่อออฟไลน์ / ไร้ Key / ขัดข้อง)
+                      │                   │
+                      └──> Fallback: Local Faster-Whisper (small, int8, beam_size=5, speech_pad_ms=400)
+                                │
+                                ▼
+              [Pre-Brain Fast Noise Filter & Exit Guard]
+                      │
+                      ├──> ผู้ใช้บอกลา/ปิดไมค์ ("ขอบคุณครับ", "พอแค่นี้เด้อ", "พักก่อน")
+                      │         │ (ตรวจจับด้วย Substring + RapidFuzz WRatio >= 78%)
+                      │         ▼
+                      │    [ตอบรับ "รับทราบครับ พักก่อนนะครับ" ➔ กลับสู่ Standby ทันทีโดยไม่ยิงเข้า Brain]
+                      │
+                      └──> ข้อความคำสั่งปกติ ──> (emit user_message_received)
+                                │
+                                ▼
+              [JarvisBrain (core/brain.py)]
+                      │
+                      ├──> โหลดบริบท 3 ระดับ (L0: Soul Core, L1: User Facts, L2: Recent Events)
+                      ├──> ส่งประวัติและข้อความเข้า Gemini API (Explicit Fallback Chain)
+                      │
+                      ├──> Gemini ร้องขอ Function Call (Tools / MCP)
+                      │         │
+                      │         ├── [Native Tools (core/tools.py)]
+                      │         │     • click_on_screen / type_text_on_screen / click_and_type (GUI Automation)
+                      │         │     • delegate_to_antigravity (.jarvis_task.md + Watchdog)
+                      │         │     • reveal_task_result (On-Demand Reveal งานเบื้องหลัง)
+                      │         │     • search_raw_history (ค้นหาประวัติ Raw Archive 365 วัน + Soundex)
+                      │         │     • analyze_current_screen (screencapture + Vision)
+                      │         │     • control_mac_system (open_app พร้อม resolve_macos_app_name, url, volume)
+                      │         │     • manage_memory (jarvis_memory.json)
+                      │         │
+                      │         └── [Official MCP Tools (core/mcp_manager.py)]
+                      │               • @modelcontextprotocol/server-filesystem (read, write, list)
+                      │               • mcp-server-fetch (web fetcher)
+                      │               • mcp-server-git (status, diff, log)
+                      │
+                      ├──> [Raw Data Pipeline]
+                      │         ├──> (emit raw_data_received) ──> [OverlayChat ⚡ Process & Raw Tab]
+                      │         └──> บันทึกลงคลังรายเดือน ───> [memory/raw_archive/YYYY-MM.jsonl] (365+ วัน)
+                      │
+                      └──> ส่งผลลัพธ์ Tool กลับสู่ Gemini จนได้คำตอบสรุปสุดท้าย
+                                │
+                                ├──> บันทึกประวัติ 10 รอบลง memory/chat_history.json (Active History)
+                                ├──> บันทึกผลงานลง memory/background_tasks.json (Stealth Mode)
+                                │
+                                ├──> [Dual-Output Separator (core/brain.py)]
+                                │         │
+                                │         ├──> (emit assistant_reply_ready)
+                                │         │         ▼
+                                │         │   [OverlayChat 💬 Conversation Tab]
+                                │         │   (แสดงผลสรุปสะอาดตา + ตัวเลือก [1], [2], [3] สำหรับเลือกต่อ)
+                                │         │
+                                │         └──> (emit assistant_speak_ready)
+                                │                   ▼
+                                │             [JarvisSpeaker (voice/speaker.py)]
+                                │             (รับข้อความสรุปกระชับ 1-2 ประโยคจาก [SPEAK])
+                                │                   │
+                                │                   ├──> ปรับจังหวะและคำอ่านด้วย core/thai_nlp.py (แปลงเงินบาท, คงพอร์ต/IP)
+                                │                   ├──> สังเคราะห์เสียงด้วย Edge-TTS (Rate +6%)
+                                │                   └──> ขับเสียงผ่าน macOS /usr/bin/afplay
+                                │                             │
+                                └─────────────────────────────┴──> [เปิด Continuous Follow-up Loop ต่อเนื่อง 60s]
+                                                                   (ฟังต่อเนื่องโดยไม่ต้องกดปุ่มหรือพูดคำปลุกซ้ำ)
 ```
 
 ---
@@ -315,3 +332,33 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 3. **Screen Recording (การบันทึกหน้าจอ):**  
    - จำเป็นสำหรับเครื่องมือ Native **`analyze_current_screen`** (`core/tools.py`) ที่เรียกใช้คำสั่งระบบ `screencapture -x` เพื่อจับภาพหน้าจอเดสก์ท็อปส่งให้ Gemini Vision ทำการวิเคราะห์ภาพหน้าต่างหรือข้อความบนจอ  
    - ตั้งค่าที่: `System Settings ➔ Privacy & Security ➔ Screen Recording` (อนุญาต Terminal / Python)
+
+---
+
+## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite)
+
+ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
+
+```bash
+# รันการทดสอบครบทุกโมดูล
+python3 tests/run_backtest.py
+```
+
+### รายละเอียด 4 ชุดทดสอบ (Test Suites):
+1. **Suite 1: Thai NLP & Matching Engine (`core/thai_nlp.py`):**
+   - ตรวจสอบ `prepare_thai_tts_text` แปลงเงินบาทเป็นคำอ่าน แต่คงรหัสเวอร์ชัน, หมายเลขพอร์ต และ IP Address
+   - ตรวจสอบ `fuzzy_match_phrase` สำหรับการดักคำปิดสนทนาทั้งแบบ Positive (คำสแลงเพี้ยน) และ Negative (ประโยคต่อเนื่องไม่ตัดบทมั่ว)
+   - ตรวจสอบ `resolve_macos_app_name` แมตช์ชื่อแอปผ่าน Aliases, Thai Soundex (`lk82`), และ RapidFuzz
+   - ตรวจสอบ `tokenize_for_search` และ `match_search_terms`
+2. **Suite 2: Voice Engine & State Transitions (`voice/listener.py` & `voice/speaker.py`):**
+   - จำลองสถานะความเงียบใน `STANDBY_WAKE`
+   - ตรวจสอบการตัดจบลูปด้วยคำปิดสนทนาโดยไม่ส่งเข้า Brain
+   - ตรวจสอบ **True Barge-in:** พูดแทรกต่อเนื่อง $\ge 0.6$s สั่งตัดเสียง Jarvis ทันที
+   - ตรวจสอบ **False Barge-in Rejection:** เสียงดังสั้น $< 0.6$s หรือเสียงฮัมเบา ไม่ตัดเสียง Jarvis มั่ว
+3. **Suite 3: Brain Tiered Context & OS Subprocess Sandbox (`core/brain.py` & `core/tools.py`):**
+   - ตรวจสอบการแยกแท็ก `[SPEAK]` และ Fallback ลอกโค้ดบล็อก
+   - ตรวจสอบการประกอบ Tiered Context (`L0`, `L1`, `L2`) บนโฟลเดอร์จำลองโดยไม่แตะต้องไฟล์หน่วยความจำจริง
+   - ตรวจสอบการเรียกคำสั่งระบบ (`open -a`, `osascript`, `screencapture`) ผ่าน Mock 100% ไม่เปิดหน้าต่างหรือแคปหน้าจอจริง
+4. **Suite 4: System Integrity & Lazy Loading:**
+   - ทดสอบความเร็ว Cold Import ไม่บล็อกการบูตโปรแกรม ($< 0.3$s)
+   - ตรวจสอบความถูกต้องของสกีมา `voice_settings.json` และ `mcp_servers.json`

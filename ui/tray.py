@@ -4,7 +4,7 @@ Displays a menu bar icon on macOS / Windows with quick actions and status.
 """
 
 from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen, QActionGroup
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QApplication
 
 import config
