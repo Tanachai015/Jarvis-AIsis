@@ -8,7 +8,7 @@
 [![Speech](https://img.shields.io/badge/STT-Groq%20Cloud%20%2B%20Faster--Whisper-F55036)](https://groq.com/)
 [![Wake Engine](https://img.shields.io/badge/Wake%20Word-OpenWakeWord%20ONNX-orange)](https://github.com/dscripka/openWakeWord)
 [![VAD](https://img.shields.io/badge/VAD-Silero%20VAD%20v5-purple)](https://github.com/snakers4/silero-vad)
-[![Testing](https://img.shields.io/badge/Automated%20Tests-27%2F27%20PASS%20(100%25)-success)](file:///Volumes/WorkDrive/Javis%20Project/automated_backtest_full_report.md)
+[![Testing](https://img.shields.io/badge/Automated%20Tests-30%2F30%20PASS%20(100%25)-success)](file:///Volumes/WorkDrive/Javis%20Project/automated_backtest_full_report.md)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 An agentic, event-driven, multimodal desktop AI companion built natively for macOS. Designed with a **decoupled PySide6 architecture**, a **Single-Pipeline Unified Microphone Architecture combining Silero VAD neural filtering and OpenWakeWord ONNX edge detection**, a **True Full-Duplex Barge-in engine with pre-roll buffer stitching**, **specialized Thai NLP & RapidFuzz Phonetic Matching**, **computer vision desktop automation**, and **100% stealth background execution**.
@@ -61,10 +61,19 @@ An agentic, event-driven, multimodal desktop AI companion built natively for mac
   - `mcp-server-git` (14 tools)
   - Native macOS Tools: Vision, System Control, Antigravity Bridge, Memory, Reveal, Raw History, Mouse & Keyboard (9 tools)
 
-### 7. 🧪 Automated Backtest Suite (`tests/run_backtest.py`)
+### 7. 🤖 Menu Bar Docked Dynamic Island & Cyber Mini-Robot Avatar (v1.9.0)
+- **Menu Bar Docked Architecture:** Seamlessly embedded directly inside the macOS Menu Bar (`NSMainMenuWindowLevel + 1`, `CanJoinAllSpaces | Stationary`) without flickers or hide/show jitter.
+- **Adaptive Edge & Notch/Tray Collision Engine:** Dynamically adapts to menu bar thickness (22–40px), avoids the MacBook camera notch (`auxiliaryTopRightArea`), and docks 12px to the left of macOS system status tray icons (Quartz Layer 25 with 5s cache TTL).
+- **2-Stage Spring Pop-out (`OutBack` Easing, 320ms):**
+  - **Folded Pill (`idle`):** Ultra-compact $68 \times 24$ px status indicator embedded in the Menu Bar running at 30 FPS to conserve MacBook battery.
+  - **Expanded Pill (Active States):** $340 \times 56$ px animated HUD capsule springing down at 60 FPS during speaking, listening, thinking, and tool execution.
+- **Pure Vector Cyber Mini-Robot Avatar (`QPainter` 100%):** Zero raster/GIF assets. High-definition vector robot with expressive eye matrices, animated equalizer chest, wiggling antenna, organic floating paws, multi-syllable lip-sync, and 5 autonomous idle quirks (`look_around`, `double_blink`, `hum_hop`, `mini_yawn`, `curious_nod`).
+- **Interactive Click:** Left-clicking the island pill emits `event_bus.toggle_overlay_signal` to seamlessly toggle the Spotlight Overlay Chat.
+
+### 8. 🧪 Automated Backtest Suite (`tests/run_backtest.py`)
 - **100% Offline-Safe & Zero-Token-Burn:** Complete mocking of external hardware (`sounddevice`, `/usr/bin/afplay`), operating system subprocesses (`open -a`, `screencapture`), and AI APIs.
 - **Strict Memory Sandboxing:** Tests run in temporary directories (`tempfile.TemporaryDirectory`) guaranteeing zero mutations to production memory files.
-- **18 Test Cases Passing 100% in ~2.9s:** Covers Thai NLP, Voice Engine states, Barge-in thresholds, Grace tolerances, OpenWakeWord int16 accumulation, and MCP schema validation.
+- **30 Test Cases Passing 100% across 4 Suites:** Covers Thai NLP, Voice Engine states, Esc-key direct barge-in, Brain context assembly, OS tool sandboxing, system integrity, and Dynamic Island edge/vector rendering.
 
 ---
 

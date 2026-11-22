@@ -215,7 +215,16 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 - `fuzzy_match_phrase()`: จับคู่คำสแลงเพี้ยนด้วย RapidFuzz WRatio สำหรับคำบอกลาและคำสั่งเบรก
 
 ### 3.13 ส่วนติดต่อผู้ใช้ (`ui/`)
-- **Dynamic Island (`ui/dynamic_island.py`):** แคปซูลโปร่งแสงลอยด้านบนหน้าจอ แสดงสถานะด้วยแอนิเมชันจุดสี
+- **Dynamic Island (`ui/dynamic_island.py` — v1.9.0 Menu Bar Docked & Cyber Mini-Robot Avatar):**
+  - **Menu Bar Docked Architecture:** ฝังตัวบน macOS Menu Bar อย่างแนบเนียน ไม่เคยเรียก `hide()` เพื่อหลีกเลี่ยงกระตุก วางระดับหน้าต่างที่ `NSMainMenuWindowLevel + 1` และคงอยู่ข้ามทุก Spaces (`CanJoinAllSpaces | Stationary`)
+  - **Adaptive Edge & Scale Engine:** ตรวจจับ Menu Bar (`edge: top`) และคำนวณความหนาแถบอัตโนมัติ (22–40px)
+  - **Notch & Tray Collision Avoidance:** หลบติ่งกล้อง Notch ด้วย `NSScreen.auxiliaryTopRightArea` และตรวจจับพิกัดไอคอน Tray ด้านซ้ายสุดผ่าน Quartz Layer 25 (แคชผลลัพธ์ 5 วินาที Zero-overhead)
+  - **2-Stage Spring Pop-out (OutBack 320ms):**
+    - **Folded Mode (`idle`):** แคปซูลมินิแบบพับขนาดกะทัดรัด ($68 \times 24$ px) แสดงมินิอวตารและจุดไฟแสดงสถานะ ปรับรอบเรนเดอร์เป็น 30 FPS เพื่อประหยัดพลังงาน
+    - **Expanded Mode (สถานะทำงาน):** ขยายเป็นแคปซูล $340 \times 56$ px เด้งสปริงลงมาจาก Menu Bar แสดงหุ่นยนต์อวตารเต็มตัวพร้อมข้อความสถานะและคลื่นเสียง Live Wave ด้วยอัตราเรนเดอร์ 60 FPS คมชัดสูง
+  - **Pure Vector Graphics Cyber Mini-Robot Avatar (`QPainter` 100%):** วาดโครงสร้างเวกเตอร์ความคมชัดระดับ Retina ทั้งหมด (หู Antenna, Visor กระจกสะท้อน, ไฟอก Animated Equalizer, ตา Matrix ตาข่าย, ปาก Lip-sync อัตโนมัติ `abs(sin*cos)`, มือลอย Floating Paws) ปราศจากภาพ Raster หรือ GIF ภายนอก
+  - **Autonomous Quirks:** สุ่มแสดง 5 ท่าทางพิเศษยามว่าง (`look_around`, `double_blink`, `hum_hop`, `mini_yawn`, `curious_nod`)
+  - **Interactive Click:** คลิกที่แคปซูลจะส่งสัญญาณ `event_bus.toggle_overlay_signal` เพื่อเปิด/ปิดหน้าต่าง Overlay Chat ทันที
 - **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight แยกแท็บสนทนาและข้อมูลดิบ
 - **System Tray (`ui/tray.py`):** เมนูบนแถบสถานะ macOS พร้อมตัวเลือกเปิด/ปิดการดักฟังคำปลุก (`🎙️ Wake Word Trigger`)
 
@@ -317,9 +326,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 
 ---
 
-## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 27/27 PASS)
+## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 30/30 PASS)
 
-ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม **27 เคสทดสอบ** ใน 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
+ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม **30 เคสทดสอบ** ใน 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
 
 ```bash
 # รันการทดสอบครบทุกโมดูล
@@ -345,7 +354,10 @@ python3 tests/run_backtest.py
    - ตรวจสอบการเรียกคำสั่งระบบ (`open -a`, `osascript`, `screencapture`) ผ่าน Mock 100% ไม่เปิดหน้าต่างหรือแคปหน้าจอจริง
    - ตรวจสอบ `AntigravityBridge` ปราศจากคำสั่ง `osascript` 100% และเขียนไฟล์แบบ Atomic Write
    - ตรวจสอบ `Deduplication Guard` บล็อกคำสั่งงานซ้ำซ้อนภายใน Cooldown 60 วินาที
-4. **Suite 4: System Integrity, Lazy Loading & Schema Validation — 4/4 PASS:**
+4. **Suite 4: System Integrity, GUI & Config Validation — 7/7 PASS:**
    - ทดสอบความเร็ว Cold Import ไม่บล็อกการบูตโปรแกรม ($< 0.3$s)
    - ตรวจสอบตัวกรอง Empty Arguments (`""` / `None`) ใน `MCPManager.call_tool`
    - ตรวจสอบความถูกต้องของสกีมา `voice_settings.json` และ `mcp_servers.json`
+   - ตรวจสอบ **Dynamic Island Adaptive Edge Detection:** ตรวจจับแถบ Menu Bar ด้านบน และคำนวณตำแหน่งจอดเกาะ Dock บนหน้าจออย่างถูกต้อง
+   - ตรวจสอบ **Dynamic Island State Geometry Transitions:** ตรวจสอบการสลับขนาด Folded ($68 \times 24$ px) ในโหมด `idle` และ Expanded ($340 \times 56$ px) ในสถานะทำงาน
+   - ตรวจสอบ **Dynamic Island Pure Vector Paint Zero-Crash:** ทดสอบการเรนเดอร์หุ่นยนต์อวตารเวกเตอร์ `QPainter` ครบทั้ง 7 สถานะ และ 5 ท่าทางพิเศษ (Quirks) โดยไม่มี Exception และปลอดการกระตุกจาก Font Aliases

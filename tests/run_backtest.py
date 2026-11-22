@@ -666,6 +666,88 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
             self.assertIn("command", srv_cfg, f"MCP server '{srv_name}' missing 'command'")
             self.assertIn("args", srv_cfg, f"MCP server '{srv_name}' missing 'args'")
 
+    def test_dynamic_island_adaptive_edge_detection(self):
+        """Verifies DynamicIsland edge detection prioritizes top Menu Bar and computes valid dock geometry."""
+        from PySide6.QtWidgets import QApplication
+        from ui.dynamic_island import DynamicIsland
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        island = DynamicIsland()
+        try:
+            self.assertEqual(island.edge, "top", "macOS Dynamic Island must dock to 'top' Menu Bar")
+            self.assertGreaterEqual(island.bar_thickness, 22, "Menu Bar thickness must be >= 22px")
+
+            x, y, w, h = island.compute_dock_geometry(is_expanded=False)
+            self.assertGreater(x, 0)
+            self.assertGreaterEqual(y, 0)
+            self.assertGreaterEqual(w, 50)
+            self.assertGreaterEqual(h, 20)
+        finally:
+            island.close()
+
+    def test_dynamic_island_state_geometry_transitions(self):
+        """Verifies geometry transitions between Folded (idle) and Expanded (active) states."""
+        from PySide6.QtWidgets import QApplication
+        from ui.dynamic_island import DynamicIsland
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        island = DynamicIsland()
+        try:
+            # 1. Idle -> Folded Mode
+            island.on_state_changed("idle")
+            self.assertEqual(island.current_state, "idle")
+            xf, yf, wf, hf = island.compute_dock_geometry(is_expanded=False)
+            self.assertEqual(wf, island.folded_w)
+            self.assertEqual(hf, island.folded_h)
+
+            # 2. Listening -> Expanded Mode
+            island.on_state_changed("listening")
+            self.assertEqual(island.current_state, "listening")
+            xe, ye, we, he = island.compute_dock_geometry(is_expanded=True)
+            self.assertEqual(we, 340)
+            self.assertEqual(he, 56)
+
+            # 3. Active states (speaking, thinking, running_tool) stay expanded
+            for state in ["speaking", "thinking", "running_tool", "wake_ack", "confused"]:
+                island.on_state_changed(state)
+                self.assertEqual(island.current_state, state)
+                _x, _y, w, h = island.compute_dock_geometry(is_expanded=(state != "idle"))
+                self.assertEqual(w, 340)
+                self.assertEqual(h, 56)
+
+            # 4. Return to idle -> Folded
+            island.on_state_changed("idle")
+            self.assertEqual(island.current_state, "idle")
+        finally:
+            island.close()
+
+    def test_dynamic_island_vector_paint_zero_crash(self):
+        """Verifies 100% crash-free QPainter vector robot rendering across all 7 states and 5 quirks."""
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QPixmap, QPainter
+        from ui.dynamic_island import DynamicIsland
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        island = DynamicIsland()
+        pix = QPixmap(400, 100)
+        painter = QPainter(pix)
+        try:
+            # Verify all 7 states in both standard and mini folded sizes
+            for st in ["idle", "listening", "thinking", "speaking", "running_tool", "wake_ack", "confused"]:
+                island.current_state = st
+                cfg = island.STATES[st]
+                island._draw_cyber_robot(painter, 1.25, cfg, is_mini=False)
+                island._draw_cyber_robot(painter, 1.25, cfg, is_mini=True)
+
+            # Verify all 5 autonomous quirks
+            for qk in island.QUIRK_NAMES:
+                island.trigger_quirk(qk)
+                cfg = island.STATES["idle"]
+                island._draw_cyber_robot(painter, island.quirk_start_time + 0.5, cfg, is_mini=False)
+        finally:
+            painter.end()
+            island.close()
+
 
 # ============================================================================
 # RUNNER & FORMATTED TERMINAL REPORTER

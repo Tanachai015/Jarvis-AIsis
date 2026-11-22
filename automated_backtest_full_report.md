@@ -1,9 +1,9 @@
 # 📋 รายงานผลการทดสอบระบบอัตโนมัติฉบับสมบูรณ์ (Full Automated Backtest Report)
 **Project:** Jarvis Desktop Assistant  
-**Release Target:** v1.8.0  
+**Release Target:** v1.9.0  
 **Test Runner:** `tests/run_backtest.py`  
 **Execution Environment:** macOS (Darwin 25.1.0) / Python 3.12 (Isolated Mock Sandbox)  
-**Total Test Cases:** 17 เคส ใน 4 ชุดทดสอบ (Suites)  
+**Total Test Cases:** 30 เคส ใน 4 ชุดทดสอบ (Suites) — 100% PASS  
 
 ---
 
@@ -98,30 +98,42 @@ flowchart TD
 
 ---
 
-## 4. ตารางผลการทดสอบรอบสุดท้าย 18/18 เคส (Final Verification Matrix - v1.8.1)
+## 4. ตารางผลการทดสอบรอบสุดท้าย 30/30 เคส (Final Verification Matrix - v1.9.0)
 
-ผลการทดสอบรอบสุดท้ายผ่านครบถ้วน **100% PASS** โดยใช้เวลารวมเพียง **2.91 วินาที**:
+ผลการทดสอบรอบสุดท้ายผ่านครบถ้วน **100% PASS** โดยใช้เวลารวมเพียง **~6.8 วินาที**:
 
-| Suite | Test Case Identifier | เป้าหมายการทดสอบ | ผลลัพธ์ | เวลาที่ใช้ |
-|---|---|---|:---:|:---:|
-| **Suite 1: Thai NLP & Matching** | `test_prepare_thai_tts_text_mixed_tokens` | แปลงเงินบาทเป็นคำอ่าน คงรูป v1.7.0, พอร์ต 8080, IP 192.168.1.1 | **PASS** ✅ | 0.082s |
-| | `test_fuzzy_match_phrase_positive` | ดักคำสแลงเพี้ยน ("ขอบคุณคับ", "พอแค่นี้เด้อ") ตรงเป้าหมาย | **PASS** ✅ | 0.015s |
-| | `test_fuzzy_match_phrase_negative_guard` | ป้องกัน False-Positive ประโยคคำสั่งต่อเนื่องไม่ถูกตัดบททิ้ง | **PASS** ✅ | 0.011s |
-| | `test_resolve_macos_app_name` | แมตช์ชื่อแอปผ่าน Alias และ Thai Soundex (ไฟ๊ฟ๊กอ ➔ Firefox) | **PASS** ✅ | 0.018s |
-| | `test_tokenize_for_search_and_matching` | ตัดคำค้นหาและจับคู่คำพ้องเสียง (โปรเจค vs โปรเจกต์) | **PASS** ✅ | 0.357s |
-| **Suite 2: Voice Engine & States** | `test_standby_wake_silence` | สัญญาณเสียงเงียบใน Standby ไม่เปลี่ยนสถานะมั่ว | **PASS** ✅ | 0.045s |
-| | `test_exit_phrase_intercept_bypasses_brain` | คำปิดสนทนาตัดจบลูปทันทีโดยไม่ยิงเข้า Brain API | **PASS** ✅ | 0.012s |
-| | `test_true_barge_in_stops_speaker` | พูดแทรก $\ge 0.6$s พร้อม Grace Tolerance หยุดเสียงทันที | **PASS** ✅ | 0.021s |
-| | `test_false_barge_in_rejection_short_speech` | **เคสกันลั่น 1:** เสียงสั้น $< 0.6$s (0.288s) ไม่ตัดเสียง Jarvis | **PASS** ✅ | 0.015s |
-| | `test_false_barge_in_rejection_low_energy` | **เคสกันลั่น 2:** เสียงฮัมเบา (RMS $< 0.025$) ไม่ตัดเสียง Jarvis | **PASS** ✅ | 0.019s |
-| | `test_openwakeword_int16_chunk_accumulation` | แปลง float32 เป็น int16 สะสมครบ 1280 samples ก่อน predict | **PASS** ✅ | 0.010s |
-| **Suite 3: Brain & OS Sandbox** | `test_split_display_and_spoken_text_dual_output` | แยก Markdown สวยงามบนจอ และแยกเสียงพูด `[SPEAK]` สะอาดตา | **PASS** ✅ | 0.005s |
-| | `test_split_display_and_spoken_text_fallback` | กรณี AI ลืมใส่ `[SPEAK]` ลอกโค้ดบล็อก Markdown ออกจากเสียงพูด | **PASS** ✅ | 0.006s |
-| | `test_tiered_context_assembly_sandboxed` | โหลด L0, L1, L2 บน Sandbox โดยไม่แตะต้องไฟล์หน่วยความจำจริง | **PASS** ✅ | 0.014s |
-| | `test_tool_execution_mocked_subprocess` | Mock `subprocess.run/screencapture` ไม่เปิดหน้าต่างหรือแคปจอจริง | **PASS** ✅ | 0.012s |
-| **Suite 4: System Integrity** | `test_lazy_loading_import_speed` | Cold Import ไม่บล็อกการบูตโปรแกรม ($< 0.3$s) | **PASS** ✅ | 0.001s |
-| | `test_voice_settings_schema` | ตรวจสอบคีย์จำเป็นและเกณฑ์ใหม่ (wake=0.45, vad=0.65, rms=0.025) | **PASS** ✅ | 0.001s |
-| | `test_mcp_servers_schema` | ตรวจสอบโครงสร้างคำสั่งและพารามิเตอร์ของ `mcp_servers.json` | **PASS** ✅ | 0.001s |
+| Suite | Test Case Identifier | เป้าหมายการทดสอบ | ผลลัพธ์ |
+|---|---|---|:---:|
+| **Suite 1: Thai NLP & Matching** | `test_prepare_thai_tts_text_mixed_tokens` | แปลงเงินบาทเป็นคำอ่าน คงรูป v1.7.0, พอร์ต 8080, IP 192.168.1.1 | **PASS** ✅ |
+| | `test_fuzzy_match_phrase_positive` | ดักคำสแลงเพี้ยน ("ขอบคุณคับ", "พอแค่นี้เด้อ") ตรงเป้าหมาย | **PASS** ✅ |
+| | `test_fuzzy_match_phrase_negative_guard` | ป้องกัน False-Positive ประโยคคำสั่งต่อเนื่องไม่ถูกตัดบททิ้ง | **PASS** ✅ |
+| | `test_resolve_macos_app_name` | แมตช์ชื่อแอปผ่าน Alias และ Thai Soundex (ไฟ๊ฟ๊กอ ➔ Firefox) | **PASS** ✅ |
+| | `test_tokenize_for_search_and_matching` | ตัดคำค้นหาและจับคู่คำพ้องเสียง (โปรเจค vs โปรเจกต์) | **PASS** ✅ |
+| **Suite 2: Voice Engine & States** | `test_standby_wake_silence` | สัญญาณเสียงเงียบใน Standby ไม่เปลี่ยนสถานะมั่ว | **PASS** ✅ |
+| | `test_exit_phrase_intercept_bypasses_brain` | คำปิดสนทนาตัดจบลูปทันทีโดยไม่ยิงเข้า Brain API | **PASS** ✅ |
+| | `test_true_barge_in_stops_speaker` | พูดแทรก $\ge 0.6$s พร้อม Grace Tolerance หยุดเสียงทันที | **PASS** ✅ |
+| | `test_false_barge_in_rejection_short_speech` | **เคสกันลั่น 1:** เสียงสั้น $< 0.6$s (0.288s) ไม่ตัดเสียง Jarvis | **PASS** ✅ |
+| | `test_false_barge_in_rejection_low_energy` | **เคสกันลั่น 2:** เสียงฮัมเบา (RMS $< 0.025$) ไม่ตัดเสียง Jarvis | **PASS** ✅ |
+| | `test_openwakeword_int16_chunk_accumulation` | แปลง float32 เป็น int16 สะสมครบ 1280 samples ก่อน predict | **PASS** ✅ |
+| | `test_wake_mic_gain_amplification` | ขยายสัญญาณไมค์ 2.5x ก่อนป้อนเข้า OpenWakeWord | **PASS** ✅ |
+| | `test_exit_phrase_sets_suppress_followup_flag` | คำบอกลาเซ็ต suppress_next_followup ป้องกันเปิดลูปซ้ำ | **PASS** ✅ |
+| | `test_speaking_monitor_drains_audio_queue_zero_overhead` | โหมดพูดปิดการส่ง STT และ Wake Word ประหยัด CPU/API 100% | **PASS** ✅ |
+| | `test_esc_key_direct_barge_in` | ปุ่ม Esc ตัดเสียงพูดทันทีและเข้าสู่ Active PTT ทันที | **PASS** ✅ |
+| | `test_esc_key_full_flow_with_cached_ack` | ลำดับการกด Esc: หยุดเสียง ➔ เสียง Ack ➔ เปิดรับฟังใหม่ | **PASS** ✅ |
+| | `test_followup_loop_blocked_on_barge_in_interrupted` | ระงับ Followup Loop เมื่อถูกสั่งเบรกด้วย Barge-in | **PASS** ✅ |
+| **Suite 3: Brain & OS Sandbox** | `test_split_display_and_spoken_text_dual_output` | แยก Markdown สวยงามบนจอ และแยกเสียงพูด `[SPEAK]` สะอาดตา | **PASS** ✅ |
+| | `test_split_display_and_spoken_text_fallback_strips_code` | กรณี AI ลืมใส่ `[SPEAK]` ลอกโค้ดบล็อก Markdown ออกจากเสียงพูด | **PASS** ✅ |
+| | `test_tiered_context_assembly_sandboxed` | โหลด L0, L1, L2 บน Sandbox โดยไม่แตะต้องไฟล์หน่วยความจำจริง | **PASS** ✅ |
+| | `test_tool_execution_mocked_subprocess` | Mock `subprocess.run/screencapture` ไม่เปิดหน้าต่างหรือแคปจอจริง | **PASS** ✅ |
+| | `test_antigravity_bridge_zero_osascript_and_atomic_write` | ตรวจสอบ AntigravityBridge ไร้คำสั่ง osascript และเขียน Atomic | **PASS** ✅ |
+| | `test_antigravity_bridge_deduplication_guard` | ป้องกันการส่งงาน Antigravity ซ้ำซ้อนภายใน Cooldown | **PASS** ✅ |
+| **Suite 4: System Integrity & UI** | `test_lazy_loading_import_speed` | Cold Import ไม่บล็อกการบูตโปรแกรม ($< 0.3$s) | **PASS** ✅ |
+| | `test_voice_settings_schema` | ตรวจสอบคีย์จำเป็นและเกณฑ์ใหม่ใน `voice_settings.json` | **PASS** ✅ |
+| | `test_mcp_call_tool_filters_empty_arguments` | กรองค่าอาร์กิวเมนต์ว่าง (`""`/`None`) ก่อนส่งเข้า MCP Server | **PASS** ✅ |
+| | `test_mcp_servers_schema` | ตรวจสอบโครงสร้างคำสั่งและพารามิเตอร์ของ `mcp_servers.json` | **PASS** ✅ |
+| | `test_dynamic_island_adaptive_edge_detection` | ตรวจจับ Menu Bar ขอบบนและคำนวณขนาดความหนาแถบอัตโนมัติ | **PASS** ✅ |
+| | `test_dynamic_island_state_geometry_transitions` | สลับรูปทรง Folded ($68\times 24$) และ Expanded ($340\times 56$) | **PASS** ✅ |
+| | `test_dynamic_island_vector_paint_zero_crash` | เรนเดอร์ Vector Robot อวตาร 7 สถานะ และ 5 Quirks ไร้บั๊ก 100% | **PASS** ✅ |
 
 ---
 
