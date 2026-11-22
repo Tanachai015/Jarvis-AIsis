@@ -24,6 +24,10 @@
   "post_speech_silence_sec": 3.0,
   "followup_timeout_sec": 60.0,
   "wake_rms_threshold": 0.025,
+  "wake_model_name": "hey_jarvis",
+  "wake_score_threshold": 0.5,
+  "vad_speech_threshold": 0.5,
+  "barge_in_vad_threshold": 0.75,
   "barge_in_enabled": true,
   "barge_in_min_duration_sec": 0.6,
   "barge_in_rms_threshold": 0.055
