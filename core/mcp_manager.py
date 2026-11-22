@@ -296,6 +296,24 @@ def {tool_name}({params_str}) -> str:
 
         server_name, session, tool_def = self.tool_registry[tool_name]
 
+        # Extract required properties from tool schema if present
+        required_fields = set()
+        if tool_def is not None:
+            if isinstance(tool_def, dict):
+                raw_schema = tool_def.get("input_schema") or tool_def.get("inputSchema") or {}
+            else:
+                raw_schema = getattr(tool_def, "input_schema", getattr(tool_def, "inputSchema", {}))
+            if isinstance(raw_schema, dict):
+                required_fields = set(raw_schema.get("required", []))
+
+        # Filter out empty arguments ("" or None) unless they are required by schema
+        cleaned_arguments = {}
+        for k, v in arguments.items():
+            if (v is None or v == "") and k not in required_fields:
+                continue
+            cleaned_arguments[k] = v
+        arguments = cleaned_arguments
+
         # Smart defaults for MCP tools (e.g. Git tools require repo_path)
         if server_name == "git" and ("repo_path" not in arguments or not arguments.get("repo_path")):
             arguments["repo_path"] = str(PROJECT_ROOT)

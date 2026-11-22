@@ -145,6 +145,38 @@ class TestVoiceEngineAndBargeIn(unittest.TestCase):
         self.assertEqual(listener.current_state, listener.STATE_STANDBY_WAKE)
         self.assertFalse(listener.is_recording)
 
+    def test_exit_phrase_suppresses_followup_loop(self):
+        """Verifies that saying an exit phrase sets suppress_next_followup and blocks followup loop on speaker idle."""
+        from voice.listener import JarvisListener
+
+        speaker_mock = MagicMock()
+        listener = JarvisListener(speaker=speaker_mock)
+
+        # Mock transcription engines to return exit phrase
+        listener._transcribe_groq = MagicMock(return_value="พักก่อนครับ")
+        listener._transcribe_local = MagicMock(return_value="พักก่อนครับ")
+
+        listener.current_state = listener.STATE_ACTIVE_PTT
+        listener.is_recording = True
+
+        fake_audio_chunk = self.np.zeros(16000, dtype=self.np.float32)
+        listener._transcribe_and_dispatch([fake_audio_chunk])
+
+        # Verify suppress flag is True and state returned to STANDBY_WAKE
+        self.assertTrue(listener.suppress_next_followup)
+        self.assertEqual(listener.current_state, listener.STATE_STANDBY_WAKE)
+
+        # Now simulate assistant speaker replying ("รับทราบครับ พักก่อนนะครับ")
+        listener._on_assistant_state_changed("speaking")
+        self.assertTrue(listener.is_speaking)
+
+        # When assistant finishes speaking (idle), followup loop must be suppressed!
+        listener._on_assistant_state_changed("idle")
+        self.assertFalse(listener.is_speaking)
+        self.assertFalse(listener.suppress_next_followup)
+        self.assertEqual(listener.current_state, listener.STATE_STANDBY_WAKE)
+        self.assertFalse(listener.is_recording)
+
     def test_true_barge_in_stops_speaker(self):
         """Verifies continuous user speech >= 0.6s with syllable micro-gap tolerance stops speaker."""
         from voice.listener import JarvisListener
@@ -434,10 +466,64 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
             self.assertIn(key, data, f"Missing required voice_settings key: {key}")
 
         self.assertEqual(data["barge_in_min_duration_sec"], 0.6)
-        self.assertEqual(data["wake_score_threshold"], 0.45)
-        self.assertEqual(data["barge_in_vad_threshold"], 0.65)
-        self.assertEqual(data["barge_in_rms_threshold"], 0.025)
+        self.assertEqual(data["wake_score_threshold"], 0.34)
+        self.assertEqual(data["barge_in_vad_threshold"], 0.60)
+        self.assertEqual(data["barge_in_rms_threshold"], 0.020)
         self.assertTrue(isinstance(data["wake_words"], list))
+
+    def test_mcp_call_tool_filters_empty_arguments(self):
+        """Verifies that empty string or None optional arguments are stripped before calling MCP server."""
+        from core.mcp_manager import MCPManager
+        import asyncio
+        import threading
+
+        manager = MCPManager()
+        mock_session = MagicMock()
+        mock_tool_def = {
+            "name": "fetch",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "max_length": {"type": "integer"},
+                    "timeout_ms": {"type": "integer"}
+                },
+                "required": ["url"]
+            }
+        }
+
+        # Setup mock session and tool_registry
+        manager.tool_registry["fetch"] = ("fetch", mock_session, mock_tool_def)
+        manager.loop = asyncio.new_event_loop()
+
+        # Capture passed arguments
+        passed_args = {}
+
+        async def fake_call_tool(tool_name, args):
+            nonlocal passed_args
+            passed_args = dict(args)
+            mock_res = MagicMock()
+            mock_res.content = [MagicMock(text=f"Fetched {args['url']}")]
+            return mock_res
+
+        mock_session.call_tool = fake_call_tool
+
+        t = threading.Thread(target=manager.loop.run_forever, daemon=True)
+        t.start()
+
+        try:
+            test_args = {
+                "url": "https://wttr.in/Bangkok",
+                "max_length": "",
+                "timeout_ms": "",
+                "raw": None
+            }
+            res = manager.call_tool("fetch", test_args)
+            self.assertIn("Fetched https://wttr.in/Bangkok", res)
+            self.assertEqual(passed_args, {"url": "https://wttr.in/Bangkok"})
+        finally:
+            manager.loop.call_soon_threadsafe(manager.loop.stop)
+            t.join(timeout=1.0)
 
     def test_mcp_servers_schema(self):
         """Verifies mcp_servers.json configuration integrity."""

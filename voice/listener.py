@@ -151,12 +151,12 @@ class JarvisListener(threading.Thread):
         self.followup_timeout = float(defaults["followup_timeout_sec"])
         self.wake_rms_threshold = float(defaults["wake_rms_threshold"])
         self.wake_model_name = str(defaults.get("wake_model_name", "hey_jarvis"))
-        self.wake_score_threshold = float(defaults.get("wake_score_threshold", 0.45))
+        self.wake_score_threshold = float(defaults.get("wake_score_threshold", 0.34))
         self.vad_speech_threshold = float(defaults.get("vad_speech_threshold", 0.5))
-        self.barge_in_vad_threshold = float(defaults.get("barge_in_vad_threshold", 0.65))
+        self.barge_in_vad_threshold = float(defaults.get("barge_in_vad_threshold", 0.60))
         self.barge_in_enabled = bool(defaults.get("barge_in_enabled", True))
         self.barge_in_min_duration = float(defaults.get("barge_in_min_duration_sec", 0.6))
-        self.barge_in_rms_threshold = float(defaults.get("barge_in_rms_threshold", 0.025))
+        self.barge_in_rms_threshold = float(defaults.get("barge_in_rms_threshold", 0.020))
         self.speech_energy_threshold = config.VOICE_ENERGY_THRESHOLD
 
         # State tracking for barge-in detection
@@ -166,6 +166,9 @@ class JarvisListener(threading.Thread):
 
         # Audio buffer for OpenWakeWord 1280-sample (80ms) accumulation
         self.oww_audio_buffer: np.ndarray = np.empty(0, dtype=np.int16)
+
+        # Flag to prevent followup loop when conversation has ended with exit phrase
+        self.suppress_next_followup: bool = False
 
     def _load_vad_model(self):
         """Loads Silero VAD neural network for real-time human voice detection."""
@@ -271,14 +274,25 @@ class JarvisListener(threading.Thread):
             self.oww_audio_buffer = np.empty(0, dtype=np.int16)
             self._reset_vad_states()
 
-            # If assistant just finished speaking, initiate Continuous Followup Loop!
+            # If assistant just finished speaking, initiate Continuous Followup Loop unless suppressed!
             if was_speaking:
-                threading.Thread(target=self._enter_followup_loop_delayed, daemon=True).start()
+                if self.suppress_next_followup:
+                    print("[Listener] 🛑 Followup loop suppressed after exit conversation.")
+                    self.suppress_next_followup = False
+                    self.current_state = self.STATE_STANDBY_WAKE
+                else:
+                    threading.Thread(target=self._enter_followup_loop_delayed, daemon=True).start()
 
     def _enter_followup_loop_delayed(self):
         """Waits 0.35s after assistant finishes speaking to prevent acoustic echo, then enters followup loop."""
         time.sleep(0.35)
         with self.state_lock:
+            # Check if followup should be suppressed (e.g. exit phrase spoken)
+            if self.suppress_next_followup:
+                print("[Listener] 🛑 Followup loop suppressed in delayed worker.")
+                self.suppress_next_followup = False
+                self.current_state = self.STATE_STANDBY_WAKE
+                return
             # Check if speaker was interrupted by barge-in; if so, do NOT enter followup loop!
             if self.speaker and getattr(self.speaker, "is_interrupted", False):
                 return
@@ -477,6 +491,7 @@ class JarvisListener(threading.Thread):
                     print(f"[Listener] 🚪 Exit conversation phrase detected ({matched_exit_word}): \"{clean_text}\"")
                     ack_reply = "รับทราบครับ พักก่อนนะครับ"
                     event_bus.task_log_updated.emit("Voice Input", f"สิ้นสุดการสนทนา: \"{clean_text}\"")
+                    self.suppress_next_followup = True
                     event_bus.assistant_reply_ready.emit(ack_reply)
                     event_bus.assistant_speak_ready.emit(ack_reply)
                     self._cancel_recording_to_standby("ผู้ใช้แจ้งสิ้นสุดการสนทนา")
@@ -667,8 +682,9 @@ class JarvisListener(threading.Thread):
             import sounddevice as sd
 
             def _audio_callback(indata, frames, time_info, status):
+                speaker_busy = self.is_speaking or (self.speaker is not None and getattr(self.speaker, "is_speaking", False))
                 # When assistant is speaking, only capture if barge-in monitoring is active
-                if self.is_speaking:
+                if speaker_busy:
                     if self.barge_in_enabled:
                         self.audio_queue.put(indata.copy())
                     return
@@ -693,7 +709,8 @@ class JarvisListener(threading.Thread):
                     now = time.time()
 
                     # 0. Barge-in Monitoring during Speaker Playback (Dual Guard: Silero VAD + RMS)
-                    if self.is_speaking:
+                    speaker_busy = self.is_speaking or (self.speaker is not None and getattr(self.speaker, "is_speaking", False))
+                    if speaker_busy:
                         if self.barge_in_enabled:
                             try:
                                 chunk = self.audio_queue.get(timeout=0.04)

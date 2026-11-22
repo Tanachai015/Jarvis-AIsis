@@ -145,6 +145,7 @@ class JarvisSpeaker(threading.Thread):
         self._pygame_initialized = False
         self.current_process: Optional[subprocess.Popen] = None
         self.is_interrupted = False
+        self.is_speaking = False
         self._playback_lock = threading.Lock()
         self._init_audio_player()
 
@@ -224,6 +225,7 @@ class JarvisSpeaker(threading.Thread):
         voice, pitch, rate, volume = self._get_voice_params(speech_text)
         output_file = "/tmp/jarvis_tts.mp3"
 
+        self.is_speaking = True
         event_bus.state_changed.emit("speaking")
 
         try:
@@ -246,6 +248,7 @@ class JarvisSpeaker(threading.Thread):
             # Play audio file
             self._play_audio_file(output_file)
         finally:
+            self.is_speaking = False
             # Cleanup temporary file if needed
             if os.path.exists(output_file):
                 try:
@@ -277,6 +280,7 @@ class JarvisSpeaker(threading.Thread):
     def stop_speaking(self):
         """Instantly interrupts any ongoing speech playback and drains the pending queue."""
         self.is_interrupted = True
+        self.is_speaking = False
         # Drain queue
         while not self.queue.empty():
             try:
