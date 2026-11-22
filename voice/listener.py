@@ -104,6 +104,7 @@ class JarvisListener(threading.Thread):
         self.recorded_chunks: List[np.ndarray] = []
         self.chunks_lock = threading.Lock()
         self.state_lock = threading.Lock()
+        self.vad_lock = threading.Lock()
 
         # VAD & Wake Word Models
         self.vad_model = None
@@ -171,13 +172,15 @@ class JarvisListener(threading.Thread):
         if self.vad_model is not None:
             return
         try:
-            from silero_vad import load_silero_vad
-            self.vad_model = load_silero_vad()
+            with self.vad_lock:
+                from silero_vad import load_silero_vad
+                self.vad_model = load_silero_vad()
             print("[Listener] ✅ Silero VAD loaded into memory.")
             event_bus.task_log_updated.emit("Voice Listener", "Silero VAD พร้อมตรวจจับเสียงมนุษย์")
         except Exception as e:
             print(f"[Listener] ⚠️ Silero VAD load failed: {e}. Falling back to energy threshold.")
-            self.vad_model = None
+            with self.vad_lock:
+                self.vad_model = None
 
     def _load_openwakeword_model(self):
         """Loads OpenWakeWord ONNX model for low-latency, edge wake word detection."""
@@ -199,13 +202,15 @@ class JarvisListener(threading.Thread):
     def _is_human_speech(self, chunk_1d: np.ndarray, threshold: float = 0.5) -> bool:
         """
         Uses Silero VAD to detect whether a 512-sample (16kHz) float32 chunk contains human speech.
-        Falls back to RMS energy check if Silero VAD is unavailable.
+        Protected with vad_lock and torch.no_grad() to guarantee thread safety and prevent C++ segfaults.
         """
         if self.vad_model is not None and len(chunk_1d) == 512:
             try:
                 import torch
-                tensor_chunk = torch.from_numpy(chunk_1d)
-                prob = self.vad_model(tensor_chunk, self.SAMPLE_RATE).item()
+                with self.vad_lock:
+                    with torch.no_grad():
+                        tensor_chunk = torch.from_numpy(chunk_1d.copy())
+                        prob = self.vad_model(tensor_chunk, self.SAMPLE_RATE).item()
                 return prob >= threshold
             except Exception:
                 pass
@@ -213,10 +218,11 @@ class JarvisListener(threading.Thread):
         return rms >= self.speech_energy_threshold
 
     def _reset_vad_states(self):
-        """Resets Silero VAD recurrent hidden states."""
+        """Resets Silero VAD recurrent hidden states thread-safely."""
         if self.vad_model is not None and hasattr(self.vad_model, "reset_states"):
             try:
-                self.vad_model.reset_states()
+                with self.vad_lock:
+                    self.vad_model.reset_states()
             except Exception:
                 pass
 
@@ -878,5 +884,6 @@ class JarvisListener(threading.Thread):
         """Stops listener thread and cleans up RAM."""
         self.is_running = False
         self._unload_whisper_model()
-        self.vad_model = None
+        with self.vad_lock:
+            self.vad_model = None
         self.oww_model = None

@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.8.1] - 2026-11-22
 
 ### Fixed
+- **PyTorch Silero VAD Thread-Safety & Segfault Prevention (`voice/listener.py`)**:
+  - Fixed C++ `EXC_BAD_ACCESS (SIGSEGV)` crash caused by race condition between concurrent inference in listener worker thread and `reset_states()` called from speaker/Qt threads.
+  - Implemented `vad_lock` (thread serialization), `torch.no_grad()`, and contiguous array copy (`chunk_1d.copy()`), eliminating race conditions in `c10::TensorImpl::~TensorImpl()`.
 - **OpenWakeWord Wake Trigger Responsiveness (`voice/listener.py`)**:
   - **1280-Sample Int16 Accumulation Buffer:** Fixed issue where feeding 512-sample chunks broke OpenWakeWord's feature extractor. Implemented an internal `oww_audio_buffer` accumulating PCM `int16` frames until reaching 1280 samples (80ms @ 16kHz) before executing `predict()`.
   - **Diagnostic Score Logging:** Added real-time terminal output for scores $\ge 0.15$ (`[WakeWord Debug] score=0.xx`) allowing transparent monitoring of microphone sensitivity.
