@@ -10,9 +10,9 @@ import math
 import random
 from typing import Optional, Dict, Any
 
-from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPropertyAnimation, QEasingCurve, Property
-from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QPen, QBrush, QGuiApplication
-from PySide6.QtWidgets import QWidget, QApplication
+from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPoint, QPropertyAnimation, QEasingCurve, Property
+from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QPen, QBrush, QGuiApplication, QScreen
+from PySide6.QtWidgets import QWidget, QApplication, QMenu
 
 import config
 from core.event_bus import event_bus
@@ -94,8 +94,13 @@ class DynamicIsland(QWidget):
 
     QUIRK_NAMES = ["look_around", "double_blink", "hum_hop", "mini_yawn", "curious_nod"]
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, screen: Optional[Any] = None, on_clear_history=None):
         super().__init__(parent)
+        self.screen = screen
+        if not self.screen:
+            app = QGuiApplication.instance()
+            self.screen = app.primaryScreen() if app else None
+        self.on_clear_history = on_clear_history
 
         # macOS Frameless Overlay Window Flags
         self.setWindowFlags(
@@ -106,18 +111,27 @@ class DynamicIsland(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setMouseTracking(True)
 
         self.current_state = "idle"
         self._custom_subtext = ""
+        self._manually_expanded = False
+        self._hovered_btn: Optional[str] = None
+        self._hovered_capsule: bool = False
 
         # Geometry & Dimension Settings
         self.edge = "top"
         self.bar_thickness = 24
         self.folded_w = 68
         self.folded_h = 24
-        self.expanded_w = 340
-        self.expanded_h = 56
+        self.expanded_w = 360
+        self.expanded_h = 70
         self.menubar_offset_x = 0
+
+        # Auto-fold timer for manual expansion in idle state
+        self._auto_fold_timer = QTimer(self)
+        self._auto_fold_timer.setSingleShot(True)
+        self._auto_fold_timer.timeout.connect(self._on_auto_fold_timeout)
 
         # Load menubar_offset_x from voice_settings.json if present
         self._load_settings()
@@ -151,18 +165,21 @@ class DynamicIsland(QWidget):
         self._apply_geometry_for_state(animated=False)
 
         # Connect screen geometry change events
-        app = QGuiApplication.instance()
-        if app:
-            primary_screen = QGuiApplication.primaryScreen()
-            if primary_screen:
-                primary_screen.geometryChanged.connect(self._on_screen_geometry_changed)
-                primary_screen.availableGeometryChanged.connect(self._on_screen_geometry_changed)
+        screen = self.screen or QGuiApplication.primaryScreen()
+        if screen:
+            screen.geometryChanged.connect(self._on_screen_geometry_changed)
+            screen.availableGeometryChanged.connect(self._on_screen_geometry_changed)
 
         # Connect event bus signals
         event_bus.state_changed.connect(self.on_state_changed)
         event_bus.task_log_updated.connect(self._on_task_log_updated)
 
         self.show()
+
+    @property
+    def is_expanded(self) -> bool:
+        """True if island is in expanded mode (either active AI state or manually expanded)."""
+        return (self.current_state != "idle") or self._manually_expanded
 
     def _load_settings(self):
         """Loads optional menubar_offset_x from voice_settings.json."""
@@ -202,7 +219,7 @@ class DynamicIsland(QWidget):
         and bar thickness by comparing full screen geometry with availableGeometry.
         Prioritizes 'top' for macOS Menu Bar.
         """
-        screen = QGuiApplication.primaryScreen()
+        screen = self.screen or QGuiApplication.primaryScreen()
         if not screen:
             self.edge = "top"
             self.bar_thickness = 24
@@ -242,18 +259,22 @@ class DynamicIsland(QWidget):
 
     def _get_leftmost_tray_x(self) -> float:
         """
-        Detects leftmost bounds of macOS Menu Bar Status/Tray items (Quartz Layer 25).
-        Caches result for 5 seconds to avoid CPU overhead in animation loop.
+        Detects leftmost bounds of macOS Menu Bar Status/Tray items (Quartz Layer 25)
+        for this specific screen. Caches result for 5 seconds to avoid CPU overhead.
         """
         now = time.time()
         if self._cached_tray_min_x is not None and (now - self._last_tray_scan_time < 5.0):
             return self._cached_tray_min_x
 
-        screen = QGuiApplication.primaryScreen()
-        sw = float(screen.geometry().width()) if screen else 1650.0
+        screen = self.screen or QGuiApplication.primaryScreen()
+        s_geo = screen.geometry() if screen else QRectF(0, 0, 1650, 1050)
+        sx = float(s_geo.x())
+        sy = float(s_geo.y())
+        sw = float(s_geo.width())
+        s_right = sx + sw
 
         # Safe default if Quartz is unavailable
-        default_x = sw - 340.0 - 100.0 - self.menubar_offset_x
+        default_x = s_right - self.expanded_w - 100.0 - self.menubar_offset_x
 
         if sys.platform != "darwin":
             self._cached_tray_min_x = default_x
@@ -270,12 +291,12 @@ class DynamicIsland(QWidget):
                     b = w.get('kCGWindowBounds', {})
                     bx = float(b.get('X', 0.0))
                     by = float(b.get('Y', 0.0))
-                    if 0.0 <= by <= 40.0 and (sw * 0.35) <= bx < sw:
+                    # Only collect status items located on this screen's menu bar
+                    if (sy <= by <= sy + 40.0) and (sx + sw * 0.35 <= bx < s_right):
                         tray_xs.append(bx)
 
             if tray_xs:
                 min_x = min(tray_xs)
-                # Verify Notch right boundary if available
                 min_safe_x = self._get_notch_min_safe_x()
                 if min_safe_x > 0 and min_x < min_safe_x:
                     min_x = min_safe_x + 16.0
@@ -293,22 +314,28 @@ class DynamicIsland(QWidget):
         """Returns right edge of macOS camera notch via NSScreen.auxiliaryTopRightArea."""
         if sys.platform != "darwin":
             return 0.0
+        screen = self.screen or QGuiApplication.primaryScreen()
+        if screen and "built-in" not in screen.name().lower() and "internal" not in screen.name().lower():
+            return 0.0
         try:
             import AppKit
-            screen = AppKit.NSScreen.mainScreen()
-            if hasattr(screen, "auxiliaryTopRightArea"):
-                area = screen.auxiliaryTopRightArea()
-                if area and area.size.width > 0:
-                    return float(area.origin.x)
+            for ns in AppKit.NSScreen.screens():
+                frame = ns.frame()
+                if screen and int(frame.origin.x) == screen.geometry().x():
+                    if hasattr(ns, "auxiliaryTopRightArea"):
+                        area = ns.auxiliaryTopRightArea()
+                        if area and area.size.width > 0:
+                            return float(area.origin.x)
         except Exception:
             pass
         return 0.0
 
     def _calculate_target_geometry(self, is_expanded: bool) -> tuple:
         """Calculates (x, y, w, h) for Folded or Expanded pill avoiding Notch and Tray."""
-        screen = QGuiApplication.primaryScreen()
+        screen = self.screen or QGuiApplication.primaryScreen()
         screen_geo = screen.geometry() if screen else QRectF(0, 0, 1650, 1050)
-        sw = screen_geo.width()
+        sx = screen_geo.x()
+        sy = screen_geo.y()
 
         tray_min_x = self._get_leftmost_tray_x()
         min_safe_x = self._get_notch_min_safe_x()
@@ -316,12 +343,11 @@ class DynamicIsland(QWidget):
         if is_expanded:
             w = self.expanded_w
             h = self.expanded_h
-            # Right edge docks 12px before tray icons
             right_x = tray_min_x - 12.0 - self.menubar_offset_x
             x = right_x - w
             if min_safe_x > 0 and x < min_safe_x + 10:
                 x = min_safe_x + 10
-            y = screen_geo.y() + 2
+            y = sy + 2
         else:
             w = self.folded_w
             h = self.folded_h
@@ -329,7 +355,7 @@ class DynamicIsland(QWidget):
             x = right_x - w
             if min_safe_x > 0 and x < min_safe_x + 10:
                 x = min_safe_x + 10
-            y = screen_geo.y() + 1
+            y = sy + 1
 
         return int(x), int(y), int(w), int(h)
 
@@ -346,8 +372,7 @@ class DynamicIsland(QWidget):
 
     def _apply_geometry_for_state(self, animated: bool = True):
         """Morphs geometry between Folded and Expanded pill using spring easing."""
-        is_expanded = (self.current_state != "idle")
-        target_x, target_y, target_w, target_h = self._calculate_target_geometry(is_expanded)
+        target_x, target_y, target_w, target_h = self._calculate_target_geometry(self.is_expanded)
 
         if animated:
             self.anim.stop()
@@ -362,6 +387,188 @@ class DynamicIsland(QWidget):
         self._cached_tray_min_x = None
         self._detect_system_edge_and_bar()
         self._apply_geometry_for_state(animated=False)
+
+    def _reset_auto_fold_timer(self):
+        """Restarts or stops auto-fold timer."""
+        if self._auto_fold_timer.isActive():
+            self._auto_fold_timer.stop()
+        if self.current_state == "idle":
+            self._auto_fold_timer.start(12000)
+
+    def _on_auto_fold_timeout(self):
+        """Folds manually expanded island back to menu bar after inactivity."""
+        if self.current_state == "idle" and self._manually_expanded:
+            self.fold_manually()
+
+    def expand_manually(self):
+        """Manually pops out the island into expanded interactive mode."""
+        self._manually_expanded = True
+        self._apply_geometry_for_state(animated=True)
+        self._reset_auto_fold_timer()
+        self.update()
+
+    def fold_manually(self):
+        """Folds the island back into compact menu bar pill."""
+        if self.current_state != "idle":
+            return
+        self._manually_expanded = False
+        self._hovered_btn = None
+        self._apply_geometry_for_state(animated=True)
+        self.update()
+
+    def toggle_expanded_manually(self):
+        """Toggles between folded and expanded modes."""
+        if self.is_expanded:
+            self.fold_manually()
+        else:
+            self.expand_manually()
+
+    def _on_toggle_wake_word(self, checked: bool = None):
+        """Toggles wake word detection and notifies event bus."""
+        if checked is None:
+            config.WAKE_TRIGGER_ENABLED = not config.WAKE_TRIGGER_ENABLED
+        else:
+            config.WAKE_TRIGGER_ENABLED = checked
+        status_text = "เปิดใช้งาน" if config.WAKE_TRIGGER_ENABLED else "ปิดชั่วคราว"
+        print(f"[DynamicIsland] Wake word trigger changed to: {config.WAKE_TRIGGER_ENABLED}")
+        event_bus.task_log_updated.emit(
+            "Wake Trigger Updated",
+            f"การตรวจจับคำปลุก 'Hey Jarvis' ถูก{status_text}แล้ว"
+        )
+        self.update()
+
+    def _get_buttons_map(self) -> Dict[str, QRectF]:
+        """Returns bounding rects for the 4 interactive mode buttons."""
+        return {
+            "voice": QRectF(62.0, 42.0, 68.0, 22.0),
+            "chat": QRectF(134.0, 42.0, 64.0, 22.0),
+            "wake": QRectF(202.0, 42.0, 90.0, 22.0),
+            "menu": QRectF(296.0, 42.0, 52.0, 22.0),
+        }
+
+    def _get_button_at_pos(self, pos: QPointF) -> Optional[str]:
+        if not self.is_expanded:
+            return None
+        btns = self._get_buttons_map()
+        for name, rect in btns.items():
+            if rect.contains(pos):
+                return name
+        return None
+
+    def _show_context_menu(self, global_pos: QPoint):
+        """Displays dark-theme cyber context menu replacing standalone system tray."""
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #0A101D;
+                color: #F1F5F9;
+                border: 1px solid rgba(0, 229, 255, 0.35);
+                border-radius: 10px;
+                padding: 6px;
+                font-family: -apple-system;
+                font-size: 11px;
+            }
+            QMenu::item {
+                padding: 7px 22px;
+                border-radius: 6px;
+            }
+            QMenu::item:selected {
+                background-color: rgba(0, 229, 255, 0.22);
+                color: #00E5FF;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: rgba(255, 255, 255, 0.12);
+                margin: 4px 8px;
+            }
+        """)
+
+        # 1. Toggle Overlay Chat
+        act_chat = menu.addAction("💬 Toggle Overlay Chat (Alt+Space)")
+        act_chat.triggered.connect(lambda: event_bus.toggle_overlay_signal.emit())
+
+        # 2. Toggle Voice Input
+        act_voice = menu.addAction("🎙️ Toggle Voice Input (Cmd+Shift+J)")
+        act_voice.triggered.connect(lambda: event_bus.toggle_voice_record_signal.emit())
+
+        # 3. Toggle Wake Word Trigger
+        wake_status = "Active" if config.WAKE_TRIGGER_ENABLED else "Disabled"
+        act_wake = menu.addAction(f"⚡ Wake Word Trigger ({wake_status})")
+        act_wake.setCheckable(True)
+        act_wake.setChecked(config.WAKE_TRIGGER_ENABLED)
+        act_wake.triggered.connect(self._on_toggle_wake_word)
+
+        menu.addSeparator()
+
+        # 4. Expand / Fold Island
+        fold_text = "⬆️ Fold Dynamic Island" if self.is_expanded else "⬇️ Expand Dynamic Island"
+        act_fold = menu.addAction(fold_text)
+        act_fold.triggered.connect(self.toggle_expanded_manually)
+
+        # 5. Clear Conversation History
+        if self.on_clear_history:
+            act_clear = menu.addAction("🗑️ Clear Conversation History")
+            act_clear.triggered.connect(self.on_clear_history)
+
+        menu.addSeparator()
+
+        # 6. Quit Jarvis
+        act_quit = menu.addAction("🚪 Quit Jarvis")
+        act_quit.triggered.connect(QApplication.instance().quit)
+
+        menu.exec(global_pos)
+
+    def mouseMoveEvent(self, event):
+        pos = event.position()
+        if self.is_expanded:
+            btn = self._get_button_at_pos(pos)
+            if btn != self._hovered_btn:
+                self._hovered_btn = btn
+                self.setCursor(Qt.PointingHandCursor if btn else Qt.ArrowCursor)
+                self.update()
+        else:
+            if not self._hovered_capsule:
+                self._hovered_capsule = True
+                self.setCursor(Qt.PointingHandCursor)
+                self.update()
+
+    def leaveEvent(self, event):
+        if self._hovered_btn or self._hovered_capsule:
+            self._hovered_btn = None
+            self._hovered_capsule = False
+            self.setCursor(Qt.ArrowCursor)
+            self.update()
+
+    def mousePressEvent(self, event):
+        """Handles left-click mode selection/expansion and right-click menu."""
+        if event.button() == Qt.RightButton:
+            self._show_context_menu(event.globalPosition().toPoint())
+            return
+
+        if event.button() == Qt.LeftButton:
+            pos = event.position()
+            if not self.is_expanded:
+                # User clicked on the folded pill -> Spring pop-out mode selection!
+                self.expand_manually()
+                return
+
+            btn = self._get_button_at_pos(pos)
+            if btn == "voice":
+                event_bus.toggle_voice_record_signal.emit()
+                self._reset_auto_fold_timer()
+            elif btn == "chat":
+                event_bus.toggle_overlay_signal.emit()
+                self._reset_auto_fold_timer()
+            elif btn == "wake":
+                self._on_toggle_wake_word()
+                self._reset_auto_fold_timer()
+            elif btn == "menu":
+                global_pos = self.mapToGlobal(QPoint(int(296), int(self.height() + 2)))
+                self._show_context_menu(global_pos)
+            else:
+                # Clicked on robot or background: if idle, fold back
+                if self.current_state == "idle":
+                    self.fold_manually()
 
     def on_state_changed(self, new_state: str):
         """Slot for state_changed signal from event_bus."""
@@ -385,13 +592,12 @@ class DynamicIsland(QWidget):
         if self.current_state == "idle":
             self.render_timer.setInterval(33)  # 30 FPS
             self._custom_subtext = ""
+            if not self._manually_expanded:
+                self._apply_geometry_for_state(animated=True)
+            else:
+                self._reset_auto_fold_timer()
         else:
             self.render_timer.setInterval(16)  # 60 FPS
-
-        # Refresh tray bounds and trigger morph animation if state foldedness changed
-        was_expanded = (prev_state != "idle")
-        is_expanded = (self.current_state != "idle")
-        if was_expanded != is_expanded or prev_state != clean_state:
             self._apply_geometry_for_state(animated=True)
 
         self.update()
@@ -404,11 +610,6 @@ class DynamicIsland(QWidget):
                 clean = clean[:52] + "..."
             self._custom_subtext = clean
             self.update()
-
-    def mousePressEvent(self, event):
-        """Clicking Dynamic Island toggles OverlayChat immediately."""
-        if event.button() == Qt.LeftButton:
-            event_bus.toggle_overlay_signal.emit()
 
     def _on_animation_tick(self):
         """60 FPS / 30 FPS tick updating kinematics and quirks."""
@@ -443,10 +644,11 @@ class DynamicIsland(QWidget):
 
         # 1. Capsule Background with Frosting & Cyber Border
         rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
-        radius = h / 2.0
+        radius = h / 2.0 if is_folded else 18.0
 
-        bg_color = QColor(7, 11, 19, 235)
-        border_pen = QPen(QColor(neon_color.red(), neon_color.green(), neon_color.blue(), 100), 1.2)
+        bg_color = QColor(7, 11, 19, 240)
+        border_alpha = 220 if (self._hovered_capsule and is_folded) else 100
+        border_pen = QPen(QColor(neon_color.red(), neon_color.green(), neon_color.blue(), border_alpha), 1.2)
         border_pen.setCosmetic(True)
 
         painter.setBrush(QBrush(bg_color))
@@ -466,27 +668,30 @@ class DynamicIsland(QWidget):
             self._draw_cyber_robot(painter, t, cfg, is_mini=True)
             painter.restore()
 
-            # Status dot on right
+            # Status dot on right (indicates wake trigger / mic armed)
             dot_r = 3.0
             dot_cx = w - 14.0
             dot_cy = h / 2.0
             pulse = 0.5 + 0.5 * math.sin(t * 3.0)
-            dot_alpha = int(140 + 115 * pulse)
-            painter.setBrush(QBrush(QColor(neon_color.red(), neon_color.green(), neon_color.blue(), dot_alpha)))
+            if config.WAKE_TRIGGER_ENABLED:
+                dot_alpha = int(140 + 115 * pulse)
+                painter.setBrush(QBrush(QColor(neon_color.red(), neon_color.green(), neon_color.blue(), dot_alpha)))
+            else:
+                painter.setBrush(QBrush(QColor(100, 116, 139, 160)))
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(QPointF(dot_cx, dot_cy), dot_r, dot_r)
         else:
             # Expanded Mode: Full 48x48 animated avatar on the left
             painter.save()
-            painter.translate(6.0, 4.0)
+            painter.translate(8.0, 11.0)
             self._draw_cyber_robot(painter, t, cfg, is_mini=False)
             painter.restore()
 
-            # Status Texts (Center)
-            text_x = 60.0
-            text_w = w - text_x - 36.0
+            # Status Texts (Top area)
+            text_x = 62.0
+            text_w = w - text_x - 30.0
 
-            # Title & Tag
+            # Title
             painter.setPen(QPen(neon_color, 1))
             font_title = painter.font()
             font_title.setStyleHint(QFont.Monospace)
@@ -494,17 +699,17 @@ class DynamicIsland(QWidget):
             font_title.setPointSize(9)
             font_title.setWeight(QFont.Bold)
             painter.setFont(font_title)
-            painter.drawText(QRectF(text_x, 10.0, 80.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, "J.A.R.V.I.S.")
+            painter.drawText(QRectF(text_x, 8.0, 75.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, "J.A.R.V.I.S.")
 
             # Status Text
             painter.setPen(QPen(QColor("#F1F5F9"), 1))
             font_status = painter.font()
             font_status.setStyleHint(QFont.SansSerif)
             font_status.setFamily("-apple-system")
-            font_status.setPointSize(10)
+            font_status.setPointSize(9)
             font_status.setWeight(QFont.Medium)
             painter.setFont(font_status)
-            painter.drawText(QRectF(text_x + 65.0, 10.0, text_w - 65.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, f"• {cfg['status']}")
+            painter.drawText(QRectF(text_x + 72.0, 8.0, text_w - 72.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, f"• {cfg['status']}")
 
             # Subtext
             subtext_str = self._custom_subtext if self._custom_subtext else cfg["subtext"]
@@ -512,22 +717,66 @@ class DynamicIsland(QWidget):
             font_sub = painter.font()
             font_sub.setStyleHint(QFont.SansSerif)
             font_sub.setFamily("-apple-system")
-            font_sub.setPointSize(9)
+            font_sub.setPointSize(8)
             font_sub.setWeight(QFont.Normal)
             painter.setFont(font_sub)
-            painter.drawText(QRectF(text_x, 28.0, text_w, 18.0), Qt.AlignLeft | Qt.AlignVCenter, subtext_str)
+            painter.drawText(QRectF(text_x, 24.0, text_w, 14.0), Qt.AlignLeft | Qt.AlignVCenter, subtext_str)
 
-            # Mini Live Wave Indicator (Right edge)
+            # Mini Live Wave Indicator (Top right edge)
             wave_x = w - 24.0
-            wave_y = h / 2.0
+            wave_y = 15.0
             painter.setPen(Qt.NoPen)
             for i in range(3):
                 bar_mult = 1.0 if self.current_state == "speaking" else (0.65 if self.current_state == "listening" else 0.25)
-                bar_h = 3.0 + abs(math.sin(t * (8.0 + i * 2.5) + i)) * 14.0 * bar_mult
+                bar_h = 3.0 + abs(math.sin(t * (8.0 + i * 2.5) + i)) * 10.0 * bar_mult
                 bx = wave_x + i * 4.0
                 by = wave_y - bar_h / 2.0
                 painter.setBrush(QBrush(neon_color))
                 painter.drawRoundedRect(QRectF(bx, by, 2.0, bar_h), 1.0, 1.0)
+
+            # 3. Interactive Mode Selection Buttons (Bottom Row)
+            btns = self._get_buttons_map()
+            for name, b_rect in btns.items():
+                is_hover = (self._hovered_btn == name)
+                painter.save()
+
+                if name == "voice":
+                    label = "🎙️ Voice"
+                    accent = QColor("#00FFD1")
+                    bg_col = QColor(0, 255, 209, 50) if is_hover else QColor(10, 28, 32, 190)
+                    bd_col = QColor(0, 255, 209, 220) if is_hover else QColor(0, 255, 209, 80)
+                elif name == "chat":
+                    label = "💬 Chat"
+                    accent = QColor("#38BDF8")
+                    bg_col = QColor(56, 189, 248, 50) if is_hover else QColor(10, 24, 38, 190)
+                    bd_col = QColor(56, 189, 248, 220) if is_hover else QColor(56, 189, 248, 80)
+                elif name == "wake":
+                    is_wake_on = config.WAKE_TRIGGER_ENABLED
+                    label = "⚡ Wake: ON" if is_wake_on else "⚡ Wake: OFF"
+                    accent = QColor("#22D3EE") if is_wake_on else QColor("#94A3B8")
+                    bg_col = QColor(34, 211, 238, 50) if is_hover else (QColor(10, 30, 40, 190) if is_wake_on else QColor(20, 24, 30, 190))
+                    bd_col = QColor(34, 211, 238, 220) if is_hover else (QColor(34, 211, 238, 90) if is_wake_on else QColor(100, 116, 139, 70))
+                else:  # menu
+                    label = "⚙️ More"
+                    accent = QColor("#94A3B8")
+                    bg_col = QColor(148, 163, 184, 50) if is_hover else QColor(15, 23, 42, 190)
+                    bd_col = QColor(148, 163, 184, 220) if is_hover else QColor(100, 116, 139, 70)
+
+                painter.setBrush(QBrush(bg_col))
+                painter.setPen(QPen(bd_col, 1))
+                painter.drawRoundedRect(b_rect, 6.0, 6.0)
+
+                font_btn = painter.font()
+                font_btn.setStyleHint(QFont.SansSerif)
+                font_btn.setFamily("-apple-system")
+                font_btn.setPointSize(8)
+                font_btn.setWeight(QFont.Bold if is_hover else QFont.Medium)
+                painter.setFont(font_btn)
+                text_col = QColor("#FFFFFF") if is_hover else (accent if name == "wake" else QColor("#E2E8F0"))
+                painter.setPen(QPen(text_col, 1))
+                painter.drawText(b_rect, Qt.AlignCenter, label)
+
+                painter.restore()
 
     def _draw_cyber_robot(self, painter: QPainter, t: float, cfg: Dict[str, Any], is_mini: bool = False):
         """
@@ -859,3 +1108,60 @@ class DynamicIsland(QWidget):
             painter.drawRoundedRect(QRectF(7.2 + left_paw_x, 34.5 + left_paw_y, 3.6, 4.6), 1.8, 1.8)
             # Right Paw
             painter.drawRoundedRect(QRectF(37.2 + right_paw_x, 34.5 + right_paw_y, 3.6, 4.6), 1.8, 1.8)
+
+
+# =============================================================================
+# Multi-Screen Dynamic Island Manager
+# =============================================================================
+class DynamicIslandManager:
+    """
+    Manages DynamicIsland instances across all connected macOS displays.
+    Synchronizes state, animation, and settings across screens.
+    """
+
+    def __init__(self, on_clear_history=None):
+        self.on_clear_history = on_clear_history
+        self.islands: list[DynamicIsland] = []
+        self._init_islands()
+
+        app = QGuiApplication.instance()
+        if app:
+            app.screenAdded.connect(self._on_screens_changed)
+            app.screenRemoved.connect(self._on_screens_changed)
+
+    @property
+    def primary_island(self) -> Optional[DynamicIsland]:
+        return self.islands[0] if self.islands else None
+
+    def _init_islands(self):
+        """Creates an independent DynamicIsland widget docked in the menu bar of each screen."""
+        for island in self.islands:
+            try:
+                island.close()
+                island.deleteLater()
+            except Exception:
+                pass
+        self.islands.clear()
+
+        screens = QGuiApplication.screens()
+        if not screens:
+            self.islands.append(DynamicIsland(screen=None, on_clear_history=self.on_clear_history))
+        else:
+            for s in screens:
+                island = DynamicIsland(screen=s, on_clear_history=self.on_clear_history)
+                self.islands.append(island)
+
+    def _on_screens_changed(self, screen=None):
+        screens_count = len(QGuiApplication.screens())
+        print(f"[DynamicIslandManager] 🖥️ Screen setup changed ({screens_count} displays). Re-syncing Dynamic Islands...")
+        self._init_islands()
+
+    def expand_all(self):
+        """Pops out all dynamic islands into expanded mode."""
+        for island in self.islands:
+            island.expand_manually()
+
+    def fold_all(self):
+        """Folds all dynamic islands back into menu bar pills."""
+        for island in self.islands:
+            island.fold_manually()

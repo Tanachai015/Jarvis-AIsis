@@ -704,22 +704,62 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
             island.on_state_changed("listening")
             self.assertEqual(island.current_state, "listening")
             xe, ye, we, he = island.compute_dock_geometry(is_expanded=True)
-            self.assertEqual(we, 340)
-            self.assertEqual(he, 56)
+            self.assertEqual(we, island.expanded_w)
+            self.assertEqual(he, island.expanded_h)
 
             # 3. Active states (speaking, thinking, running_tool) stay expanded
             for state in ["speaking", "thinking", "running_tool", "wake_ack", "confused"]:
                 island.on_state_changed(state)
                 self.assertEqual(island.current_state, state)
                 _x, _y, w, h = island.compute_dock_geometry(is_expanded=(state != "idle"))
-                self.assertEqual(w, 340)
-                self.assertEqual(h, 56)
+                self.assertEqual(w, island.expanded_w)
+                self.assertEqual(h, island.expanded_h)
 
             # 4. Return to idle -> Folded
             island.on_state_changed("idle")
             self.assertEqual(island.current_state, "idle")
+            self.assertFalse(island.is_expanded)
+
+            # 5. Manual click expansion in idle
+            island.expand_manually()
+            self.assertTrue(island.is_expanded)
+            island.fold_manually()
+            self.assertFalse(island.is_expanded)
         finally:
             island.close()
+
+    def test_dynamic_island_multi_screen_and_mode_selection(self):
+        """Verifies DynamicIslandManager multi-screen support and interactive mode buttons."""
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QPointF
+        from ui.dynamic_island import DynamicIsland, DynamicIslandManager
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        manager = DynamicIslandManager()
+        try:
+            # Check multi-screen instances match connected screens
+            self.assertGreaterEqual(len(manager.islands), 1)
+            primary = manager.primary_island
+            self.assertIsNotNone(primary)
+
+            # Check buttons map when expanded
+            primary.expand_manually()
+            self.assertTrue(primary.is_expanded)
+            btns = primary._get_buttons_map()
+            for key in ("voice", "chat", "wake", "menu"):
+                self.assertIn(key, btns)
+                # Verify hit-testing center of button
+                rect = btns[key]
+                center = QPointF(rect.x() + rect.width() / 2, rect.y() + rect.height() / 2)
+                hit = primary._get_button_at_pos(center)
+                self.assertEqual(hit, key)
+
+            primary.fold_manually()
+            self.assertFalse(primary.is_expanded)
+            self.assertIsNone(primary._get_button_at_pos(QPointF(100, 50)))
+        finally:
+            for isl in manager.islands:
+                isl.close()
 
     def test_dynamic_island_vector_paint_zero_crash(self):
         """Verifies 100% crash-free QPainter vector robot rendering across all 7 states and 5 quirks."""

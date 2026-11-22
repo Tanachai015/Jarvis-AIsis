@@ -1,9 +1,9 @@
 # 📋 รายงานผลการทดสอบระบบอัตโนมัติฉบับสมบูรณ์ (Full Automated Backtest Report)
 **Project:** Jarvis Desktop Assistant  
-**Release Target:** v1.9.0  
+**Release Target:** v1.9.1  
 **Test Runner:** `tests/run_backtest.py`  
 **Execution Environment:** macOS (Darwin 25.1.0) / Python 3.12 (Isolated Mock Sandbox)  
-**Total Test Cases:** 30 เคส ใน 4 ชุดทดสอบ (Suites) — 100% PASS  
+**Total Test Cases:** 31 เคส ใน 4 ชุดทดสอบ (Suites) — 100% PASS  
 
 ---
 
@@ -98,9 +98,9 @@ flowchart TD
 
 ---
 
-## 4. ตารางผลการทดสอบรอบสุดท้าย 30/30 เคส (Final Verification Matrix - v1.9.0)
+## 4. ตารางผลการทดสอบรอบสุดท้าย 31/31 เคส (Final Verification Matrix - v1.9.1)
 
-ผลการทดสอบรอบสุดท้ายผ่านครบถ้วน **100% PASS** โดยใช้เวลารวมเพียง **~6.8 วินาที**:
+ผลการทดสอบรอบสุดท้ายผ่านครบถ้วน **100% PASS** โดยใช้เวลารวมเพียง **~6.2 วินาที**:
 
 | Suite | Test Case Identifier | เป้าหมายการทดสอบ | ผลลัพธ์ |
 |---|---|---|:---:|
@@ -132,7 +132,8 @@ flowchart TD
 | | `test_mcp_call_tool_filters_empty_arguments` | กรองค่าอาร์กิวเมนต์ว่าง (`""`/`None`) ก่อนส่งเข้า MCP Server | **PASS** ✅ |
 | | `test_mcp_servers_schema` | ตรวจสอบโครงสร้างคำสั่งและพารามิเตอร์ของ `mcp_servers.json` | **PASS** ✅ |
 | | `test_dynamic_island_adaptive_edge_detection` | ตรวจจับ Menu Bar ขอบบนและคำนวณขนาดความหนาแถบอัตโนมัติ | **PASS** ✅ |
-| | `test_dynamic_island_state_geometry_transitions` | สลับรูปทรง Folded ($68\times 24$) และ Expanded ($340\times 56$) | **PASS** ✅ |
+| | `test_dynamic_island_state_geometry_transitions` | สลับรูปทรง Folded ($68\times 24$) และ Expanded ($360\times 70$) | **PASS** ✅ |
+| | `test_dynamic_island_multi_screen_and_mode_selection` | รองรับ Multi-Screen ทุกจอ และปุ่มเลือกโหมด 4 ปุ่ม (Voice/Chat/Wake/Menu) | **PASS** ✅ |
 | | `test_dynamic_island_vector_paint_zero_crash` | เรนเดอร์ Vector Robot อวตาร 7 สถานะ และ 5 Quirks ไร้บั๊ก 100% | **PASS** ✅ |
 
 ---

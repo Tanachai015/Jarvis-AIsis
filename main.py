@@ -16,9 +16,8 @@ from core.brain import JarvisBrain
 from core.tools import set_bridge_instance
 from core.mcp_manager import mcp_manager
 from integrations.antigravity_bridge import AntigravityBridge
-from ui.dynamic_island import DynamicIsland
+from ui.dynamic_island import DynamicIsland, DynamicIslandManager
 from ui.overlay_chat import OverlayChat
-from ui.tray import JarvisTrayIcon
 from voice.speaker import JarvisSpeaker
 from voice.listener import JarvisListener
 
@@ -267,11 +266,9 @@ def main():
     listener = JarvisListener(speaker=speaker)
     listener.start_listening()
 
-    # 4. Initialize UI Components
-    dynamic_island = DynamicIsland()
+    # 4. Initialize UI Components (Multi-Screen Dynamic Island & Spotlight Overlay Chat)
+    dynamic_island_manager = DynamicIslandManager(on_clear_history=brain.clear_history)
     overlay_chat = OverlayChat()
-    tray_icon = JarvisTrayIcon(on_clear_history=brain.clear_history)
-    tray_icon.show()
 
     # 5. Connect Signal Pipelines
     event_bus.user_message_received.connect(brain.process_user_message)
@@ -289,8 +286,8 @@ def main():
     # Show a brief ready state on Dynamic Island
     event_bus.state_changed.emit("idle")
 
-    print("[Main] Jarvis is active in the menu bar/system tray.")
-    print("[Main] Press Alt+Space (or click Tray Icon) to toggle Overlay Chat.")
+    print("[Main] Jarvis is active in the menu bar across all displays.")
+    print("[Main] Press Alt+Space (or click Dynamic Island) to toggle Overlay Chat.")
     print("=" * 60)
 
     # Run Qt Event Loop
