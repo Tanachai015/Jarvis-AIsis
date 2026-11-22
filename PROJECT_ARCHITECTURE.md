@@ -1,7 +1,7 @@
-# เอกสารโครงสร้างสถาปัตยกรรมระบบ J.A.R.V.I.S. Desktop Assistant 🚀
-*(J.A.R.V.I.S. Architecture & Technical Reference Manual)*
+# เอกสารโครงสร้างสถาปัตยกรรมระบบ J.A.R.V.I.S. Desktop Assistant (Jarvis-AIsis) 🚀
+*(J.A.R.V.I.S. Architecture & Technical Reference Manual — Release v1.8.3)*
 
-เอกสารฉบับนี้สรุปภาพรวม สถาปัตยกรรม โครงสร้างไฟล์ ลำดับการทำงานของข้อมูล (Data Flow) และรายละเอียดเชิงลึกของทุกโมดูลในระบบ **Jarvis Desktop Assistant** ซึ่งพัฒนาขึ้นเพื่อทำงานบน **macOS (Apple Silicon & Intel)** โดยเฉพาะ
+เอกสารฉบับนี้สรุปภาพรวม สถาปัตยกรรม โครงสร้างไฟล์ ลำดับการทำงานของข้อมูล (Data Flow) และรายละเอียดเชิงลึกของทุกโมดูลในระบบ **Jarvis Desktop Assistant (`Jarvis-AIsis`)** ซึ่งพัฒนาขึ้นเพื่อทำงานบน **macOS (Apple Silicon & Intel)** โดยเฉพาะ ภายใต้ขุมพลัง **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **Vision GUI Automation**, **Single-Pipeline Unified Microphone**, และ **Context-Aware Interrupt Architecture**
 
 ---
 
@@ -10,20 +10,22 @@
 2. [แผนผังโครงสร้างไฟล์ทั้งหมด (Full Directory Tree)](#2-แผนผังโครงสร้างไฟล์ทั้งหมด-full-directory-tree)
 3. [รายละเอียดเชิงลึกของแต่ละโมดูล (Module Deep Dive)](#3-รายละเอียดเชิงลึกของแต่ละโมดูล-module-deep-dive)
    - [3.1 Entry Point & Lifecycle (`main.py`)](#31-entry-point--lifecycle-mainpy)
-   - [3.2 การกำหนดค่าระบบ (`config.py`, `.env`)](#32-การกำหนดค่าระบบ-configpy-env)
+   - [3.2 การกำหนดค่าระบบ (`config.py`, `.env`, `voice_settings.json`)](#32-การกำหนดค่าระบบ-configpy-env-voice_settingsjson)
    - [3.3 ตัวกลางสื่อสารข้ามเธรด (`core/event_bus.py`)](#33-ตัวกลางสื่อสารข้ามเธรด-coreevent_buspy)
    - [3.4 สมองหลักและการประมวลผล AI (`core/brain.py`)](#34-สมองหลักและการประมวลผล-ai-corebrainpy)
    - [3.5 เครื่องมือระบบ macOS พื้นฐาน (`core/tools.py`)](#35-เครื่องมือระบบ-macos-พื้นฐาน-coretoolspy)
    - [3.6 ระบบบันทึกผลงานเบื้องหลังและ On-Demand Reveal (`core/task_manager.py`)](#36-ระบบบันทึกผลงานเบื้องหลังและ-on-demand-reveal-coretask_managerpy)
    - [3.7 คลังจัดเก็บข้อมูลดิบระยะยาว 365+ วัน (`core/raw_archive.py`)](#37-คลังจัดเก็บข้อมูลดิบระยะยาว-365-วัน-coreraw_archivepy)
-   - [3.8 ระบบจัดการ MCP มาตรฐานสากล (`core/mcp_manager.py`)](#38-ระบบจัดการ-mcp-มาตรฐานสากล-coremcp_managerpy)
+   - [3.8 ระบบจัดการ MCP และ Tool Filtering (`core/mcp_manager.py`)](#38-ระบบจัดการ-mcp-และ-tool-filtering-coremcp_managerpy)
    - [3.9 ระบบเชื่อมต่อ Antigravity IDE (`integrations/antigravity_bridge.py`)](#39-ระบบเชื่อมต่อ-antigravity-ide-integrationsantigravity_bridgepy)
-   - [3.10 ระบบรับเสียงพูดอัจฉริยะ (`voice/listener.py`)](#310-ระบบรับเสียงพูดอัจฉริยะ-voicelistenerpy)
-   - [3.11 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)](#311-ระบบสังเคราะห์เสียงพูด-2-ภาษา-voicespeakerpy)
-   - [3.12 ส่วนติดต่อผู้ใช้แบบแยกแท็บสนทนาและข้อมูลดิบ (`ui/`)](#312-ส่วนติดต่อผู้ใช้แบบแยกแท็บสนทนาและข้อมูลดิบ-ui)
-   - [3.13 หน่วยความจำถาวร (`memory/`)](#313-หน่วยความจำถาวร-memory)
+   - [3.10 ระบบรับเสียงพูดและ Context-Aware Interrupt (`voice/listener.py`)](#310-ระบบรับเสียงพูดและ-context-aware-interrupt-voicelistenerpy)
+   - [3.11 ระบบสังเคราะห์เสียงพูดและ Pre-Cached Acks (`voice/speaker.py`)](#311-ระบบสังเคราะห์เสียงพูดและ-pre-cached-acks-voicespeakerpy)
+   - [3.12 การประมวลผลภาษาไทยและ Phonetic Matching (`core/thai_nlp.py`)](#312-การประมวลผลภาษาไทยและ-phonetic-matching-corethai_nlppy)
+   - [3.13 ส่วนติดต่อผู้ใช้ (`ui/`)](#313-ส่วนติดต่อผู้ใช้-ui)
+   - [3.14 หน่วยความจำถาวรและแก่นความคิด (`memory/`)](#314-หน่วยความจำถาวรและแก่นความคิด-memory)
 4. [แผนภาพลำดับการไหลของข้อมูล (System Data Flow)](#4-แผนภาพลำดับการไหลของข้อมูล-system-data-flow)
 5. [ตารางคีย์ลัดและสิทธิ์ของระบบ macOS (Keybindings & Permissions)](#5-ตารางคีย์ลัดและสิทธิ์ของระบบ-macos-keybindings--permissions)
+6. [ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 24/24 PASS)](#6-ระบบทดสอบอัตโนมัติ-automated-backtest-suite-2424-pass)
 
 ---
 
@@ -32,14 +34,19 @@
 Jarvis Desktop Assistant ได้รับการออกแบบภายใต้สถาปัตยกรรม **Decoupled Event-Driven Architecture** โดยใช้ **PySide6 (Qt for Python)** เป็นแกนกลางในการจัดการ User Interface และ Event Loop มีจุดเด่นสำคัญดังนี้:
 
 - **AI Engine:** ขับเคลื่อนด้วย **Google GenAI SDK (`google-genai`)** ใช้โมเดลหลัก `gemini-3.5-flash-lite` (ความเร็วตอบสนอง ~1.2 วินาที พร้อมโควต้า Free Tier 500 RPD / 15 RPM) เสริมด้วย **Explicit Fallback Chain** สลับโมเดลสำรองอัตโนมัติหากติด 429/503/504
-- **Hybrid Tool Architecture:** ผสมผสานระหว่าง **Native macOS Tools** (ควบคุมระบบ Mac, ดูหน้าจอด้วย Vision, ส่งงาน Antigravity, จดจำข้อมูล, เปิดดูผลงาน On-Demand, ค้นประวัติ Raw Data 365 วัน) และ **Official Model Context Protocol (MCP) Servers** (Filesystem, Web Fetch และ Git มาตรฐานสากล) รวม **37 เครื่องมือ** พร้อมใช้งานทันทีโดยไม่ต้องโหลดใหม่ในแต่ละรอบสนทนา
+- **Hybrid Tool Architecture:** ผสมผสานระหว่าง **Native macOS Tools** (ควบคุมระบบ Mac, ดูหน้าจอด้วย Vision, ส่งงาน Antigravity, จดจำข้อมูล, เปิดดูผลงาน On-Demand, ค้นประวัติ Raw Data 365 วัน) และ **Official Model Context Protocol (MCP) Servers** (Filesystem, Web Fetch และ Git มาตรฐานสากล) รวม **37 เครื่องมือ** พร้อมระบบกรอง Empty Arguments ป้องกัน Server Rejection
+- **Single-Pipeline Unified Microphone:** สตรีมไมโครโฟนเส้นเดียว `16kHz mono float32` ให้บริการทั้ง Push-to-Talk, Standby Wake Word, และ Speaking Monitor พร้อมตัวขยายสัญญาณซอฟต์แวร์ **`wake_mic_gain: 2.5x`** ทำให้เรียกคำปลุกได้ง่ายจากระยะนั่งปกติ (50–70 ซม.)
+- **Context-Aware Interrupt Engine (v1.8.3):** ยกเลิกการตัดเสียงด้วยเกณฑ์ความดังดิบ (ซึ่งเสี่ยงต่อ Acoustic Feedback Loop จากลำโพงเครื่อง) แล้วแทนที่ด้วย 3 ช่องทางขัดจังหวะที่แม่นยำ:
+  1. ปุ่ม **`Esc` (Emergency Stop):** ตัดเสียงทันที ตอบรับ "Ok ครับ" และเปิดไมค์รับคำสั่งใหม่ 0ms
+  2. คำปลุก **`"Hey Jarvis"`:** ทางด่วนตัดเสียงพูดของ Jarvis ทันทีด้วย `OpenWakeWord`
+  3. คำสั่งเบรก 2 พยางค์ (**`interrupt_stop_phrases`**) พร้อมระบบ **Whole-Chunk Self-Echo Filter** (`fuzz.partial_ratio >= 60%`) ตัดเสียงสะท้อนตัวเองทิ้งเด็ดขาด ไม่ส่งเข้าสมอง
+- **Clean Dialogue Loop:** มีแฟล็ก `suppress_next_followup` ระงับการเปิดไมค์หลังผู้ใช้บอกลา ทำให้คำตอบรับสุดท้ายไม่ไปกระตุ้น Followup Loop 60 วินาทีขึ้นมาซ้ำ
 - **Stealth Background Execution & On-Demand Reveal:** ทำงานเบื้องหลัง 100% ไม่แย่งโฟกัสหน้าจอ ไม่เปิดแอปหรือไฟล์ขึ้นมาเองโดยพลการ บันทึกประวัติผลงานใน `task_manager` และเปิดดูเมื่อสั่งเท่านั้น
 - **Dual-Tab UI (Conversation vs. Process & Raw Data):** แยกหน้าต่างแชทสะอาดตาออกจากข้อมูลดิบ (Logs / JSON / Listicles) ป้องกันข้อมูลดิบถมทับบทสนทนา
 - **Long-term Raw Archive (365+ วัน):** แยกประวัติข้อมูลดิบรายเดือน (`memory/raw_archive/YYYY-MM.jsonl`) เก็บย้อนหลังได้ทั้งปีโดยไม่เปลืองโทเคน และค้นหาคืนได้ผ่านเครื่องมือ `search_raw_history`
-- **Clarification & Stateful Continuity:** คิดทบทวนและถามกลับสั้นๆ 1 ประโยคเมื่อคำสั่งกำกวม พร้อมจำลำดับตัวเลือก [1], [2], [3] เพื่อเลือกต่อในเทิร์นถัดไปได้อย่างแม่นยำ
 - **Instant Boot Caching:** มีระบบ **Schema Disk Cache** โหลดสเปกเครื่องมือทั้ง 17+ ตัวในเวลาเพียง **0.005 วินาที** พร้อมระบบตรวจจับการอัปเดตอัตโนมัติด้วย SHA-256
 - **System-level Global Interception:** ใช้ **Quartz `CGEventTapCreate`** ดักจับคีย์ลัดระดับลึกจากทุกหน้าต่างและดูดกลืนคีย์ (Event Swallowing) ไม่ให้ไปรบกวนแอปอื่น
-- **Persistent Mic Session:** สแตนด์บายไมโครโฟนตลอดเวลา ใช้ **CPU 0% ในขณะ Idle** ไม่หน่วงตอนเริ่มอัด และสิทธิ์ไมค์ไม่หลุด
+- **Pre-Cached Instant Audio:** แคชไฟล์เสียงตอบรับคำปลุกและเสียงยืนยัน `"Ok ครับ"` (`memory/cached_ok_krub.mp3`) ล่วงหน้า เล่นผ่าน `/usr/bin/afplay` ด้วย Latency 0ms
 
 ---
 
@@ -51,41 +58,50 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ├── .env.example                        # เทมเพลตตัวอย่างค่าคอนฟิกสำหรับแจกจ่าย
 ├── requirements.txt                    # รายการไลบรารี Dependencies ทั้งหมดของ Python
 ├── mcp_servers.json                    # คอนฟิกการรัน Official MCP Servers (filesystem, fetch, git)
+├── voice_settings.json                 # การกำหนดค่าเสียง, เกณฑ์คำปลุก, คำสั่งเบรก, และระยะเวลา
 ├── config.py                           # ตัวแปรคงที่ระดับ Global และการโหลด Environment
 ├── main.py                             # Entry Point หลัก: Cocoa Loop, Quartz Tap, Lifecycle
-├── README.md                           # เอกสารแนะนำการติดตั้งและคู่มือผู้ใช้งาน
+├── README.md                           # เอกสารแนะนำการติดตั้งและคู่มือผู้ใช้งาน (v1.8.3)
 ├── PROJECT_ARCHITECTURE.md             # [ไฟล์นี้] สรุปสถาปัตยกรรมโครงสร้างโปรเจกต์โดยละเอียด
+├── automated_backtest_full_report.md   # รายงานผลการทดสอบระบบอัตโนมัติฉบับเต็ม
 ├── Project Directory Structure.txt     # ผังโครงสร้างแบบย่อ
 │
 ├── core/                               # แกนกลางระบบ (Logic, Brain, Tools, MCP, Signals)
 │   ├── __init__.py
 │   ├── event_bus.py                    # ตัวกลางส่งสัญญาณ PySide6 Signals (Thread-safe)
-│   ├── brain.py                        # สมอง AI: Fallback Chain, Persistent History, GenAI Client
-│   ├── tools.py                        # Native macOS Tools (Vision, Antigravity, System Control, Memory, Reveal, Raw Search)
-│   ├── task_manager.py                 # ตัวจัดการบันทึกผลงานเบื้องหลังและ On-Demand Reveal (Stealth Mode)
-│   ├── raw_archive.py                  # คลังจัดเก็บและค้นหา Raw Data ระยะยาว 365 วัน แยกรายเดือน (YYYY-MM.jsonl)
-│   └── mcp_manager.py                  # ตัวจัดการ Official MCP Servers และ Schema Disk Cache
+│   ├── brain.py                        # สมอง AI: Tiered Context (L0-L3), Explicit Fallback Chain
+│   ├── tools.py                        # Native macOS Tools (Vision, Antigravity, System, Memory, Reveal)
+│   ├── task_manager.py                 # ตัวจัดการบันทึกผลงานเบื้องหลังและ On-Demand Reveal
+│   ├── raw_archive.py                  # คลังจัดเก็บและค้นหา Raw Data ระยะยาว 365 วัน แยกรายเดือน
+│   ├── mcp_manager.py                  # ตัวจัดการ Official MCP Servers พร้อมตัวกรอง Empty Arguments
+│   └── thai_nlp.py                     # ระบบประมวลผลภาษาไทย, Soundex (lk82), RapidFuzz WRatio
 │
 ├── integrations/                       # การเชื่อมต่อภายนอก
 │   ├── __init__.py
-│   └── antigravity_bridge.py           # ตัวเชื่อม Antigravity IDE (Background Task File + Watchdog)
+│   └── antigravity_bridge.py           # ตัวเชื่อม Antigravity IDE (.jarvis_task.md + Watchdog)
 │
 ├── voice/                              # ระบบเสียงพูดและการได้ยิน
 │   ├── __init__.py
-│   ├── listener.py                     # 1-Tap Toggle Voice, Persistent Mic, Faster-Whisper STT
-│   └── speaker.py                      # สังเคราะห์เสียงพูด Dual-Tone J.A.R.V.I.S. (Edge-TTS + afplay)
+│   ├── listener.py                     # Single-Pipeline Mic, OpenWakeWord (2.5x gain), Silero VAD, Context Interrupt
+│   └── speaker.py                      # สังเคราะห์เสียง Dual-Tone (Edge-TTS) + Pre-Cached "Ok ครับ" + afplay
 │
 ├── ui/                                 # ส่วนติดต่อผู้ใช้ (PySide6 Graphical Interface)
 │   ├── __init__.py
 │   ├── dynamic_island.py               # หน้าต่างแคปซูลลอยตัวด้านบนหน้าจอ (สถานะระบบ)
 │   ├── overlay_chat.py                 # หน้าต่าง Overlay Chat สไตล์ Spotlight/Raycast
-│   └── tray.py                         # ไอคอนบน Menu Bar (macOS Status Item) พร้อมเมนู
+│   └── tray.py                         # ไอคอนบน Menu Bar (macOS Status Item) พร้อมสวิตช์เปิด/ปิด Wake Trigger
+│
+├── tests/                              # ชุดทดสอบความสมบูรณ์ของระบบ
+│   └── run_backtest.py                 # Automated Backtest Runner (4 Suites, 24/24 PASS)
 │
 └── memory/                             # โฟลเดอร์เก็บข้อมูลถาวรข้ามเซสชัน
-    ├── chat_history.json               # ประวัติการสนทนา 10 รอบล่าสุด (Persistent Context)
-    ├── jarvis_memory.json              # ความจำระยะยาวของผู้ใช้ (Persistent Facts)
+    ├── soul_core.md                    # แก่นแท้บุคลิกภาพและความคิด (L0 Context)
+    ├── chat_history.json               # ประวัติการสนทนา 10 รอบล่าสุด (L3 Active Context)
+    ├── jarvis_memory.json              # ความจำระยะยาวของผู้ใช้ (L1 User Facts)
+    ├── events.jsonl                    # บันทึกบทเรียนและสถานะบริบทสำคัญ (L2 Lessons Context)
     ├── background_tasks.json           # ประวัติและผลลัพธ์ของงานเบื้องหลัง (On-Demand Reveal)
     ├── mcp_tools_cache.json            # แคชสเปกเครื่องมือ MCP ถาวร (Instant Boot 0.005s)
+    ├── cached_ok_krub.mp3              # ไฟล์เสียงแคช "Ok ครับ" สำหรับการตอบรับ Interrupt ทันที
     └── raw_archive/                    # คลังเก็บ Raw Data ระยะยาว 365+ วัน แยกไฟล์รายเดือน (YYYY-MM.jsonl)
 ```
 
@@ -98,217 +114,194 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 1. **Accessibility Verification:** ตรวจสอบสิทธิ์การควบคุมระบบผ่าน `AXIsProcessTrustedWithOptions` หากยังไม่ได้รับสิทธิ์จะเด้งหน้า System Settings ให้อัตโนมัติ
 2. **MCP Boot:** สั่งให้ `mcp_manager.start()` ทำงานเพื่ออ่านแคชและเชื่อมต่อ Stdio Subprocess
 3. **Component Initialization:** สร้างอ็อบเจกต์ `JarvisBrain`, `AntigravityBridge`, `JarvisSpeaker`, `JarvisListener`, `DynamicIsland`, `OverlayChat`, และ `JarvisTrayIcon`
-4. **Quartz System EventTap:** เริ่มต้นเธรดดักจับคีย์ลัดระดับระบบ (`CGEventTapCreate`) สำหรับปุ่ม **`Cmd + Shift + J`** และ **`Alt + Space`**
+4. **Quartz System EventTap (`CGEventTapCreate`):** เริ่มต้นเธรดดักจับคีย์ลัดระดับระบบ พร้อมส่งผ่านการอ้างอิง `speaker`, `listener`, และ `overlay_chat`:
+   - **`Escape` (Keycode 53):**
+     - หาก `speaker.is_speaking == True`: สั่งตัดเสียงทันที (`speaker.stop_speaking()`), เล่นเสียงแคช `"Ok ครับ"` (`speaker.play_cached_ack()`), เปิดโหมดรับคำสั่งใหม่ (`listener.trigger_barge_in_direct()`) และดูดกลืนคีย์
+     - หาก `overlay_chat.isVisible() == True`: สั่งซ่อนหน้าต่างแชทและดูดกลืนคีย์
+     - หากไม่ได้พูดและไม่ได้เปิดแชท: ปล่อยคีย์ทะลุผ่านให้ macOS ใช้งานตามปกติ
+   - **`Cmd + Shift + J` (Keycode 38):** 1-Tap Toggle Voice
+   - **`Alt + Space` (Keycode 49):** Toggle Overlay Chat
 5. **Graceful Teardown:** เมื่อปิดแอปพลิเคชัน จะสั่งปิดเธรดเสียง, สตรีมไมโครโฟน, ตัวเฝ้าไฟล์ และปิด MCP Sessions ทั้งหมดอย่างสะอาด
 
-### 3.2 การกำหนดค่าระบบ (`config.py`, `.env`)
-ทำหน้าที่รวมศูนย์การอ่านค่า Environment Variables:
-- `GEMINI_MODEL`: ตั้งค่าเริ่มต้นเป็น `gemini-3.5-flash-lite`
-- `VOICE_TOGGLE_HOTKEY`: ปุ่มลัดบันทึกเสียง `<cmd>+<shift>+j`
-- `VOICE_LISTEN_MODE`: โหมดรับฟังเสียงเริ่มต้น ค่าเริ่มต้น `"hybrid"` (รองรับ `"push_to_talk"`, `"hi_jarvis"`, `"hybrid"`)
-- `WAKE_WORDS`: คำปลุกระบบ (เช่น `"hi jarvis, jarvis, จาร์วิส, จาวิส, ไฮ จาร์วิส"` รองรับการตัดวรรค/อักขระพิเศษเพื่อเทียบคำอย่างแม่นยำ)
-- `STT_MODE`: โหมดถอดเสียงพูดเป็นข้อความ ค่าเริ่มต้น `"groq"` (เร็วพิเศษผ่าน Cloud) หรือ `"local"` (ออฟไลน์บนเครื่อง)
-- `GROQ_API_KEY`: API Key สำหรับบริการ Groq Cloud Speech-to-Text
-- `GROQ_WHISPER_MODEL`: โมเดล Whisper บน Groq Cloud (ค่าเริ่มต้น `whisper-large-v3-turbo`)
-- `WHISPER_MODEL`: ขนาดหรือชื่อโมเดล Faster-Whisper ในเครื่อง (ค่าเริ่มต้น `small` สำหรับสำรองยามออฟไลน์ ไม่กิน RAM)
-- `WHISPER_INITIAL_PROMPT`: ข้อความชี้นำบริบทเริ่มต้นของ Whisper ป้องกันการถอดเสียงเพี้ยนสำหรับคำทับศัพท์, ชื่อเพลง, และชื่อแอปยอดนิยม
-- `VOICE_RECORD_TIMEOUT`: ระยะเวลารอรับฟังเสียงสูงสุดกรณีไม่พบเสียงพูด (จำกัดช่วง 10–25 วินาที, ค่าเริ่มต้น 15s)
-- `VOICE_POST_SPEECH_SILENCE`: ระยะเวลาตรวจจับความเงียบหลังผู้ใช้พูดจบเพื่อตัดส่งคำสั่งอัตโนมัติ (จำกัดช่วง 3.0–5.0 วินาที, ค่าเริ่มต้น 3.5s)
-- `VOICE_ENERGY_THRESHOLD`: ระดับพลังงานเสียง (RMS) สำหรับตัดสินว่ามีเสียงพูด (ค่าเริ่มต้น 0.015)
-- `VOICE_COOLDOWN_SECONDS`: ระยะเวลาคูลดาวน์ป้องกันการกดเบิ้ล (ค่าเริ่มต้น 1.5s)
-- `TTS_VOICE_TH` / `TTS_VOICE_EN`: โทนเสียง J.A.R.V.I.S. ภาษาไทย (`th-TH-NiwatNeural`, -14Hz, +6%, +40%) และอังกฤษ (`en-GB-RyanNeural`, -8Hz, +8%, +40%)
+### 3.2 การกำหนดค่าระบบ (`config.py`, `.env`, `voice_settings.json`)
+- **`config.py` & `.env`:** รวมศูนย์ค่า API Keys, โมเดล Gemini (`gemini-3.5-flash-lite`), STT Provider (`groq`), Hotkeys, และการเชื่อมโยงไดเรกทอรีโปรเจกต์
+- **`voice_settings.json`:** คอนฟิกการทำงานของระบบเสียงระดับสูง:
+  - `"wake_mic_gain": 2.5`: ตัวคูณขยายสัญญาณไมค์ 2.5 เท่าสำหรับป้อนเข้า `OpenWakeWord`
+  - `"wake_score_threshold": 0.36`: เกณฑ์คะแนนการปลุกด้วยคำว่า `"hey_jarvis"`
+  - `"interrupt_stop_phrases"`: รายการคำสั่งเบรก 2 พยางค์ขึ้นไป เช่น `["หยุดก่อน", "โอเคหยุด", "พอก่อนจาร์วิส", "ok stop", "stop please"]`
+  - `"post_speech_silence_sec": 3.0`: ตรวจจับความเงียบหลังพูดเพื่อตัดส่งอัตโนมัติ
+  - `"followup_timeout_sec": 60.0`: หน้าต่างรอฟังต่อเนื่องหลัง Jarvis พูดจบ
 
 ### 3.3 ตัวกลางสื่อสารข้ามเธรด (`core/event_bus.py`)
-เป็น Singleton Class สืบทอดจาก `PySide6.QtCore.QObject` ช่วยให้การส่งข้อมูลระหว่าง Background Threads (Voice STT, AI Inference, File Watcher) เข้าสู่ Main UI Loop เป็นไปอย่างปลอดภัย (Thread-Safe):
+เป็น Singleton Class สืบทอดจาก `PySide6.QtCore.QObject` ช่วยให้การส่งข้อมูลระหว่าง Background Threads เข้าสู่ Main UI Loop เป็นไปอย่างปลอดภัย (Thread-Safe):
 - `state_changed(str)`: แจ้งเปลี่ยนสถานะ (`idle`, `listening`, `thinking`, `running_tool`, `speaking`)
 - `user_message_received(str)`: ส่งข้อความที่ได้จากเสียงพูดหรือช่องแชทเข้าสู่สมอง AI
-- `assistant_reply_ready(str)`: ส่งข้อความคำตอบฉบับเต็ม (พร้อมโค้ดและ Markdown) ไปแสดงผลในหน้าต่างแชท `OverlayChat`
-- `assistant_speak_ready(str)`: ส่งข้อความสรุปภาษาพูดสั้นๆ (ตัดโค้ดและสัญลักษณ์ Markdown) ไปยัง `JarvisSpeaker` เพื่ออ่านออกเสียง
+- `assistant_reply_ready(str)`: ส่งข้อความคำตอบฉบับเต็มไปแสดงผลในหน้าต่างแชท `OverlayChat`
+- `assistant_speak_ready(str)`: ส่งข้อความสรุปภาษาพูดสั้นๆ จากแท็ก `[SPEAK]` ไปยัง `JarvisSpeaker`
 - `task_log_updated(str, str)`: ส่งบันทึกการทำงานของ Tool หรือข้อผิดพลาดไปแสดงผล
-- `toggle_overlay_signal()`, `toggle_voice_record_signal()`: สัญญาณสลับหน้าต่างและสลับไมค์
-- `voice_mode_changed(str)`: สัญญาณเปลี่ยนโหมดรับฟังเสียงแบบเรียลไทม์ (`push_to_talk`, `hi_jarvis`, `hybrid`) จากเมนูบาร์
 
 ### 3.4 สมองหลักและการประมวลผล AI (`core/brain.py`)
-- **Static Tool Registry:** รวมฟังก์ชัน Native Tools (9 เครื่องมือ) และ Dynamic MCP Tools (31 เครื่องมือ) เข้าด้วยกันใน `GenerateContentConfig` เพียงครั้งเดียวตอนเริ่มต้นโปรแกรม รวมทั้งหมด **40 เครื่องมือ** ไม่มีการโหลดหรือสร้าง Schema ซ้ำ
-- **Dual-Output Protocol (`[SPEAK]` Tags):** ปรับแต่งคำสั่งระบบ (System Instruction) ให้โมเดลสร้างผลลัพธ์ 2 รูปแบบในรอบเดียว: ข้อความฉบับเต็มพร้อมโค้ดสำหรับแสดงผลบนจอ และข้อความสรุปฉบับเต็มในแท็ก `[SPEAK]...[/SPEAK]` สำหรับส่งให้อ่านออกเสียงอย่างลื่นหู ต่อเนื่องทุกประโยคและทุกย่อหน้าโดยไม่ตัดจบกลางคัน
-- **macOS GUI Automation Policy:** ให้สิทธิ์และคำสั่งเด็ดขาดแก่ Jarvis ในการมองเห็นหน้าจอ คลิกเมาส์ และพิมพ์ข้อความลงในแอปใดก็ได้บน macOS ผ่าน `click_on_screen`, `type_text_on_screen`, และ `click_and_type` โดยไม่ปฏิเสธคำสั่งผู้ใช้
-- **Phonetic Mistranscription & Ambiguous Speech Guard:** กฎดักจับคำพูดที่ถอดเสียงเพี้ยน หากได้ยินคำภาษาไทยหรือคำแปลกๆ ที่มีเค้าโครงของชื่อเพลง/ศิลปิน/แอปภาษาอังกฤษ (เช่น "เลิก 3,000" แทนที่จะเป็น "Love 3000") ระบบจะหยุดเรียก Tool ค้นหาหรือเปิดเว็บทันที แล้วถามยืนยันด้วยความสุภาพรอบเดียวก่อนดำเนินการ
-- **Explicit Fallback Chain:** ลำดับโมเดลสำรองแบบกำหนดชัดเจน:
+- **4-Tier Cognitive Context Engine:**
+  - **L0 (Soul Core):** แก่นแท้ ปรัชญา และจริยธรรม (`memory/soul_core.md`)
+  - **L1 (User Facts):** ข้อมูลความจำถาวรของผู้ใช้ (`memory/jarvis_memory.json`)
+  - **L2 (Lessons Context):** บันทึกบทเรียนและสถานะบริบทสำคัญ (`memory/events.jsonl`)
+  - **L3 (Active Conversation):** ประวัติสนทนา 10 เทิร์นล่าสุด (`memory/chat_history.json`)
+- **Dual-Output Protocol (`[SPEAK]` Tags):** สั่งโมเดลแยกผลลัพธ์ 2 ชุด: หน้าจอฉบับเต็ม และเสียงพูดสรุปกระชับใน `[SPEAK]...[/SPEAK]`
+- **Explicit Fallback Chain:** ลำดับโมเดลสำรอง:
   `["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]`
-  รองรับการสลับโมเดลอัตโนมัติเมื่อพบ Error 429 (Quota), 503 (Overloaded), 504 (Timeout), หรือ 404
-- **ThinkingConfig Handling:** ตั้งค่า `thinking_budget=0` เฉพาะโมเดลที่รองรับ (ยกเว้นตระกูล Lite เพื่อป้องกันข้อผิดพลาด 400)
-- **Persistent Chat History:** โหลดประวัติ 10 รอบล่าสุดจาก `memory/chat_history.json` ตอนเปิดโปรแกรม และบันทึกประวัติแบบ Asynchronous หลังจบแต่ละรอบ
+- **macOS GUI Automation Policy:** ให้สิทธิ์เต็มที่ในการมองเห็นและควบคุมหน้าจอผ่าน `click_on_screen`, `type_text_on_screen`, และ `click_and_type`
 
 ### 3.5 เครื่องมือระบบ macOS พื้นฐาน (`core/tools.py`)
 ประกอบด้วย 9 เครื่องมือหลักที่เขียนด้วย Native Python และคำสั่งของ macOS:
-1. `delegate_to_antigravity(task_prompt)`: ส่งงานเขียนโค้ดไปยัง Antigravity IDE ในเบื้องหลังผ่านไฟล์ `.jarvis_task.md` โดยไม่แย่งโฟกัสหน้าจอ
-2. `analyze_current_screen(question)`: ถ่ายภาพหน้าจอด้วย `screencapture -x /tmp/jarvis_screen.jpg` ส่งให้ Gemini Vision วิเคราะห์ และลบไฟล์ทิ้งทันที
-3. `control_mac_system(action, target, app)`: ควบคุมระบบ macOS (`open_path`, `open_app`, `open_url` ระบุเบราว์เซอร์, `set_volume`, `get_system_info`)
+1. `delegate_to_antigravity(task_prompt)`: ส่งงานเขียนโค้ดไปยัง Antigravity IDE ในเบื้องหลังผ่านไฟล์ `.jarvis_task.md`
+2. `analyze_current_screen(question)`: ถ่ายภาพหน้าจอด้วย `screencapture -x` ส่งให้ Gemini Vision วิเคราะห์
+3. `control_mac_system(action, target, app)`: ควบคุมระบบ macOS (`open_path`, `open_app`, `open_url`, `set_volume`, `get_system_info`)
 4. `manage_memory(mode, content)`: บันทึกและดึงข้อมูลความจำระยะยาวใน `memory/jarvis_memory.json`
-5. `reveal_task_result(task_ref)`: เปิดไฟล์/หน้าต่างแอป/ผลลัพธ์ของงานเบื้องหลังขึ้นมาบนหน้าจอเฉพาะเมื่อผู้ใช้สั่งเปิดดู (On-Demand Reveal)
+5. `reveal_task_result(task_ref)`: เปิดไฟล์/หน้าต่างแอปของงานเบื้องหลังขึ้นมาบนหน้าจอเฉพาะเมื่อผู้ใช้สั่งเปิดดู (On-Demand Reveal)
 6. `search_raw_history(query, days_back)`: ค้นหาประวัติข้อมูลดิบย้อนหลัง 365 วันจากคลัง `memory/raw_archive/`
-7. `click_on_screen(target_description, double_click)`: แคปหน้าจอ ส่งให้ Gemini Vision ค้นหาพิกัดกึ่งกลาง (โดยเฉพาะภาพปกวิดีโอ/Thumbnail หรือลิงก์หลัก) คำนวณ Scale Factor รองรับ Retina Display 100% พร้อมแก้ปัญหา Inactive Window ด้วยการคลิก Activate โฟกัสหน้าต่างก่อน 1 ครั้ง (หน่วง 0.15s) แล้วส่งคลิก Action ซ้ำเพื่อให้เปิดเล่นวิดีโอหรือเปิดลิงก์ทันที
-8. `type_text_on_screen(text, press_enter)`: พิมพ์ข้อความลงในช่องที่โฟกัสอยู่ รองรับภาษาไทยและอังกฤษสมบูรณ์แบบผ่าน Clipboard Injection (`pbcopy` + `Cmd+V`) พร้อมคืนค่าคลิปบอร์ดเดิม
-9. `click_and_type(target_description, text, press_enter)`: ควบคุมแบบรวบขั้นตอนเดียว: หาเป้าหมาย ➔ คลิกโฟกัสและ Activate ➔ พิมพ์ข้อความทันที
+7. `click_on_screen(target_description, double_click)`: แคปหน้าจอ ค้นหาพิกัดกึ่งกลางด้วย Vision คำนวณ Retina Scale Factor และคลิกแม่นยำ
+8. `type_text_on_screen(text, press_enter)`: พิมพ์ข้อความภาษาไทย/อังกฤษผ่าน Clipboard Injection (`pbcopy` + `Cmd+V`)
+9. `click_and_type(target_description, text, press_enter)`: ควบคุมแบบรวบขั้นตอนเดียว: หาพิกัด ➔ คลิกโฟกัส ➔ พิมพ์ข้อความทันที
 
 ### 3.6 ระบบบันทึกผลงานเบื้องหลังและ On-Demand Reveal (`core/task_manager.py`)
-- **Stealth Task Registry:** ทุกงานที่รันในเบื้องหลัง (การเขียนไฟล์, การแก้โค้ด, การส่งงาน Antigravity) จะถูกบันทึกประวัติลง `memory/background_tasks.json` อย่างเงียบกริบ
-- **ข้อมูลที่บันทึก:** `task_id`, `title`, `command_or_prompt`, `summary`, `files_affected` (รายชื่อไฟล์ที่สร้างหรือแก้ไข), `app_or_url`, `status`, `completed_at`, และสถานะ `revealed`
-- **On-Demand Reveal:** เมื่อผู้ใช้สั่งให้เปิดดูงาน (เช่น "เปิดดูไฟล์ที่แก้", "เปิดผลลัพธ์ล่าสุด") ตัวจัดการจะสั่งเปิดไฟล์ด้วย `open` บน macOS หรือเปิดเบราว์เซอร์/หน้าต่างแอปที่เกี่ยวข้อง และปรับสถานะ `revealed = True` ทันที โดยระหว่างที่งานยังรันหรือเพิ่งเสร็จจะไม่มีการเด้งหน้าต่างขึ้นมาขัดจังหวะผู้ใช้เด็ดขาด
+- บันทึกประวัติงานเบื้องหลังลง `memory/background_tasks.json` อย่างเงียบกริบ (Stealth Mode)
+- แสดงผลเมื่อผู้ใช้สั่งเปิดดูผลงาน (`reveal_task_result`) เท่านั้น ไม่มีการเปิดแอปหรือไฟล์ขึ้นมาขัดจังหวะเอง
 
-### 3.7 ระบบจัดการ MCP มาตรฐานสากล (`core/mcp_manager.py`)
-- **Official Servers:** รันและสื่อสารผ่าน Stdio Client กับ:
-  - `@modelcontextprotocol/server-filesystem`: จัดการไฟล์ อ่าน เขียน ลิสต์ และค้นหาไฟล์ในโปรเจกต์ (16 เครื่องมือ)
-  - `mcp-server-fetch`: ดึงข้อมูลจาก URL และแปลงเป็น Markdown (1 เครื่องมือ)
-  - `mcp-server-git`: ตรวจสอบสถานะโค้ด (`git_status`), ประวัติ Commit (`git_log`), ดู Diff ทั้ง staged/unstaged (`git_diff`), สลับ Branch (`git_checkout`), สร้าง Commit และตรวจตรา Git Repository (14 เครื่องมือ)
-  - **สรุปเครื่องมือในระบบ:** MCP Tools รวม 31 เครื่องมือ + Native macOS Tools 9 เครื่องมือ = รวมทั้งสิ้น **40 เครื่องมือ**
-- **Persistent Schema Disk Cache:** บันทึกโครงสร้างเครื่องมือไว้ใน `memory/mcp_tools_cache.json` ทำให้เปิดโปรแกรมครั้งถัดไปได้ในเวลาเพียง **0.005 วินาที** โดยไม่ต้องรอ Subprocess เริ่มทำงาน
-- **SHA-256 Invalidation:** ตรวจสอบความถูกต้องของคอนฟิก หากไฟล์ `mcp_servers.json` มีการแก้ไข ระบบจะอัปเดตแคชใหม่ให้อัตโนมัติ
+### 3.7 คลังจัดเก็บข้อมูลดิบระยะยาว 365+ วัน (`core/raw_archive.py`)
+- แยกเก็บข้อมูลดิบรายเดือนลงไฟล์ `memory/raw_archive/YYYY-MM.jsonl`
+- รองรับการค้นหาย้อนหลังด้วยคำตัดคำภาษาไทย (`newmm`) และ Thai Soundex (`lk82`)
 
-### 3.8 ระบบเชื่อมต่อ Antigravity IDE (`integrations/antigravity_bridge.py`)
-- **Stealth Background Execution (100% เบื้องหลัง):** เปลี่ยนจากการสั่งสลับหน้าต่างและส่งคีย์ลัด มาเป็นการเขียนไฟล์คำสั่ง `.jarvis_task.md` ลงในพื้นที่โปรเจกต์โดยตรง ทำให้ผู้ใช้สามารถพิมพ์งานหรือใช้งานแอปอื่นบนหน้าจอต่อไปได้โดยไม่ถูกแย่งโฟกัส
-- **Result Watching:** ใช้ **`watchdog.observers.Observer`** เฝ้าดูการสร้างไฟล์ `.jarvis_result.md` เมื่อ Agent ทำงานเสร็จ จะส่งเนื้อหากลับมาให้ Jarvis สรุปผลด้วยเสียงทันที และบันทึกเข้า `task_manager` เพื่อรอให้ผู้ใช้สั่งเปิดดูเมื่อพร้อม
+### 3.8 ระบบจัดการ MCP และ Tool Filtering (`core/mcp_manager.py`)
+- เชื่อมต่อ Official MCP Servers (Filesystem, Web Fetch, Git) รวม 31 เครื่องมือ
+- **Empty Arguments Sanitization (v1.8.2):** กรองค่า `None` และสตริงว่าง `""` ออกจากพารามิเตอร์ที่เป็น Option ก่อนส่งเข้า MCP Server ป้องกันปัญหา Server Rejection
+- **Persistent Schema Cache:** โหลดสเปกเครื่องมือจาก `memory/mcp_tools_cache.json` ในเวลาเพียง 0.005 วินาที พร้อมตรวจสอบ SHA-256
 
-### 3.9 ระบบรับเสียงพูด Single-Pipeline Push-to-Talk + Wake Trigger (`voice/listener.py`)
-- **Single Core Pipeline Architecture:** ยึดท่อส่งเสียง Push-to-Talk เป็นแกนกลางเดียว โดยแบ่งเป็น 3 สถานะที่ไม่ทับซ้อนกัน:
-  1. `STANDBY_WAKE`: สแตนด์บายรอคำปลุกด้วย **OpenWakeWord** (`hey_jarvis` ONNX) แบบเรียลไทม์บน Apple Silicon กิน CPU < 1% และปลด Faster-Whisper ออกจาก RAM ในช่วงสแตนด์บาย (คืน RAM เกือบ 1 GB) เมื่อตรวจพบคำปลุกด้วยคะแนนเกิน `wake_score_threshold` (0.5) จะรีเซ็ตตัวตรวจจับ สุ่มเล่นเสียงตอบรับ (`wake_ack_phrases` เช่น "สวัสดีครับ", "พร้อมครับ") ด้วย Blocking `afplay` จนจบสนิท เคลียร์ Buffer ไมค์ แล้วเปิดโหมด Push-to-Talk อัตโนมัติ (ผู้ใช้ยังคงกด `Cmd + Shift + J` ได้ตลอดเวลา)
-  2. `ACTIVE_PTT`: ใช้ **Silero VAD** (Neural VAD 512 samples / 32ms ที่ 16kHz) วิเคราะห์ตรวจจับเสียงมนุษย์แท้จริง ภูมิคุ้มกันเสียงเคาะแป้นพิมพ์คีย์บอร์ด เสียงพัดลม หรือเสียงแอร์ 100% ตัดส่งอัตโนมัติเมื่อหยุดพูดเงียบต่อเนื่องครบ 3.0 วินาที (`post_speech_silence_sec`) ถอดความความเร็วสูงผ่าน Groq Cloud STT (`whisper-large-v3-turbo`) พร้อม Local Faster-Whisper Fallback หากออฟไลน์ หากตรวจพบคำปิดสนทนา (`exit_conversation_phrases` เช่น "ขอบคุณครับ", "พอแค่นี้") จะตอบรับสั้นๆ และกลับสู่ `STANDBY_WAKE` ทันที
-  3. `FOLLOWUP_LOOP`: ลูปสนทนาต่อเนื่องอัตโนมัติ เมื่อ JarvisBrain และ JarvisSpeaker พูดตอบกลับเสร็จสิ้น (+ หน่วง 0.35s กันเสียงสะท้อน) ระบบจะเปิดไมค์รอรับคำสั่งถัดไปทันทีโดยไม่ต้องเรียกคำปลุกซ้ำ มีกรอบเวลาหมดเวลา 60 วินาที (`followup_timeout_sec`) หากไม่มีเสียงพูดจะปิดไมค์กลับสู่ `STANDBY_WAKE` อย่างสะอาด
-- **Full-Duplex & Dual-Guard Barge-in (> 0.6s):** เปิดไมโครโฟนทำงานคู่ขนานระหว่างที่ผู้ช่วยกำลังพูด (`is_speaking == True`) โดยใช้เงื่อนไขตรวจสอบคู่ขนาน **Dual-Guard: (Silero VAD >= `barge_in_vad_threshold` 0.75) AND (RMS >= `barge_in_rms_threshold` 0.055)** ต่อเนื่องเกิน 0.6 วินาที เพื่อป้องกันเสียงสังเคราะห์จากลำโพงในตัวตัดเสียงตัวเอง:
-  - สั่งหยุดเสียง Jarvis ทันที (`speaker.stop_speaking()`)
-  - นำชิ้นส่วนเสียง 0.6s นั้นมาเป็น **Pre-roll** ต่อเข้ากับบัฟเฟอร์ `ACTIVE_PTT` ทันที ทำให้คำสั่งแรกที่ผู้ใช้พูดแทรกไม่ขาดหาย
-  - กรองเสียงรบกวนสั้นๆ หรือเสียงสะท้อนลำโพง โดยจะเคลียร์บัฟเฟอร์ทิ้งหากเสียงพูดไม่ต่อเนื่องถึง 0.6 วินาที
-- **voice_settings.json:** ไฟล์กำหนดค่าปรับแต่งเสียงภายนอก สามารถเพิ่ม/ลดคำปลุก คำตอบรับ คำปิดสนทนา เกณฑ์ VAD และเกณฑ์ Barge-in ได้โดยไม่ต้องแก้ไขโค้ด Python
+### 3.9 ระบบเชื่อมต่อ Antigravity IDE (`integrations/antigravity_bridge.py`)
+- ส่งคำสั่งงานผ่าน `.jarvis_task.md` โดยไม่แย่งโฟกัสหน้าจอ
+- เฝ้าดูผลลัพธ์ผ่าน `.jarvis_result.md` ด้วย `watchdog.observers.Observer` และแจ้งเตือนด้วยเสียงเมื่อเสร็จสิ้น
 
-### 3.10 ระบบสังเคราะห์เสียงพูด 2 ภาษา (`voice/speaker.py`)
-- ตรวจจับภาษาอัตโนมัติจากชุดตัวอักษรไทย (Unicode Range `\u0E00-\u0E7F`)
-- สลับโทนเสียงระหว่างภาษาไทย (`th-TH-NiwatNeural`, Rate `+6%`, Pitch `-14Hz`, Volume `+40%` สุขุม นุ่มนวล) และภาษาอังกฤษ (`en-GB-RyanNeural`, Rate `+8%`, Pitch `-8Hz`) โดยอัตโนมัติ
-- **Thai NLP Speech Normalization (`core/thai_nlp.py`):** ยกระดับเสียงอ่านภาษาไทยผ่าน `prepare_thai_tts_text()`:
-  - แปลงตัวเลขสกุลเงิน (เช่น `1,500 บาท` $\rightarrow$ `หนึ่งพันห้าร้อยบาทถ้วน`)
-  - แปลงตัวเลขทั่วไปเป็นคำอ่านภาษาไทย (เช่น `2026` $\rightarrow$ `สองพันยี่สิบหก`)
-  - คุ้มครองรหัสทางเทคนิคไม่ให้ถูกแปลงเพี้ยน (เช่น พอร์ต `port 8080`, ไอพี `127.0.0.1`, เวอร์ชัน `v1.5.0`, คลื่น `16000Hz`, หรือรหัส `HTTP 404`)
-  - จัดจังหวะเว้นช่องว่างหน้าคำเชื่อม (`และ`, `หรือ`, `แต่`, `ดังนั้น`) เพื่อให้ Edge-TTS เว้นวรรคหายใจอย่างเป็นธรรมชาติ โดยไม่เคาะวรรคทุกคำจนเสียงกระตุก
-- **Continuous Multi-Line Speech:** ปรับระบบแยกข้อความพูดให้ดึงข้อความสนทนาครบถ้วนทุกประโยคและทุกย่อหน้าต่อเนื่องกัน ไม่ตัดจบแค่ประโยคแรกหรือย่อหน้าเดียว
-- **Pacing & Clean Speech:** ตัดคำและเว้นจังหวะวรรคตอนภาษาไทย/อังกฤษอย่างเป็นธรรมชาติ (แยกตัวอักษรไทยและอังกฤษ/ตัวเลขด้วยวรรคเพื่อให้ออกเสียงชัดเจน ไม่กลืนคำ) กรองสัญลักษณ์ดิบ, Emoji, Markdown และแท็ก `[SPEAK]` ออกทั้งหมด
-- **Instant Interrupt (Barge-in Support):** มีเมธอด `stop_speaking()` จัดการยุติโปรเซส `/usr/bin/afplay` ด้วย `terminate()` / `kill()` เคลียร์คิวที่ค้างอยู่ และปล่อยสัญญาณสถานะ `idle` ทันที เพื่อรองรับการหยุดพูดกลางคันเมื่อผู้ใช้พูดแทรก
-- ขับเสียงผ่านเครื่องเล่นระบบของ macOS (`/usr/bin/afplay`) โดยตรงเพื่อความเสถียรและเสียงคมชัดสูงสุด
+### 3.10 ระบบรับเสียงพูดและ Context-Aware Interrupt (`voice/listener.py`)
+ยึดท่อส่งเสียง **Single-Pipeline Microphone Architecture** แบ่งเป็น 3 สถานะ:
+1. **`STANDBY_WAKE` (โหมดรอคำปลุก):**
+   - รันโมเดล `OpenWakeWord` (`hey_jarvis` ONNX) บน CPU ต่ำกว่า 1% โดยไม่โหลด Whisper เข้า RAM
+   - ขยายสัญญาณไมค์ **`wake_mic_gain: 2.5x`** ก่อนป้อนเข้าโมเดล ทำให้ระยะนั่งปกติ (50–70 ซม.) ปลุกติดง่ายที่เกณฑ์คะแนน `0.36`
+   - เมื่อตรวจพบคำปลุก: สุ่มเล่นเสียงตอบรับสั้นๆ (`wake_ack_phrases`), เคลียร์ Buffer ไมค์, และเข้าสู่ `ACTIVE_PTT`
+2. **`ACTIVE_PTT` (โหมดบันทึกเสียงคำสั่ง):**
+   - ใช้ **Silero VAD** (512 samples / 32ms float32) วิเคราะห์เสียงมนุษย์จริง ป้องกันเสียงเคาะแป้นพิมพ์และเสียงแอร์ 100%
+   - ตัดส่งคำสั่งอัตโนมัติเมื่อหยุดพูดครบ 3.0 วินาที (`post_speech_silence_sec`)
+   - ถอดความด้วย Groq Cloud STT (`whisper-large-v3-turbo`, ~0.2s) สำรองด้วย Local Faster-Whisper
+   - **Exit Phrase Detection:** หากพบคำปิดบทสนทนา (เช่น *"พักก่อน"*, *"ขอบคุณครับ"*) จะตั้งค่า `suppress_next_followup = True`, ตอบรับสั้นๆ และกลับสู่ `STANDBY_WAKE` โดยไม่เปิดลูปต่อ
+3. **`SPEAKING_MONITOR` (โหมดควบคุมขณะ Jarvis กำลังพูด — v1.8.3):**
+   - **ช่องทางที่ 1 (ปุ่ม Esc):** กดปุ่ม Esc เพื่อตัดเสียงพูดทันที ตอบรับ "Ok ครับ" และเริ่มฟังคำสั่งใหม่
+   - **ช่องทางที่ 2 (ทางด่วน Hey Jarvis):** เรียกชื่อ "Hey Jarvis" แทรกกลางคันได้ทันที
+   - **ช่องทางที่ 3 (คำสั่งเบรก 2 พยางค์):** ดักจับเสียงพูดสั้น `0.55s – 2.2s` แล้วเว้นวรรค `0.45s` ถอดความเฉพาะคำใน `interrupt_stop_phrases`
+   - **Whole-Chunk Self-Echo Filter:** นำข้อความที่ถอดได้มาเทียบกับ `speaker.current_spoken_text` ด้วย `RapidFuzz` หากเหมือนกัน $\ge 60\%$ จะถือว่าเป็นเสียงสะท้อนจากลำโพงตัวเองและทิ้งทันที โดย**ไม่ตัดเสียง** และ**ไม่ส่งเข้าสมองเด็ดขาด**
 
-### 3.11 การประมวลผลภาษาไทยและ Fuzzy Matching (`core/thai_nlp.py`)
-- **100% Lazy Loading:** โหลดแพ็กเกจ `PyThaiNLP` และ `RapidFuzz` เฉพาะเมื่อมีการเรียกใช้งานฟังก์ชันครั้งแรก เพื่อรักษาเวลาบูตโปรแกรมระดับเสี้ยววินาที (0.005 วินาที)
-- **Tokenize for Search (`core/raw_archive.py`):** ฟังก์ชัน `tokenize_for_search()` ใช้โมเดล `newmm` ตัดประโยคภาษาไทยที่เขียนติดกันยาวๆ ให้เป็นคำค้นหา (Tokens) ยกระดับการสืบค้นประวัติย้อนหลัง 365 วันในคลัง `memory/raw_archive/` และการดึงคีย์เวิร์ดของงานเบื้องหลังอัตโนมัติ
-- **Fuzzy & Phonetic Matching Engine:**
-  - `fuzzy_match_phrase()`: ใช้ `RapidFuzz WRatio` จับคู่คำสแลงหรือคำลงท้ายเพี้ยน (เช่น `"ขอบคุณคับ"`, `"พอแค่นี้เด้อ"`) เพื่อสั่งตัดจบลูปสนทนาใน `voice/listener.py` ทันทีโดยไม่ยิง API เข้า Gemini Brain
-  - `resolve_macos_app_name()`: จับคู่ชื่อเล่น/ชื่อเรียกแอป (เช่น `"Chrome"`, `"VS Code"`, หรือสำเนียงไทย `"ไฟ๊ฟ๊กอ"`) เข้ากับชื่อแอปจริงบน macOS (`"Google Chrome"`, `"Visual Studio Code"`, `"Firefox"`) ผ่านการสแกนแคชไดเรกทอรีแอป และใช้ `Thai Soundex (lk82)` ร่วมกับ `RapidFuzz` ทำให้คำสั่ง `open_app` และ `open_url` ใน `core/tools.py` แม่นยำ 100%
-  - `match_search_terms()`: รองรับการค้นหาคำพ้องเสียงและคำสะกดต่าง (เช่น `"โปรเจค"` vs `"โปรเจกต์"`, `"แอป"` vs `"แอพ"`) ในคลังข้อมูลดิบย้อนหลัง 365 วัน
+### 3.11 ระบบสังเคราะห์เสียงพูดและ Pre-Cached Acks (`voice/speaker.py`)
+- สลับโทนเสียงภาษาไทย (`th-TH-NiwatNeural`) และอังกฤษ (`en-GB-RyanNeural`) อัตโนมัติ
+- ปรับแต่งคำอ่านภาษาไทยด้วย `core/thai_nlp.py` (แปลงเงินบาท, คงรหัสพอร์ต/IP, จัดวรรคตอนหายใจ)
+- บันทึกข้อความที่กำลังอ่านลงใน `self.current_spoken_text` แบบเรียลไทม์เพื่อใช้เป็นฐานข้อมูลตัดเสียงสะท้อน
+- มีระบบพรีโหลดและแคชไฟล์เสียงยืนยัน `"Ok ครับ"` (`memory/cached_ok_krub.mp3`) ตั้งแต่ตอนบูตโปรแกรม
+- เมธอด `play_cached_ack()` เล่นเสียงตอบรับผ่าน `/usr/bin/afplay` แบบ Blocking เพื่อให้ผู้ใช้ได้รับสัญญาณยืนยันทันที
 
-### 3.12 ส่วนติดต่อผู้ใช้ (`ui/`)
-- **Dynamic Island (`ui/dynamic_island.py`):** แคปซูลโปร่งแสงลอยอยู่กึ่งกลางด้านบนของหน้าจอ (Always-on-top, กว้าง 300px) แสดงสถานะและจุดสีแอนิเมชันตามสถานะปัจจุบัน และซ่อนตัวอัตโนมัติเมื่อเข้าสู่สถานะ `Idle`
-- **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight / Raycast สำหรับพิมพ์ข้อความ ดูประวัติการแชท และตรวจสอบ System / Tool Logs
-- **System Tray (`ui/tray.py`):** ไอคอนวงแหวนสีฟ้าบน macOS Menu Bar พร้อม Context Menu สำหรับเปิดแชท, เปิดไมค์, เมนูเปิด/ปิดคำปลุก `🎙️ Wake Word Trigger (Active/Disabled)` ของระบบ Single-Pipeline เพื่อควบคุมการดักฟังคำปลุกแบบเรียลไทม์โดยไม่ต้องรีสตาร์ท, ล้างประวัติการสนทนา หรือออกจากโปรแกรม
+### 3.12 การประมวลผลภาษาไทยและ Phonetic Matching (`core/thai_nlp.py`)
+- **100% Lazy Loading:** โหลด `PyThaiNLP` และ `RapidFuzz` เฉพาะเมื่อเรียกใช้ รักษาความเร็วบูตใน 0.005 วินาที
+- `prepare_thai_tts_text()`: ทำความสะอาดข้อความก่อนส่งเข้า Edge-TTS
+- `resolve_macos_app_name()`: จับคู่ชื่อเล่น/ชื่อเรียกแอปภาษาไทย-อังกฤษ (`Chrome` ➔ `Google Chrome`)
+- `fuzzy_match_phrase()`: จับคู่คำสแลงเพี้ยนด้วย RapidFuzz WRatio สำหรับคำบอกลาและคำสั่งเบรก
 
-### 3.13 หน่วยความจำถาวรและแก่นความคิด (`memory/`)
-- `memory/soul_core.md`: แก่นแท้บุคลิกภาพและความคิด (L0) เน้นความตรงไปตรงมา (Candor), การบอกระดับความมั่นใจอย่างโปร่งใส, การแยกงาน Action พื้นฐานออกจากงานคิดวิเคราะห์, และ Hard Guardrails
-- `memory/jarvis_memory.json`: ข้อมูลความจำถาวร (L1) ที่ผู้ใช้สั่งให้จำผ่าน `manage_memory`
-- `memory/events.jsonl`: บันทึกบทเรียนและสถานะบริบทสำคัญ (L2) แบบ Append-only พร้อมระบบ Auto-rotation
-- `memory/chat_history.json`: บันทึกประวัติการสนทนา 10 เทิร์นล่าสุด (L3) ทำให้เปิดโปรแกรมใหม่แล้วคุยต่อได้ทันที
-- `memory/background_tasks.json`: บันทึกประวัติและรายการไฟล์ผลลัพธ์ของงานเบื้องหลัง สำหรับการเปิดดูแบบ On-Demand
-- `memory/mcp_tools_cache.json`: แคชโครงสร้างเครื่องมือ MCP ทั้งหมด เพื่อการบูตเครื่องใน 0.005 วินาที
+### 3.13 ส่วนติดต่อผู้ใช้ (`ui/`)
+- **Dynamic Island (`ui/dynamic_island.py`):** แคปซูลโปร่งแสงลอยด้านบนหน้าจอ แสดงสถานะด้วยแอนิเมชันจุดสี
+- **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight แยกแท็บสนทนาและข้อมูลดิบ
+- **System Tray (`ui/tray.py`):** เมนูบนแถบสถานะ macOS พร้อมตัวเลือกเปิด/ปิดการดักฟังคำปลุก (`🎙️ Wake Word Trigger`)
+
+### 3.14 หน่วยความจำถาวรและแก่นความคิด (`memory/`)
+- `soul_core.md`: แก่นแท้บุคลิกภาพและความคิด (L0 Context)
+- `jarvis_memory.json`: ข้อมูลความจำระยะยาวของผู้ใช้ (L1 User Facts)
+- `events.jsonl`: บันทึกบทเรียนและบริบทสำคัญ (L2 Lessons Context)
+- `chat_history.json`: ประวัติการสนทนา 10 รอบล่าสุด (L3 Active Context)
+- `cached_ok_krub.mp3`: แคชไฟล์เสียงตอบรับ "Ok ครับ" ความเร็วสูง
 
 ---
 
 ## 4. แผนภาพลำดับการไหลของข้อมูล (System Data Flow)
 
-```
-[ผู้ใช้เรียกใช้งานผ่าน 2 ช่องทาง]
+```text
+[ผู้ใช้เรียกใช้งานผ่าน 3 ช่องทาง]
   ├── ช่องทาง 1: กดปุ่มลัด Cmd+Shift+J (Quartz Event Tap ดูดกลืนคีย์)
-  └── ช่องทาง 2: พูดคำปลุก "Hey Jarvis" / "ไฮ จาร์วิส" (OpenWakeWord + Silero VAD)
+  ├── ช่องทาง 2: พูดคำปลุก "Hey Jarvis" (OpenWakeWord + wake_mic_gain 2.5x)
+  └── ช่องทาง 3: กดปุ่ม Esc หรือพูด "หยุดก่อนจาร์วิส" ระหว่างที่ Jarvis กำลังพูด
          │
          ▼
  [JarvisListener Single-Pipeline (voice/listener.py)]
          │
-         ├── [กรณี Standby Wake Trigger]:
-         │      • Silero VAD (512 float32, 16kHz) กรองเสียงมนุษย์ (RAM เบา 0% Faster-Whisper)
-         │      • OpenWakeWord ตรวจจับโมเดล 'hey_jarvis' (Threshold >= 0.5)
-         │      • เมื่อปลุกติด: เล่นเสียง Ack (สุ่มจาก 4 เสียง) ➔ เข้าสู่โหมดบันทึกเสียงทันที
+         ├── [สถานะ STANDBY_WAKE]:
+         │      • ขยายสัญญาณเสียงไมค์ 2.5x (wake_mic_gain) ป้อนเข้า OpenWakeWord
+         │      • เมื่อคะแนน 'hey_jarvis' >= 0.36 ➔ เล่นเสียง Ack ➔ เข้าสู่ ACTIVE_PTT
          │
-         ├── [กรณี Full-Duplex Barge-in (ขณะ Jarvis กำลังพูด)]:
-         │      • ผู้ใช้พูดแทรกต่อเนื่อง >= 0.6s และ RMS >= 0.055
-         │      • สั่ง speaker.stop_speaking() ทันที
-         │      • นำเสียงที่แทรก (Pre-roll buffer) ไปต่อเป็นหัวคำสั่งใหม่
-         │      • (หากเสียงสั้น < 0.6s เช่น เสียงไอ/เคาะโต๊ะ หรือเสียงเบา ➔ ระบบจะปฏิเสธ ไม่ตัดเสียง Jarvis)
+         ├── [สถานะ SPEAKING_MONITOR (ขณะ Jarvis กำลังพูด)]:
+         │      ├── ทางด่วน 1: กดปุ่ม Esc (Keycode 53) ➔ stop_speaking() ➔ play_cached_ack() ➔ ACTIVE_PTT
+         │      ├── ทางด่วน 2: เรียก "Hey Jarvis" ➔ stop_speaking() ➔ play_cached_ack() ➔ ACTIVE_PTT
+         │      └── ทางคำสั่งเบรก: ตรวจจับเสียงพูดช่วง 0.55s–2.2s
+         │            │
+         │            ├──> [Whole-Chunk Self-Echo Filter (RapidFuzz >= 60%)]
+         │            │         │ (ตรงกับข้อความที่ Jarvis กำลังอ่าน)
+         │            │         ▼
+         │            │    [ทิ้งเสียงสะท้อนทันที ไม่ตัดเสียง และไม่ส่งเข้าสมอง]
+         │            │
+         │            └──> [ตรวจจับคำใน interrupt_stop_phrases]
+         │                      │ (พบคำว่า "หยุดก่อน", "พอก่อนจาร์วิส", "ok stop")
+         │                      ▼
+         │                 [stop_speaking() ➔ เล่นเสียง "Ok ครับ" ➔ ACTIVE_PTT]
          │
-         └── [กรณีผู้ใช้พูดจบประโยค]:
-                • ตรวจจับความเงียบ 3.0s ในลูปสนทนา หรือกด Cmd+Shift+J ครั้งที่ 2
+         └── [สถานะ ACTIVE_PTT]:
+                • Silero VAD ตรวจจับเสียงมนุษย์แท้จริง ตัดส่งเมื่อหยุดพูดครบ 3.0s
                 • เล่นเสียง Pop.aiff ➔ เปลี่ยนสถานะเป็น "Thinking..."
                       │
                       ▼
               [Speech-to-Text Pipeline (voice/listener.py)]
                       │
                       ├──> Primary: Groq Cloud STT (whisper-large-v3-turbo) ──> ~0.2s, CPU 0%
-                      │         │
-                      │         └──> (Fallback เมื่อออฟไลน์ / ไร้ Key / ขัดข้อง)
-                      │                   │
-                      └──> Fallback: Local Faster-Whisper (small, int8, beam_size=5, speech_pad_ms=400)
+                      └──> Fallback: Local Faster-Whisper (small, int8)
                                 │
                                 ▼
               [Pre-Brain Fast Noise Filter & Exit Guard]
                       │
-                      ├──> ผู้ใช้บอกลา/ปิดไมค์ ("ขอบคุณครับ", "พอแค่นี้เด้อ", "พักก่อน")
-                      │         │ (ตรวจจับด้วย Substring + RapidFuzz WRatio >= 78%)
+                      ├──> ผู้ใช้บอกลา/ปิดไมค์ ("ขอบคุณครับ", "พอแค่นี้", "พักก่อน")
+                      │         │
                       │         ▼
-                      │    [ตอบรับ "รับทราบครับ พักก่อนนะครับ" ➔ กลับสู่ Standby ทันทีโดยไม่ยิงเข้า Brain]
+                      │    [ตั้งค่า suppress_next_followup = True ➔ ตอบรับสั้นๆ ➔ กลับสู่ Standby]
                       │
                       └──> ข้อความคำสั่งปกติ ──> (emit user_message_received)
                                 │
                                 ▼
               [JarvisBrain (core/brain.py)]
                       │
-                      ├──> โหลดบริบท 3 ระดับ (L0: Soul Core, L1: User Facts, L2: Recent Events)
-                      ├──> ส่งประวัติและข้อความเข้า Gemini API (Explicit Fallback Chain)
+                      ├──> ประกอบบริบท 4 ระดับ (L0: Soul Core, L1: Facts, L2: Events, L3: History)
+                      ├──> ส่งคำสั่งเข้า Gemini API (Explicit Fallback Chain)
                       │
                       ├──> Gemini ร้องขอ Function Call (Tools / MCP)
                       │         │
                       │         ├── [Native Tools (core/tools.py)]
-                      │         │     • click_on_screen / type_text_on_screen / click_and_type (GUI Automation)
+                      │         │     • click_on_screen / type_text_on_screen / click_and_type (GUI)
                       │         │     • delegate_to_antigravity (.jarvis_task.md + Watchdog)
-                      │         │     • reveal_task_result (On-Demand Reveal งานเบื้องหลัง)
-                      │         │     • search_raw_history (ค้นหาประวัติ Raw Archive 365 วัน + Soundex)
-                      │         │     • analyze_current_screen (screencapture + Vision)
-                      │         │     • control_mac_system (open_app พร้อม resolve_macos_app_name, url, volume)
-                      │         │     • manage_memory (jarvis_memory.json)
+                      │         │     • reveal_task_result / search_raw_history / analyze_current_screen
                       │         │
                       │         └── [Official MCP Tools (core/mcp_manager.py)]
-                      │               • @modelcontextprotocol/server-filesystem (read, write, list)
-                      │               • mcp-server-fetch (web fetcher)
-                      │               • mcp-server-git (status, diff, log)
+                      │               • กรองอาร์กิวเมนต์ว่าง ("" / None) ก่อนส่งเข้า Server
+                      │               • Filesystem (16 tools), Fetch (1 tool), Git (14 tools)
                       │
-                      ├──> [Raw Data Pipeline]
-                      │         ├──> (emit raw_data_received) ──> [OverlayChat ⚡ Process & Raw Tab]
-                      │         └──> บันทึกลงคลังรายเดือน ───> [memory/raw_archive/YYYY-MM.jsonl] (365+ วัน)
-                      │
-                      └──> ส่งผลลัพธ์ Tool กลับสู่ Gemini จนได้คำตอบสรุปสุดท้าย
+                      └──> ผลิตผลลัพธ์คำตอบสุดท้าย
                                 │
-                                ├──> บันทึกประวัติ 10 รอบลง memory/chat_history.json (Active History)
-                                ├──> บันทึกผลงานลง memory/background_tasks.json (Stealth Mode)
-                                │
-                                ├──> [Dual-Output Separator (core/brain.py)]
-                                │         │
-                                │         ├──> (emit assistant_reply_ready)
-                                │         │         ▼
-                                │         │   [OverlayChat 💬 Conversation Tab]
-                                │         │   (แสดงผลสรุปสะอาดตา + ตัวเลือก [1], [2], [3] สำหรับเลือกต่อ)
-                                │         │
-                                │         └──> (emit assistant_speak_ready)
-                                │                   ▼
-                                │             [JarvisSpeaker (voice/speaker.py)]
-                                │             (รับข้อความสรุปกระชับ 1-2 ประโยคจาก [SPEAK])
-                                │                   │
-                                │                   ├──> ปรับจังหวะและคำอ่านด้วย core/thai_nlp.py (แปลงเงินบาท, คงพอร์ต/IP)
-                                │                   ├──> สังเคราะห์เสียงด้วย Edge-TTS (Rate +6%)
-                                │                   └──> ขับเสียงผ่าน macOS /usr/bin/afplay
-                                │                             │
-                                └─────────────────────────────┴──> [เปิด Continuous Follow-up Loop ต่อเนื่อง 60s]
-                                                                   (ฟังต่อเนื่องโดยไม่ต้องกดปุ่มหรือพูดคำปลุกซ้ำ)
+                                ├──> (emit assistant_reply_ready) ──> [OverlayChat 💬 Conversation Tab]
+                                └──> (emit assistant_speak_ready) ──> [JarvisSpeaker (voice/speaker.py)]
+                                          │
+                                          ├──> เก็บข้อความลง self.current_spoken_text
+                                          ├──> ปรับจังหวะคำอ่านด้วย core/thai_nlp.py
+                                          ├──> สังเคราะห์เสียงผ่าน Edge-TTS และเล่นผ่าน /usr/bin/afplay
+                                          │
+                                          └──> [เมื่อพูดจบสนิท (และไม่โดนระงับ)]:
+                                                 เปิด Continuous Follow-up Loop ต่อเนื่อง 60s
 ```
 
 ---
@@ -316,28 +309,24 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 ## 5. ตารางคีย์ลัดและสิทธิ์ของระบบ macOS (Keybindings & Permissions)
 
 ### ⌨️ ตารางคีย์ลัดหลัก (Global Shortcuts)
-| ปุ่มลัด | หน้าที่การทำงาน | การตอบสนองของระบบ |
+| ปุ่มลัด | เงื่อนไข / สถานะ | การตอบสนองของระบบ |
 |---|---|---|
-| **`Cmd + Shift + J`** | สลับเปิด/ปิดการฟังเสียง (1-Tap Toggle Voice) | ได้ยินเสียง *Tink* เมื่อเริ่มฟัง และ *Pop* เมื่อส่งคำสั่ง |
-| **`Alt + Space`** *(Option+Space)* | เปิด/ปิดหน้าต่าง Overlay Chat | แสดงหรือซ่อนหน้าต่างแชทสไตล์ Spotlight |
-| **`Escape`** *(Esc)* | ซ่อนหน้าต่าง Overlay Chat | ยุบหน้าต่างแชทลงเมื่อเปิดอยู่ |
+| **`Cmd + Shift + J`** | ทุกสถานะ | สลับเปิด/ปิดการบันทึกเสียง (1-Tap Toggle Voice) |
+| **`Alt + Space`** | ทุกสถานะ | แสดงหรือซ่อนหน้าต่างแชทสไตล์ Spotlight (Overlay Chat) |
+| **`Escape`** *(Esc)* | **ขณะ Jarvis กำลังพูด** | ตัดเสียงทันที (Barge-in Stop) $\rightarrow$ เล่นเสียง "Ok ครับ" $\rightarrow$ เปิดไมค์ฟังคำสั่งใหม่ |
+| **`Escape`** *(Esc)* | ขณะหน้าต่าง Overlay Chat เปิดอยู่ | ปิดซ่อนหน้าต่างแชทลง |
+| **`Escape`** *(Esc)* | นอกเหนือจากเงื่อนไขข้างต้น | ปล่อยผ่านไปให้ระบบปฏิบัติการ macOS ใช้งานตามปกติ |
 
 ### 🔒 สิทธิ์ระบบปฏิบัติการที่จำเป็น (macOS Permissions)
-1. **Accessibility (การช่วยการเข้าถึง):**  
-   - จำเป็นสำหรับ **Quartz Event Tap** เพื่อดักจับคีย์ลัดจากทุกแอป และการส่งคีย์ด้วย AppleScript ไปยัง Antigravity  
-   - ตั้งค่าที่: `System Settings ➔ Privacy & Security ➔ Accessibility` (อนุญาต Terminal / Python)
-2. **Microphone (ไมโครโฟน):**  
-   - จำเป็นสำหรับโมดูล **`voice/listener.py`** ในการรับเสียงคำสั่งของผู้ใช้  
-   - ตั้งค่าที่: `System Settings ➔ Privacy & Security ➔ Microphone` (อนุญาต Terminal / Python)
-3. **Screen Recording (การบันทึกหน้าจอ):**  
-   - จำเป็นสำหรับเครื่องมือ Native **`analyze_current_screen`** (`core/tools.py`) ที่เรียกใช้คำสั่งระบบ `screencapture -x` เพื่อจับภาพหน้าจอเดสก์ท็อปส่งให้ Gemini Vision ทำการวิเคราะห์ภาพหน้าต่างหรือข้อความบนจอ  
-   - ตั้งค่าที่: `System Settings ➔ Privacy & Security ➔ Screen Recording` (อนุญาต Terminal / Python)
+1. **Accessibility (การช่วยการเข้าถึง):** จำเป็นสำหรับ Quartz Event Tap ในการดักจับคีย์ลัดระดับระบบ
+2. **Microphone (ไมโครโฟน):** จำเป็นสำหรับ Single-Pipeline InputStream ในการรับเสียงพูด
+3. **Screen Recording (การบันทึกหน้าจอ):** จำเป็นสำหรับคำสั่ง `screencapture -x` เพื่อวิเคราะห์ภาพหน้าจอด้วย Vision
 
 ---
 
-## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite)
+## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 24/24 PASS)
 
-ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
+ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม **24 เคสทดสอบ** ใน 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
 
 ```bash
 # รันการทดสอบครบทุกโมดูล
@@ -345,20 +334,24 @@ python3 tests/run_backtest.py
 ```
 
 ### รายละเอียด 4 ชุดทดสอบ (Test Suites):
-1. **Suite 1: Thai NLP & Matching Engine (`core/thai_nlp.py`):**
-   - ตรวจสอบ `prepare_thai_tts_text` แปลงเงินบาทเป็นคำอ่าน แต่คงรหัสเวอร์ชัน, หมายเลขพอร์ต และ IP Address
-   - ตรวจสอบ `fuzzy_match_phrase` สำหรับการดักคำปิดสนทนาทั้งแบบ Positive (คำสแลงเพี้ยน) และ Negative (ประโยคต่อเนื่องไม่ตัดบทมั่ว)
+1. **Suite 1: Thai NLP & Matching Engine (`core/thai_nlp.py`) — 5/5 PASS:**
+   - ตรวจสอบ `prepare_thai_tts_text` แปลงเงินบาทเป็นคำอ่าน แต่คงรหัสเวอร์ชัน, หมายเลขพอร์ต, และ IP Address
+   - ตรวจสอบ `fuzzy_match_phrase` สำหรับการดักคำปิดสนทนา (สแลงเพี้ยน vs ประโยคทั่วไป)
    - ตรวจสอบ `resolve_macos_app_name` แมตช์ชื่อแอปผ่าน Aliases, Thai Soundex (`lk82`), และ RapidFuzz
    - ตรวจสอบ `tokenize_for_search` และ `match_search_terms`
-2. **Suite 2: Voice Engine & State Transitions (`voice/listener.py` & `voice/speaker.py`):**
-   - จำลองสถานะความเงียบใน `STANDBY_WAKE`
-   - ตรวจสอบการตัดจบลูปด้วยคำปิดสนทนาโดยไม่ส่งเข้า Brain
-   - ตรวจสอบ **True Barge-in:** พูดแทรกต่อเนื่อง $\ge 0.6$s สั่งตัดเสียง Jarvis ทันที
-   - ตรวจสอบ **False Barge-in Rejection:** เสียงดังสั้น $< 0.6$s หรือเสียงฮัมเบา ไม่ตัดเสียง Jarvis มั่ว
-3. **Suite 3: Brain Tiered Context & OS Subprocess Sandbox (`core/brain.py` & `core/tools.py`):**
-   - ตรวจสอบการแยกแท็ก `[SPEAK]` และ Fallback ลอกโค้ดบล็อก
+2. **Suite 2: Voice Engine & State Transitions (`voice/listener.py` & `voice/speaker.py`) — 11/11 PASS:**
+   - ตรวจสอบ Standby Silence และ OpenWakeWord int16 PCM 1280-sample Accumulation
+   - ตรวจสอบตัวขยายสัญญาณไมค์ **`wake_mic_gain: 2.5x`** ก่อนป้อนเข้าโมเดล
+   - ตรวจสอบการตัดจบลูปด้วยคำปิดสนทนา พร้อมตั้งแฟล็ก `suppress_next_followup` ระงับการเด้ง Followup ซ้ำ
+   - ตรวจสอบ **Context-Aware Interrupt:** คำสั่งเบรก (`"หยุดก่อนจาร์วิส"`) สั่งตัดเสียง, เล่นเสียง "Ok ครับ", และเข้าสู่ `ACTIVE_PTT`
+   - ตรวจสอบ **Whole-Chunk Self-Echo Filter:** เสียงสะท้อนของลำโพงตัวเอง ($\ge 60\%$) ถูกทิ้งทันที ไม่ตัดเสียง และไม่ส่งเข้าสมอง
+   - ตรวจสอบ **Non-Stop Utterance Rejection:** ประโยคทั่วไปที่ไม่ใช่คำเบรกขณะพูดถูกละเลยเงียบๆ ไม่ตัดเสียง
+   - ตรวจสอบการทำงานของปุ่ม **`Esc` (Direct Barge-in)**
+3. **Suite 3: Brain Tiered Context & OS Subprocess Sandbox (`core/brain.py` & `core/tools.py`) — 4/4 PASS:**
+   - ตรวจสอบการแยกแท็ก `[SPEAK]` และ Fallback กรองโค้ดบล็อก
    - ตรวจสอบการประกอบ Tiered Context (`L0`, `L1`, `L2`) บนโฟลเดอร์จำลองโดยไม่แตะต้องไฟล์หน่วยความจำจริง
    - ตรวจสอบการเรียกคำสั่งระบบ (`open -a`, `osascript`, `screencapture`) ผ่าน Mock 100% ไม่เปิดหน้าต่างหรือแคปหน้าจอจริง
-4. **Suite 4: System Integrity & Lazy Loading:**
+4. **Suite 4: System Integrity, Lazy Loading & Schema Validation — 4/4 PASS:**
    - ทดสอบความเร็ว Cold Import ไม่บล็อกการบูตโปรแกรม ($< 0.3$s)
+   - ตรวจสอบตัวกรอง Empty Arguments (`""` / `None`) ใน `MCPManager.call_tool`
    - ตรวจสอบความถูกต้องของสกีมา `voice_settings.json` และ `mcp_servers.json`
