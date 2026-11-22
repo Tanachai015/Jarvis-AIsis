@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] - 2026-11-22
+
+### Added
+- **Specialized Thai NLP Integration (`core/thai_nlp.py`)**:
+  - Added 100% lazy-loaded PyThaiNLP utilities to ensure sub-millisecond application startup.
+  - **TTS Pacing & Number Normalization (`voice/speaker.py`)**:
+    - Converts Thai Baht currency amounts (e.g. `1,500 บาท` -> `หนึ่งพันห้าร้อยบาทถ้วน`) via `bahttext`.
+    - Spells out standalone numbers and calendar years in Thai (e.g. `2026` -> `สองพันยี่สิบหก`).
+    - Smart technical token protection preventing unwanted conversion of IP addresses (`127.0.0.1`), network ports (`port 8080`), version numbers (`v1.5.0`), frequencies (`16000Hz`), and HTTP status codes (`HTTP 404`).
+    - Pacing optimization inserting natural breathing micro-pauses at clause conjunctions without choppy word over-spacing.
+  - **Semantic Token Search & Archiving (`core/raw_archive.py`)**:
+    - Integrated `tokenize_for_search()` using the `newmm` engine to segment continuous Thai queries and auto-extract keywords, dramatically increasing recall in the 365-day raw data archive.
+
+---
+
 ## [1.5.0] - 2026-11-22
 
 ### Added

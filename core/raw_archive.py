@@ -56,10 +56,14 @@ class RawArchive:
         if keywords:
             clean_keywords = [k.strip().lower() for k in keywords if k and k.strip()]
 
-        # Auto-extract keywords from title if not provided
+        # Auto-extract keywords from title if not provided (enhanced with Thai tokenization)
         if not clean_keywords:
-            words = [w for w in task_title.replace(":", " ").replace("/", " ").split() if len(w) > 2]
-            clean_keywords = list(dict.fromkeys(words))[:8]
+            try:
+                from core.thai_nlp import tokenize_for_search
+                clean_keywords = tokenize_for_search(task_title)[:8]
+            except Exception:
+                words = [w for w in task_title.replace(":", " ").replace("/", " ").split() if len(w) > 2]
+                clean_keywords = list(dict.fromkeys(words))[:8]
 
         record = {
             "id": record_id,
@@ -91,6 +95,15 @@ class RawArchive:
 
         clean_query = query.strip().lower()
         query_terms = [t for t in clean_query.split() if t]
+
+        # Expand query terms with Thai segmentation if available
+        try:
+            from core.thai_nlp import tokenize_for_search
+            thai_tokens = tokenize_for_search(clean_query)
+            query_terms = list(dict.fromkeys(query_terms + thai_tokens))
+        except Exception:
+            pass
+
         if not query_terms:
             return []
 

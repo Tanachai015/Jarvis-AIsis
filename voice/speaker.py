@@ -213,6 +213,14 @@ class JarvisSpeaker(threading.Thread):
         if not speech_text:
             return
 
+        # Enhance Thai speech pacing, currency, and numbers via PyThaiNLP
+        if has_thai_characters(speech_text):
+            try:
+                from core.thai_nlp import prepare_thai_tts_text
+                speech_text = prepare_thai_tts_text(speech_text)
+            except Exception as e:
+                print(f"[Speaker] Thai NLP prep note: {e}")
+
         voice, pitch, rate, volume = self._get_voice_params(speech_text)
         output_file = "/tmp/jarvis_tts.mp3"
 
