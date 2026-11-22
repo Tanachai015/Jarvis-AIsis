@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.1] - 2026-11-22
+
+### Fixed
+- **OpenWakeWord Wake Trigger Responsiveness (`voice/listener.py`)**:
+  - **1280-Sample Int16 Accumulation Buffer:** Fixed issue where feeding 512-sample chunks broke OpenWakeWord's feature extractor. Implemented an internal `oww_audio_buffer` accumulating PCM `int16` frames until reaching 1280 samples (80ms @ 16kHz) before executing `predict()`.
+  - **Diagnostic Score Logging:** Added real-time terminal output for scores $\ge 0.15$ (`[WakeWord Debug] score=0.xx`) allowing transparent monitoring of microphone sensitivity.
+  - **Calibrated Wake Threshold:** Adjusted `wake_score_threshold` in `voice_settings.json` from `0.50` to `0.45` optimized for natural conversational Thai speech.
+- **Full-Duplex Barge-in Parallel Execution (`voice/listener.py`)**:
+  - **Single-Frame Buffer Reset Elimination (Grace Frame Tolerance):** Fixed premature buffer wipes caused by brief unvoiced consonants or syllable gaps (30-50ms). Added a 2-frame grace window (~64ms) allowing continuous 0.6s speech accumulation without dropping.
+  - **MacBook Microphone Sensitivity Calibration:** Lowered `barge_in_rms_threshold` from `0.055` (which required shouting) to `0.025` (normal conversational speech) and calibrated `barge_in_vad_threshold` to `0.65` in `voice_settings.json`.
+  - **Verified Instant Interruption:** Confirmed `speaker.stop_speaking()` halts audio playback immediately and stitches 0.6s pre-roll buffer into `ACTIVE_PTT`.
+
+### Added
+- **Automated Backtest Expansion (`tests/run_backtest.py`)**:
+  - Added `test_openwakeword_int16_chunk_accumulation` to Suite 2, bringing the total to 18 test cases with 100% PASS rate.
+
+---
+
 ## [1.8.0] - 2026-11-22
 
 ### Added

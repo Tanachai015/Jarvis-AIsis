@@ -146,7 +146,7 @@ class TestVoiceEngineAndBargeIn(unittest.TestCase):
         self.assertFalse(listener.is_recording)
 
     def test_true_barge_in_stops_speaker(self):
-        """Verifies continuous user speech >= 0.6s stops speaker and switches to ACTIVE_PTT."""
+        """Verifies continuous user speech >= 0.6s with syllable micro-gap tolerance stops speaker."""
         from voice.listener import JarvisListener
 
         speaker_mock = MagicMock()
@@ -156,12 +156,15 @@ class TestVoiceEngineAndBargeIn(unittest.TestCase):
         listener.barge_in_enabled = True
 
         # 20 chunks of 512 samples at 16kHz = 0.64s (> 0.6s threshold)
-        chunks = [self.np.full(512, 0.08, dtype=self.np.float32) for _ in range(20)]
+        chunks = [self.np.full(512, 0.05, dtype=self.np.float32) for _ in range(20)]
+        # Insert 1 brief unvoiced consonant / syllable micro-gap (grace frame) at index 5
+        chunks[5] = self.np.zeros(512, dtype=self.np.float32)
 
         for chunk_1d in chunks:
             rms = float(self.np.sqrt(self.np.mean(chunk_1d**2)))
-            is_human = True  # Mocked speech detection
+            is_human = (rms >= listener.barge_in_rms_threshold)
             if is_human and rms >= listener.barge_in_rms_threshold:
+                listener.barge_in_silence_grace_frames = 0
                 listener.barge_in_buffer.append(chunk_1d)
                 listener.barge_in_frames_count += 1
                 accumulated_sec = len(listener.barge_in_buffer) * listener.BLOCK_SIZE / listener.SAMPLE_RATE
@@ -170,13 +173,20 @@ class TestVoiceEngineAndBargeIn(unittest.TestCase):
                     listener.is_speaking = False
                     listener.current_state = listener.STATE_ACTIVE_PTT
                     break
+            else:
+                if len(listener.barge_in_buffer) > 0:
+                    listener.barge_in_silence_grace_frames += 1
+                    if listener.barge_in_silence_grace_frames > 2:
+                        listener.barge_in_buffer.clear()
+                        listener.barge_in_frames_count = 0
+                        listener.barge_in_silence_grace_frames = 0
 
         speaker_mock.stop_speaking.assert_called_once()
         self.assertFalse(listener.is_speaking)
         self.assertEqual(listener.current_state, listener.STATE_ACTIVE_PTT)
 
     def test_false_barge_in_rejection_short_speech(self):
-        """Verifies short speech burst (< 0.6s, e.g. 0.288s) clears buffer without calling stop_speaking."""
+        """Verifies short speech burst (< 0.6s, e.g. 0.288s) clears buffer after grace window without calling stop_speaking."""
         from voice.listener import JarvisListener
 
         speaker_mock = MagicMock()
@@ -186,22 +196,23 @@ class TestVoiceEngineAndBargeIn(unittest.TestCase):
         listener.barge_in_enabled = True
 
         # 9 chunks of 512 samples at 16kHz = 0.288s (< 0.6s)
-        chunks = [self.np.full(512, 0.08, dtype=self.np.float32) for _ in range(9)]
+        chunks = [self.np.full(512, 0.05, dtype=self.np.float32) for _ in range(9)]
         for chunk_1d in chunks:
             rms = float(self.np.sqrt(self.np.mean(chunk_1d**2)))
             is_human = True
             if is_human and rms >= listener.barge_in_rms_threshold:
+                listener.barge_in_silence_grace_frames = 0
                 listener.barge_in_buffer.append(chunk_1d)
                 listener.barge_in_frames_count += 1
 
         # Now silence arrives (user stopped speaking, e.g. a brief cough)
-        silence_chunk = self.np.zeros(512, dtype=self.np.float32)
-        rms_silence = float(self.np.sqrt(self.np.mean(silence_chunk**2)))
-        is_human_silence = False
-
-        if not (is_human_silence and rms_silence >= listener.barge_in_rms_threshold):
-            listener.barge_in_buffer.clear()
-            listener.barge_in_frames_count = 0
+        # Send 3 silence frames to exceed the 2-frame grace tolerance
+        for _ in range(3):
+            listener.barge_in_silence_grace_frames += 1
+            if listener.barge_in_silence_grace_frames > 2:
+                listener.barge_in_buffer.clear()
+                listener.barge_in_frames_count = 0
+                listener.barge_in_silence_grace_frames = 0
 
         # Buffer must be cleared and speaker must NOT have been interrupted
         self.assertEqual(len(listener.barge_in_buffer), 0)
@@ -209,7 +220,7 @@ class TestVoiceEngineAndBargeIn(unittest.TestCase):
         self.assertTrue(listener.is_speaking)
 
     def test_false_barge_in_rejection_low_energy(self):
-        """Verifies low-energy ambient noise (< 0.055 threshold) is rejected even if continuous."""
+        """Verifies low-energy ambient noise (< 0.025 threshold) is rejected even if continuous."""
         from voice.listener import JarvisListener
 
         speaker_mock = MagicMock()
@@ -218,19 +229,66 @@ class TestVoiceEngineAndBargeIn(unittest.TestCase):
         listener.is_speaking = True
         listener.barge_in_enabled = True
 
-        # 25 chunks of low-energy background hum (amplitude 0.01 < 0.055)
-        chunks = [self.np.full(512, 0.01, dtype=self.np.float32) for _ in range(25)]
+        # 25 chunks of low-energy background hum (amplitude 0.005 < 0.025)
+        chunks = [self.np.full(512, 0.005, dtype=self.np.float32) for _ in range(25)]
         for chunk_1d in chunks:
             rms = float(self.np.sqrt(self.np.mean(chunk_1d**2)))
             is_human = True
             if is_human and rms >= listener.barge_in_rms_threshold:
+                listener.barge_in_silence_grace_frames = 0
                 listener.barge_in_buffer.append(chunk_1d)
             else:
                 if len(listener.barge_in_buffer) > 0:
-                    listener.barge_in_buffer.clear()
+                    listener.barge_in_silence_grace_frames += 1
+                    if listener.barge_in_silence_grace_frames > 2:
+                        listener.barge_in_buffer.clear()
 
         self.assertEqual(len(listener.barge_in_buffer), 0)
         speaker_mock.stop_speaking.assert_not_called()
+
+    def test_openwakeword_int16_chunk_accumulation(self):
+        """Verifies float32 chunks are scaled to int16 and accumulated to 1280 samples for OpenWakeWord."""
+        from voice.listener import JarvisListener
+
+        speaker_mock = MagicMock()
+        listener = JarvisListener(speaker=speaker_mock)
+        listener.wake_trigger_enabled = True
+
+        mock_oww = MagicMock()
+        mock_oww.predict.return_value = {"hey_jarvis": 0.50}
+        listener.oww_model = mock_oww
+
+        # Feed three 512-sample float32 chunks:
+        # Chunk 1 (512) -> total 512 (< 1280), predict NOT called
+        chunk1 = self.np.full(512, 0.05, dtype=self.np.float32)
+        int16_chunk1 = (self.np.clip(chunk1, -1.0, 1.0) * 32767.0).astype(self.np.int16)
+        listener.oww_audio_buffer = self.np.concatenate((listener.oww_audio_buffer, int16_chunk1)) if len(listener.oww_audio_buffer) > 0 else int16_chunk1
+        self.assertEqual(len(listener.oww_audio_buffer), 512)
+        self.assertEqual(listener.oww_audio_buffer.dtype, self.np.int16)
+
+        # Chunk 2 (512) -> total 1024 (< 1280), predict NOT called
+        chunk2 = self.np.full(512, 0.05, dtype=self.np.float32)
+        int16_chunk2 = (self.np.clip(chunk2, -1.0, 1.0) * 32767.0).astype(self.np.int16)
+        listener.oww_audio_buffer = self.np.concatenate((listener.oww_audio_buffer, int16_chunk2))
+        self.assertEqual(len(listener.oww_audio_buffer), 1024)
+
+        # Chunk 3 (512) -> total 1536 (>= 1280), pops 1280 for predict, leaves 256
+        chunk3 = self.np.full(512, 0.05, dtype=self.np.float32)
+        int16_chunk3 = (self.np.clip(chunk3, -1.0, 1.0) * 32767.0).astype(self.np.int16)
+        listener.oww_audio_buffer = self.np.concatenate((listener.oww_audio_buffer, int16_chunk3))
+        self.assertEqual(len(listener.oww_audio_buffer), 1536)
+
+        # Slice 1280
+        pred_chunk = listener.oww_audio_buffer[:1280]
+        listener.oww_audio_buffer = listener.oww_audio_buffer[1280:]
+        self.assertEqual(len(pred_chunk), 1280)
+        self.assertEqual(pred_chunk.dtype, self.np.int16)
+        self.assertEqual(len(listener.oww_audio_buffer), 256)
+
+        # Predict
+        scores = mock_oww.predict(pred_chunk)
+        mock_oww.predict.assert_called_once()
+        self.assertGreaterEqual(scores["hey_jarvis"], listener.wake_score_threshold)
 
 
 # ============================================================================
@@ -376,6 +434,9 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
             self.assertIn(key, data, f"Missing required voice_settings key: {key}")
 
         self.assertEqual(data["barge_in_min_duration_sec"], 0.6)
+        self.assertEqual(data["wake_score_threshold"], 0.45)
+        self.assertEqual(data["barge_in_vad_threshold"], 0.65)
+        self.assertEqual(data["barge_in_rms_threshold"], 0.025)
         self.assertTrue(isinstance(data["wake_words"], list))
 
     def test_mcp_servers_schema(self):

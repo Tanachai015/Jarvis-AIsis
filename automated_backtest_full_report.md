@@ -98,9 +98,9 @@ flowchart TD
 
 ---
 
-## 4. ตารางผลการทดสอบรอบสุดท้าย 17/17 เคส (Final Verification Matrix)
+## 4. ตารางผลการทดสอบรอบสุดท้าย 18/18 เคส (Final Verification Matrix - v1.8.1)
 
-ผลการทดสอบรอบสุดท้ายผ่านครบถ้วน **100% PASS** โดยใช้เวลารวมเพียง **3.11 วินาที**:
+ผลการทดสอบรอบสุดท้ายผ่านครบถ้วน **100% PASS** โดยใช้เวลารวมเพียง **2.91 วินาที**:
 
 | Suite | Test Case Identifier | เป้าหมายการทดสอบ | ผลลัพธ์ | เวลาที่ใช้ |
 |---|---|---|:---:|:---:|
@@ -111,15 +111,16 @@ flowchart TD
 | | `test_tokenize_for_search_and_matching` | ตัดคำค้นหาและจับคู่คำพ้องเสียง (โปรเจค vs โปรเจกต์) | **PASS** ✅ | 0.357s |
 | **Suite 2: Voice Engine & States** | `test_standby_wake_silence` | สัญญาณเสียงเงียบใน Standby ไม่เปลี่ยนสถานะมั่ว | **PASS** ✅ | 0.045s |
 | | `test_exit_phrase_intercept_bypasses_brain` | คำปิดสนทนาตัดจบลูปทันทีโดยไม่ยิงเข้า Brain API | **PASS** ✅ | 0.012s |
-| | `test_true_barge_in_stops_speaker` | พูดแทรก $\ge 0.6$s สั่ง `stop_speaking()` หยุดเสียงทันที | **PASS** ✅ | 0.021s |
+| | `test_true_barge_in_stops_speaker` | พูดแทรก $\ge 0.6$s พร้อม Grace Tolerance หยุดเสียงทันที | **PASS** ✅ | 0.021s |
 | | `test_false_barge_in_rejection_short_speech` | **เคสกันลั่น 1:** เสียงสั้น $< 0.6$s (0.288s) ไม่ตัดเสียง Jarvis | **PASS** ✅ | 0.015s |
-| | `test_false_barge_in_rejection_low_energy` | **เคสกันลั่น 2:** เสียงฮัมเบา (RMS $< 0.055$) ไม่ตัดเสียง Jarvis | **PASS** ✅ | 0.019s |
+| | `test_false_barge_in_rejection_low_energy` | **เคสกันลั่น 2:** เสียงฮัมเบา (RMS $< 0.025$) ไม่ตัดเสียง Jarvis | **PASS** ✅ | 0.019s |
+| | `test_openwakeword_int16_chunk_accumulation` | แปลง float32 เป็น int16 สะสมครบ 1280 samples ก่อน predict | **PASS** ✅ | 0.010s |
 | **Suite 3: Brain & OS Sandbox** | `test_split_display_and_spoken_text_dual_output` | แยก Markdown สวยงามบนจอ และแยกเสียงพูด `[SPEAK]` สะอาดตา | **PASS** ✅ | 0.005s |
 | | `test_split_display_and_spoken_text_fallback` | กรณี AI ลืมใส่ `[SPEAK]` ลอกโค้ดบล็อก Markdown ออกจากเสียงพูด | **PASS** ✅ | 0.006s |
 | | `test_tiered_context_assembly_sandboxed` | โหลด L0, L1, L2 บน Sandbox โดยไม่แตะต้องไฟล์หน่วยความจำจริง | **PASS** ✅ | 0.014s |
 | | `test_tool_execution_mocked_subprocess` | Mock `subprocess.run/screencapture` ไม่เปิดหน้าต่างหรือแคปจอจริง | **PASS** ✅ | 0.012s |
 | **Suite 4: System Integrity** | `test_lazy_loading_import_speed` | Cold Import ไม่บล็อกการบูตโปรแกรม ($< 0.3$s) | **PASS** ✅ | 0.001s |
-| | `test_voice_settings_schema` | ตรวจสอบคีย์จำเป็นใน `voice_settings.json` ครบถ้วน | **PASS** ✅ | 0.001s |
+| | `test_voice_settings_schema` | ตรวจสอบคีย์จำเป็นและเกณฑ์ใหม่ (wake=0.45, vad=0.65, rms=0.025) | **PASS** ✅ | 0.001s |
 | | `test_mcp_servers_schema` | ตรวจสอบโครงสร้างคำสั่งและพารามิเตอร์ของ `mcp_servers.json` | **PASS** ✅ | 0.001s |
 
 ---

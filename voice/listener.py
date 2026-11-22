@@ -128,12 +128,12 @@ class JarvisListener(threading.Thread):
             "followup_timeout_sec": 60.0,
             "wake_rms_threshold": 0.025,
             "wake_model_name": "hey_jarvis",
-            "wake_score_threshold": 0.5,
+            "wake_score_threshold": 0.45,
             "vad_speech_threshold": 0.5,
-            "barge_in_vad_threshold": 0.75,
+            "barge_in_vad_threshold": 0.65,
             "barge_in_enabled": True,
             "barge_in_min_duration_sec": 0.6,
-            "barge_in_rms_threshold": 0.055
+            "barge_in_rms_threshold": 0.025
         }
         if VOICE_SETTINGS_PATH.exists():
             try:
@@ -150,17 +150,21 @@ class JarvisListener(threading.Thread):
         self.followup_timeout = float(defaults["followup_timeout_sec"])
         self.wake_rms_threshold = float(defaults["wake_rms_threshold"])
         self.wake_model_name = str(defaults.get("wake_model_name", "hey_jarvis"))
-        self.wake_score_threshold = float(defaults.get("wake_score_threshold", 0.5))
+        self.wake_score_threshold = float(defaults.get("wake_score_threshold", 0.45))
         self.vad_speech_threshold = float(defaults.get("vad_speech_threshold", 0.5))
-        self.barge_in_vad_threshold = float(defaults.get("barge_in_vad_threshold", 0.75))
+        self.barge_in_vad_threshold = float(defaults.get("barge_in_vad_threshold", 0.65))
         self.barge_in_enabled = bool(defaults.get("barge_in_enabled", True))
         self.barge_in_min_duration = float(defaults.get("barge_in_min_duration_sec", 0.6))
-        self.barge_in_rms_threshold = float(defaults.get("barge_in_rms_threshold", 0.055))
+        self.barge_in_rms_threshold = float(defaults.get("barge_in_rms_threshold", 0.025))
         self.speech_energy_threshold = config.VOICE_ENERGY_THRESHOLD
 
         # State tracking for barge-in detection
         self.barge_in_buffer: List[np.ndarray] = []
         self.barge_in_frames_count = 0
+        self.barge_in_silence_grace_frames = 0
+
+        # Audio buffer for OpenWakeWord 1280-sample (80ms) accumulation
+        self.oww_audio_buffer: np.ndarray = np.empty(0, dtype=np.int16)
 
     def _load_vad_model(self):
         """Loads Silero VAD neural network for real-time human voice detection."""
@@ -180,15 +184,16 @@ class JarvisListener(threading.Thread):
         if self.oww_model is not None:
             return
         try:
+            print(f"[Listener] ⏳ Initializing OpenWakeWord ONNX model ('{self.wake_model_name}')...")
             import openwakeword
             Model = getattr(openwakeword, "Model", None)
             if Model is None:
                 from openwakeword.model import Model  # type: ignore
             self.oww_model = Model(wakeword_models=[self.wake_model_name], inference_framework="onnx")
-            print(f"[Listener] ✅ OpenWakeWord ('{self.wake_model_name}') loaded.")
+            print(f"[Listener] ✅ OpenWakeWord ('{self.wake_model_name}') loaded successfully. Ready to detect wake trigger.")
             event_bus.task_log_updated.emit("Voice Listener", f"OpenWakeWord ('{self.wake_model_name}') พร้อมใช้งาน")
         except Exception as e:
-            print(f"[Listener] ⚠️ OpenWakeWord load failed: {e}.")
+            print(f"[Listener] ⚠️ OpenWakeWord load failed: {e}. Wake trigger will be inactive.")
             self.oww_model = None
 
     def _is_human_speech(self, chunk_1d: np.ndarray, threshold: float = 0.5) -> bool:
@@ -239,12 +244,16 @@ class JarvisListener(threading.Thread):
             self.is_processing = False
             self.barge_in_buffer.clear()
             self.barge_in_frames_count = 0
+            self.barge_in_silence_grace_frames = 0
+            self.oww_audio_buffer = np.empty(0, dtype=np.int16)
             self._reset_vad_states()
         elif clean_state == "thinking":
             self.is_processing = True
             self.is_speaking = False
             self.barge_in_buffer.clear()
             self.barge_in_frames_count = 0
+            self.barge_in_silence_grace_frames = 0
+            self.oww_audio_buffer = np.empty(0, dtype=np.int16)
             self._reset_vad_states()
         elif clean_state in ("idle", "running_tool"):
             was_speaking = self.is_speaking
@@ -252,6 +261,8 @@ class JarvisListener(threading.Thread):
             self.is_processing = False
             self.barge_in_buffer.clear()
             self.barge_in_frames_count = 0
+            self.barge_in_silence_grace_frames = 0
+            self.oww_audio_buffer = np.empty(0, dtype=np.int16)
             self._reset_vad_states()
 
             # If assistant just finished speaking, initiate Continuous Followup Loop!
@@ -686,6 +697,7 @@ class JarvisListener(threading.Thread):
                                     is_human = self._is_human_speech(chunk_1d, threshold=self.barge_in_vad_threshold)
 
                                     if is_human and rms >= self.barge_in_rms_threshold:
+                                        self.barge_in_silence_grace_frames = 0
                                         self.barge_in_buffer.append(chunk_1d)
                                         self.barge_in_frames_count += 1
                                         accumulated_sec = len(self.barge_in_buffer) * self.BLOCK_SIZE / self.SAMPLE_RATE
@@ -710,15 +722,19 @@ class JarvisListener(threading.Thread):
                                                 pre_roll = list(self.barge_in_buffer)
                                                 self.barge_in_buffer.clear()
                                                 self.barge_in_frames_count = 0
+                                                self.barge_in_silence_grace_frames = 0
                                                 self._reset_vad_states()
                                                 self.current_state = self.STATE_ACTIVE_PTT
                                                 self._start_recording(is_followup=False, initial_chunks=pre_roll)
                                             continue
                                     else:
-                                        # Reset buffer if human speech drops below threshold
+                                        # Allow up to 2 grace frames (~64ms) for unvoiced consonants and syllable gaps
                                         if len(self.barge_in_buffer) > 0:
-                                            self.barge_in_buffer.clear()
-                                            self.barge_in_frames_count = 0
+                                            self.barge_in_silence_grace_frames += 1
+                                            if self.barge_in_silence_grace_frames > 2:
+                                                self.barge_in_buffer.clear()
+                                                self.barge_in_frames_count = 0
+                                                self.barge_in_silence_grace_frames = 0
                             except queue.Empty:
                                 pass
                         else:
@@ -789,34 +805,47 @@ class JarvisListener(threading.Thread):
 
                                 if self.oww_model is not None:
                                     # Convert 1D float32 audio chunk to 16-bit PCM for OpenWakeWord
-                                    chunk_int16 = (np.clip(chunk_1d, -1.0, 1.0) * 32767).astype(np.int16)
-                                    scores = self.oww_model.predict(chunk_int16)
-                                    score = float(scores.get(self.wake_model_name, 0.0))
+                                    chunk_int16 = (np.clip(chunk_1d, -1.0, 1.0) * 32767.0).astype(np.int16)
+                                    self.oww_audio_buffer = np.concatenate((self.oww_audio_buffer, chunk_int16)) if len(self.oww_audio_buffer) > 0 else chunk_int16
 
-                                    if score >= self.wake_score_threshold:
-                                        print(f"[Listener] 🎯 Wake Word detected via OpenWakeWord! Model: '{self.wake_model_name}', Score: {score:.3f} >= {self.wake_score_threshold}")
-                                        event_bus.task_log_updated.emit(
-                                            "Wake Word Detected",
-                                            f"🎯 ตรวจพบคำปลุก '{self.wake_model_name}' (คะแนน: {score:.2f}) ด้วย OpenWakeWord"
-                                        )
-                                        # Reset wake model internal prediction buffer
-                                        self.oww_model.reset()
+                                    # OpenWakeWord performs optimal feature extraction on 1280-sample chunks (80ms @ 16kHz)
+                                    while len(self.oww_audio_buffer) >= 1280:
+                                        oww_chunk = self.oww_audio_buffer[:1280]
+                                        self.oww_audio_buffer = self.oww_audio_buffer[1280:]
 
-                                        # Play acknowledgment phrase completely and cleanly before recording command
-                                        self._play_random_wake_ack()
+                                        scores = self.oww_model.predict(oww_chunk)
+                                        score = float(scores.get(self.wake_model_name, 0.0))
 
-                                        # Drain leftover queue
-                                        while not self.audio_queue.empty():
-                                            try:
-                                                self.audio_queue.get_nowait()
-                                            except queue.Empty:
-                                                break
+                                        # Transparent diagnostic logging for scores >= 0.15
+                                        if score >= 0.15:
+                                            print(f"[WakeWord Debug] 🎙️ OpenWakeWord '{self.wake_model_name}' Score: {score:.3f} (Threshold: {self.wake_score_threshold})")
 
-                                        with self.state_lock:
-                                            if not self.is_recording and not self.is_speaking and not self.is_processing:
-                                                self.current_state = self.STATE_ACTIVE_PTT
-                                                self._start_recording(is_followup=False)
-                                        continue
+                                        if score >= self.wake_score_threshold:
+                                            print(f"[Listener] 🎯 Wake Word detected via OpenWakeWord! Model: '{self.wake_model_name}', Score: {score:.3f} >= {self.wake_score_threshold}")
+                                            event_bus.task_log_updated.emit(
+                                                "Wake Word Detected",
+                                                f"🎯 ตรวจพบคำปลุก '{self.wake_model_name}' (คะแนน: {score:.2f}) ด้วย OpenWakeWord"
+                                            )
+                                            # Reset wake model internal prediction buffer and accumulation queue
+                                            self.oww_model.reset()
+                                            self.oww_audio_buffer = np.empty(0, dtype=np.int16)
+
+                                            # Play acknowledgment phrase completely and cleanly before recording command
+                                            self._play_random_wake_ack()
+
+                                            # Drain leftover queue
+                                            while not self.audio_queue.empty():
+                                                try:
+                                                    self.audio_queue.get_nowait()
+                                                except queue.Empty:
+                                                    break
+
+                                            with self.state_lock:
+                                                if not self.is_recording and not self.is_speaking and not self.is_processing:
+                                                    self.current_state = self.STATE_ACTIVE_PTT
+                                                    self._start_recording(is_followup=False)
+                                            break
+                                    continue
                                 else:
                                     time.sleep(0.04)
 
