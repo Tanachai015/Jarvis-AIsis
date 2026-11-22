@@ -1,4 +1,4 @@
-# Jarvis Desktop Assistant 🚀
+# Jarvis Desktop Assistant (Jarvis-AIsis) 🚀
 
 [![Platform](https://img.shields.io/badge/Platform-macOS%2014%2B%20(Tahoe%20%2F%20Sonoma%20%2F%20Sequoia)-blue?logo=apple)](https://www.apple.com/macos/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
@@ -207,8 +207,8 @@ To enable seamless low-level system interaction on macOS:
 
 ### 1. Clone & Setup Environment
 ```bash
-git clone https://github.com/Tanachai015/Jarvis-Alsis.git
-cd "Jarvis-Alsis"
+git clone https://github.com/Tanachai015/Jarvis-AIsis.git
+cd "Jarvis-AIsis"
 
 # Create and activate virtual environment
 python3 -m venv .venv
