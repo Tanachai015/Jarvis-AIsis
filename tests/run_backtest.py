@@ -819,6 +819,48 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
             self.assertEqual(img.width(), 176)
             self.assertEqual(img.height(), 44)
 
+    def test_v192_native_nsstatusitem_and_always_on_top_spec(self):
+        """Verifies v1.9.2: True Native NSStatusItem embedding, solid background opacity, and Always-On-Top flags."""
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QColor
+        from ui.dynamic_island import DynamicIsland, DynamicIslandManager
+        from ui.pixel_engine import ChillPixelLifeEngine, render_standby_frame
+
+        app = QApplication.instance() or QApplication(sys.argv)
+
+        # 1. Verify solid dark cyber glass background opacity in render_standby_frame
+        engine = ChillPixelLifeEngine()
+        img = render_standby_frame(engine, scale=1.0, is_wake_on=True, is_light_bg=False)
+        center_color = img.pixelColor(20, 11)
+        # Background alpha must be >= 235 (solid dark cyber glass, not transparent 118 or 28)
+        self.assertGreaterEqual(center_color.alpha(), 235, "Standby pill background alpha must be solid (>= 235)")
+
+        # 2. Verify DynamicIslandManager creates and exposes native NSStatusItem on darwin
+        manager = DynamicIslandManager()
+        try:
+            self.assertTrue(hasattr(manager, "status_item"), "DynamicIslandManager must manage status_item")
+            primary = manager.primary_island
+            self.assertIsNotNone(primary)
+
+            # 3. Verify Expanded Island flags: NO Qt.Tool, must have AlwaysOnTop and BypassWindowManager
+            flags = primary.windowFlags()
+            self.assertNotEqual(flags & Qt.WindowType_Mask, Qt.Tool, "Must NOT use Qt.Tool which causes macOS to hide during capture")
+            self.assertTrue(bool(flags & Qt.WindowStaysOnTopHint), "Must have Qt.WindowStaysOnTopHint")
+
+            # 4. In idle folded state, Expanded Island window must be hidden while status item renders
+            primary.fold_manually()
+            self.assertFalse(primary.is_expanded)
+            self.assertFalse(primary.isVisible(), "Expanded Island window must be hidden when folded/idle")
+
+            # 5. When manually expanded, window must become visible and calculate anchor below status item
+            primary.expand_manually()
+            self.assertTrue(primary.is_expanded)
+            self.assertTrue(primary.isVisible(), "Expanded Island window must be visible when expanded")
+        finally:
+            for isl in manager.islands:
+                isl.close()
+
 
 # ============================================================================
 # RUNNER & FORMATTED TERMINAL REPORTER

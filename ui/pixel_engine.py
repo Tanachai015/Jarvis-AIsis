@@ -103,13 +103,13 @@ def render_standby_frame(
     pill_path.addRoundedRect(pill_rect, pill_radius, pill_radius)
 
     if engine.action == 'wake':
-        p.fillPath(pill_path, QColor(6, 21, 32, 240))
+        p.fillPath(pill_path, QColor(6, 21, 32, 245))
         p.setPen(QPen(QColor('#00FFD1'), 1.0))
         p.drawPath(pill_path)
     else:
-        bg_col = QColor(15, 23, 42, 118) if is_light_bg else QColor(255, 255, 255, 28)
+        bg_col = QColor(10, 16, 29, 238) if not is_light_bg else QColor(15, 23, 42, 240)
         p.fillPath(pill_path, bg_col)
-        p.setPen(QPen(QColor(0, 229, 255, 80), 0.65))
+        p.setPen(QPen(QColor(0, 229, 255, 110), 0.75))
         p.drawPath(pill_path)
 
     # 2. Left Zone Clip (x: 1 to splitX - 1)

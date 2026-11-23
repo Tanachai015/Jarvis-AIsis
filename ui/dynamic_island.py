@@ -10,13 +10,23 @@ import math
 import random
 from typing import Optional, Dict, Any
 
-from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPoint, QPropertyAnimation, QEasingCurve, Property
+from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPoint, QPropertyAnimation, QEasingCurve, Property, QBuffer, QIODevice
 from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QPen, QBrush, QGuiApplication, QScreen
 from PySide6.QtWidgets import QWidget, QApplication, QMenu
 
 import config
 from core.event_bus import event_bus
 from ui.pixel_engine import ChillPixelLifeEngine, render_standby_frame
+
+# Setup macOS PyObjC if available
+_HAS_APPKIT = False
+if sys.platform == "darwin":
+    try:
+        import AppKit
+        import objc
+        _HAS_APPKIT = True
+    except Exception:
+        _HAS_APPKIT = False
 
 
 class DynamicIsland(QWidget):
@@ -103,12 +113,12 @@ class DynamicIsland(QWidget):
             self.screen = app.primaryScreen() if app else None
         self.on_clear_history = on_clear_history
 
-        # macOS Frameless Overlay Window Flags
+        # macOS Frameless Always-On-Top Window Flags (v1.9.2: NO Qt.Tool, with BypassWindowManager)
         self.setWindowFlags(
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
-            | Qt.Tool
             | Qt.WindowDoesNotAcceptFocus
+            | Qt.BypassWindowManagerHint
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
@@ -178,7 +188,8 @@ class DynamicIsland(QWidget):
         event_bus.state_changed.connect(self.on_state_changed)
         event_bus.task_log_updated.connect(self._on_task_log_updated)
 
-        self.show()
+        # In standby idle state, Expanded Island window starts hidden
+        self.hide()
 
     @property
     def is_expanded(self) -> bool:
@@ -198,8 +209,8 @@ class DynamicIsland(QWidget):
             self.menubar_offset_x = 0
 
     def _setup_macos_window_level(self):
-        """Sets macOS Window level to NSMainMenuWindowLevel + 1 and enables multi-space persistence."""
-        if sys.platform != "darwin":
+        """Sets macOS Window level to NSPopUpMenuWindowLevel and enables multi-space & always-on-top persistence."""
+        if sys.platform != "darwin" or not _HAS_APPKIT:
             return
         try:
             import AppKit
@@ -208,13 +219,16 @@ class DynamicIsland(QWidget):
             nsview = objc.objc_object(c_void_p=view_ptr)
             nswindow = nsview.window()
             if nswindow:
-                nswindow.setLevel_(AppKit.NSMainMenuWindowLevel + 1)
+                nswindow.setHidesOnDeactivate_(False)
+                level = getattr(AppKit, "NSPopUpMenuWindowLevel", AppKit.NSMainMenuWindowLevel + 1)
+                nswindow.setLevel_(level)
+                fullscreen_aux = getattr(AppKit, "NSWindowCollectionBehaviorFullScreenAuxiliary", 256)
                 nswindow.setCollectionBehavior_(
-                    AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces |
-                    AppKit.NSWindowCollectionBehaviorStationary
+                    AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
+                    | AppKit.NSWindowCollectionBehaviorStationary
+                    | fullscreen_aux
                 )
-        except Exception as e:
-            # Safe fallback for headless or non-PyObjC environments
+        except Exception:
             pass
 
     def _detect_system_edge_and_bar(self):
@@ -347,11 +361,43 @@ class DynamicIsland(QWidget):
         if is_expanded:
             w = self.expanded_w
             h = self.expanded_h
-            right_x = tray_min_x - 12.0 - self.menubar_offset_x
-            x = right_x - w
-            if min_safe_x > 0 and x < min_safe_x + 10:
-                x = min_safe_x + 10
-            y = sy + 2
+
+            # Anchor directly below NSStatusItem if available
+            anchor_found = False
+            if sys.platform == "darwin" and _HAS_APPKIT:
+                try:
+                    import AppKit
+                    app_inst = QApplication.instance()
+                    mgr = getattr(app_inst, "_dynamic_island_manager", None)
+                    st_item = getattr(mgr, "status_item", None) if mgr else None
+                    if st_item and hasattr(st_item, "button"):
+                        btn = st_item.button()
+                        if btn and btn.window():
+                            wf = btn.window().frame()
+                            main_h = AppKit.NSScreen.screens()[0].frame().size.height
+                            item_x = int(round(wf.origin.x))
+                            item_y = int(round(main_h - (wf.origin.y + wf.size.height)))
+                            item_w = int(round(wf.size.width))
+                            item_h = int(round(wf.size.height))
+
+                            x = int(item_x + (item_w / 2.0) - (w / 2.0))
+                            y = int(item_y + item_h + 4)
+                            # Clamp within screen bounds
+                            s_right = sx + screen_geo.width()
+                            if x < sx + 8:
+                                x = sx + 8
+                            elif x + w > s_right - 8:
+                                x = s_right - w - 8
+                            anchor_found = True
+                except Exception:
+                    anchor_found = False
+
+            if not anchor_found:
+                right_x = tray_min_x - 12.0 - self.menubar_offset_x
+                x = right_x - w
+                if min_safe_x > 0 and x < min_safe_x + 10:
+                    x = min_safe_x + 10
+                y = sy + 2
         else:
             w = self.folded_w
             h = self.folded_h
@@ -407,17 +453,19 @@ class DynamicIsland(QWidget):
     def expand_manually(self):
         """Manually pops out the island into expanded interactive mode."""
         self._manually_expanded = True
+        self.show()
+        self.raise_()
         self._apply_geometry_for_state(animated=True)
         self._reset_auto_fold_timer()
         self.update()
 
     def fold_manually(self):
-        """Folds the island back into compact menu bar pill."""
+        """Folds the island back into compact menu bar pill (hidden in idle)."""
         if self.current_state != "idle":
             return
         self._manually_expanded = False
         self._hovered_btn = None
-        self._apply_geometry_for_state(animated=True)
+        self.hide()
         self.update()
 
     def toggle_expanded_manually(self):
@@ -597,11 +645,13 @@ class DynamicIsland(QWidget):
             self.render_timer.setInterval(33)  # 30 FPS
             self._custom_subtext = ""
             if not self._manually_expanded:
-                self._apply_geometry_for_state(animated=True)
+                self.hide()
             else:
                 self._reset_auto_fold_timer()
         else:
             self.render_timer.setInterval(16)  # 60 FPS
+            self.show()
+            self.raise_()
             self._apply_geometry_for_state(animated=True)
 
         self.update()
@@ -631,6 +681,11 @@ class DynamicIsland(QWidget):
             self.quirk_start_time = t
             self.quirk_duration = 1.9 if self.active_quirk == "mini_yawn" else 1.5
             self.next_auto_quirk_time = t + random.uniform(3.0, 5.5)
+
+        # Always-On-Top Guard: Ensure window stays visible if expanded mode is active
+        if self.is_expanded and not self.isVisible():
+            self.show()
+            self.raise_()
 
         self.update()
 
@@ -1121,23 +1176,138 @@ class DynamicIsland(QWidget):
 
 
 # =============================================================================
-# Multi-Screen Dynamic Island Manager
+# Multi-Screen Dynamic Island Manager & Native NSStatusItem Integration
 # =============================================================================
 class DynamicIslandManager:
     """
-    Manages DynamicIsland instances across all connected macOS displays.
-    Synchronizes state, animation, and settings across screens.
+    Manages DynamicIsland instances and True Native macOS NSStatusItem.
+    - Embeds 88x22 iPhone-pill in macOS Menu Bar with Chill Pixel Life Standby.
+    - Synchronizes Floating Expanded Island across displays with spring popout.
     """
 
     def __init__(self, on_clear_history=None):
         self.on_clear_history = on_clear_history
         self.islands: list[DynamicIsland] = []
-        self._init_islands()
+        self.status_item = None
+        self._status_click_handler = None
+        self.status_engine = ChillPixelLifeEngine()
 
-        app = QGuiApplication.instance()
+        # Register instance in QApplication for anchor lookups
+        app = QApplication.instance()
+        if app:
+            app._dynamic_island_manager = self
+
+        self._init_islands()
+        self._init_native_status_item()
+
+        # 30 FPS Render Timer for Native NSStatusItem
+        self._status_timer = QTimer()
+        self._status_timer.timeout.connect(self._on_status_tick)
+        self._status_timer.start(33)
+
         if app:
             app.screenAdded.connect(self._on_screens_changed)
             app.screenRemoved.connect(self._on_screens_changed)
+
+    def _init_native_status_item(self):
+        """Creates True Native macOS NSStatusItem embedded in Menu Bar (88pt)."""
+        if sys.platform != "darwin" or not _HAS_APPKIT:
+            return
+        try:
+            import AppKit
+            import objc
+
+            # Define Objective-C click handler
+            class StatusClickHandler(AppKit.NSObject):
+                def initWithManager_(self, mgr):
+                    self = objc.super(StatusClickHandler, self).init()
+                    if self is None:
+                        return None
+                    self._mgr = mgr
+                    return self
+
+                def onClick_(self, sender):
+                    event = AppKit.NSApp.currentEvent()
+                    e_type = event.type() if event else None
+                    # NSEventTypeRightMouseUp is 4, or Control+Click
+                    is_right = (e_type == 4)
+                    if event and (event.modifierFlags() & AppKit.NSEventModifierFlagControl):
+                        is_right = True
+
+                    if is_right:
+                        self._mgr.show_status_context_menu()
+                    else:
+                        self._mgr.toggle_all()
+
+            statusBar = AppKit.NSStatusBar.systemStatusBar()
+            self.status_item = statusBar.statusItemWithLength_(88.0)
+            btn = self.status_item.button()
+
+            self._status_click_handler = StatusClickHandler.alloc().initWithManager_(self)
+            btn.setTarget_(self._status_click_handler)
+            btn.setAction_(objc.selector(self._status_click_handler.onClick_, signature=b"v@:@"))
+            NSEventMaskLeftMouseUp = 1 << 2
+            NSEventMaskRightMouseUp = 1 << 3
+            btn.sendActionOn_(NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp)
+
+            # Initial render
+            self._on_status_tick()
+        except Exception as e:
+            # Safe fallback for environments without Cocoa WindowServer
+            self.status_item = None
+
+    def _on_status_tick(self):
+        """Updates Chill Pixel Life animation and pushes Retina NSImage to NSStatusItem."""
+        if not self.status_item or sys.platform != "darwin" or not _HAS_APPKIT:
+            return
+        try:
+            import AppKit
+
+            # Update animation step (30 FPS dt ~ 0.033)
+            self.status_engine.update(0.033)
+
+            img = render_standby_frame(
+                self.status_engine,
+                scale=2.0,
+                is_wake_on=config.WAKE_TRIGGER_ENABLED,
+                is_light_bg=False
+            )
+            ba = QBuffer()
+            ba.open(QIODevice.WriteOnly)
+            img.save(ba, "PNG")
+            png_bytes = ba.data().data()
+
+            ns_data = AppKit.NSData.dataWithBytes_length_(png_bytes, len(png_bytes))
+            ns_img = AppKit.NSImage.alloc().initWithData_(ns_data)
+            ns_img.setSize_(AppKit.NSMakeSize(88.0, 22.0))
+            ns_img.setTemplate_(False)
+
+            btn = self.status_item.button()
+            if btn:
+                btn.setImage_(ns_img)
+        except Exception:
+            pass
+
+    def show_status_context_menu(self):
+        """Displays dark-theme cyber context menu under NSStatusItem."""
+        primary = self.primary_island
+        if not primary:
+            return
+        # Calculate menu position at status item bottom
+        pos = primary.mapToGlobal(QPoint(primary.width() - 40, primary.height()))
+        if sys.platform == "darwin" and self.status_item:
+            try:
+                import AppKit
+                btn = self.status_item.button()
+                if btn and btn.window():
+                    wf = btn.window().frame()
+                    main_h = AppKit.NSScreen.screens()[0].frame().size.height
+                    item_x = int(round(wf.origin.x))
+                    item_y = int(round(main_h - (wf.origin.y + wf.size.height))) + int(round(wf.size.height))
+                    pos = QPoint(item_x, item_y + 2)
+            except Exception:
+                pass
+        primary._show_context_menu(pos)
 
     @property
     def primary_island(self) -> Optional[DynamicIsland]:
@@ -1166,6 +1336,14 @@ class DynamicIslandManager:
         print(f"[DynamicIslandManager] 🖥️ Screen setup changed ({screens_count} displays). Re-syncing Dynamic Islands...")
         self._init_islands()
 
+    def toggle_all(self):
+        """Toggles between folded (hidden) and expanded (spring popout) modes."""
+        primary = self.primary_island
+        if primary and primary.is_expanded:
+            self.fold_all()
+        else:
+            self.expand_all()
+
     def expand_all(self):
         """Pops out all dynamic islands into expanded mode."""
         for island in self.islands:
@@ -1178,6 +1356,7 @@ class DynamicIslandManager:
 
     def set_action_all(self, action_name: str):
         """Sets pixel life action across all island instances (e.g. 'wake', 'walk')."""
+        self.status_engine.set_action(action_name)
         for island in self.islands:
             if hasattr(island, "pixel_engine"):
                 island.pixel_engine.set_action(action_name)
