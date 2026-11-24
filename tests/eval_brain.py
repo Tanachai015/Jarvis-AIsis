@@ -19,10 +19,10 @@ from core.event_bus import event_bus
 
 
 class TestBrainIdentityAndContext(unittest.TestCase):
-    """Verifies J.A.R.V.I.S. JR. // K.A.R.I.S. identity, Boss Kim recognition, and tiered instructions."""
+    """Verifies J.A.R.V.I.S. JR. // K.A.R.I.S. identity, Boss recognition, and tiered instructions."""
 
     def test_soul_core_karis_identity(self):
-        """Verifies soul_core.md contains J.A.R.V.I.S. JR. (K.A.R.I.S.) identity and Boss Kim."""
+        """Verifies soul_core.md contains J.A.R.V.I.S. JR. (K.A.R.I.S.) identity and your Mac."""
         from core.brain import safe_read_soul_core, build_tiered_system_instruction
 
         soul = safe_read_soul_core()
@@ -30,10 +30,11 @@ class TestBrainIdentityAndContext(unittest.TestCase):
             "K.A.R.I.S." in soul or "KARIS" in soul or "J.A.R.V.I.S. JR." in soul,
             "soul_core.md must contain J.A.R.V.I.S. JR. or K.A.R.I.S. identity"
         )
-        self.assertIn("บอสคิม", soul, "soul_core.md must mention 'บอสคิม'")
+        self.assertIn("ของคุณ", soul, "soul_core.md must mention 'ของคุณ'")
+        self.assertIn("บอส", soul, "soul_core.md must mention 'บอส'")
 
         tiered_instruction = build_tiered_system_instruction()
-        self.assertIn("บอสคิม", tiered_instruction, "Tiered system instruction must incorporate 'บอสคิม'")
+        self.assertIn("ของคุณ", tiered_instruction, "Tiered system instruction must incorporate 'ของคุณ'")
 
 
 class TestWorkflowStateAndAmbiguityLoop(unittest.TestCase):
@@ -98,7 +99,7 @@ class TestWorkflowStateAndAmbiguityLoop(unittest.TestCase):
             self.assertTrue(handled, "Ambiguity denial turn should be intercepted")
             self.assertEqual(action, "denied_reveal_raw")
             self.assertIn("เป็ด แอป เทอร์มีแนล", reply, "System must reveal raw STT when user denies")
-            self.assertIn("บอสคิม", reply, "System must address บอสคิม")
+            self.assertIn("บอส", reply, "System must address บอส")
 
             state = brain_mod.load_workflow_state()
             self.assertFalse(state["pending_confirmation"]["active"], "State must be cleared after denial")

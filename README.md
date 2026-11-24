@@ -11,7 +11,7 @@
 [![Testing](https://img.shields.io/badge/Automated%20Tests-37%2F37%20PASS%20(100%25)-success)](tests/run_backtest.py)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-An agentic, event-driven, multimodal AI desktop companion built natively for macOS. Meet **J.A.R.V.I.S. JR. (aka K.A.R.I.S.)** — the high-energy, agile, sidekick dedicated to **บอสคิม (Boss Kim)**. Powered by **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **Low-Poly Faceted Vector Avatar (`QPainter` / `QPolygonF`)**, **Smart Ambiguity Confirmation Loop**, **Owner Approval Gate**, **Single-Screen State Guard**, and **Active-Screen Overlay Chat**.
+An agentic, event-driven, multimodal AI desktop companion built natively for macOS. Meet **J.A.R.V.I.S. JR. (aka K.A.R.I.S.)** — the high-energy, agile, sidekick dedicated to your Mac (**บอส**). Powered by **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **Low-Poly Faceted Vector Avatar (`QPainter` / `QPolygonF`)**, **Smart Ambiguity Confirmation Loop**, **Owner Approval Gate**, **Single-Screen State Guard**, and **Active-Screen Overlay Chat**.
 
 ---
 
@@ -31,7 +31,7 @@ An agentic, event-driven, multimodal AI desktop companion built natively for mac
 ### 2. 🛡️ Smart Ambiguity Confirmation Loop
 - **Durable Turn-Based State (`memory/workflow_state.json`):** Safely tracks ambiguous intents across user turns without state loss.
 - **Strict 3-Step Confirmation Flow:**
-  1. **Garble Interception:** Never repeats or articulates corrupted speech. Asks cleanly for the inferred intent (e.g. *"คำสั่งไม่ค่อยชัดเจนครับ บอสคิมหมายถึง 'เปิด Terminal' ใช่ไหมครับ?"*).
+  1. **Garble Interception:** Never repeats or articulates corrupted speech. Asks cleanly for the inferred intent (e.g. *"คำสั่งไม่ค่อยชัดเจนครับ บอสหมายถึง 'เปิด Terminal' ใช่ไหมครับ?"*).
   2. **Affirmation (`ใช่ / ถูกต้อง`):** Directly executes the inferred action without redundant questions.
   3. **Denial (`ไม่ใช่ / ผิด`):** Explicitly quotes back the raw speech heard so the owner knows what was misrecognized.
 

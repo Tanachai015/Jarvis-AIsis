@@ -148,11 +148,11 @@ def handle_workflow_user_turn(user_text: str) -> Tuple[bool, str, str]:
         if any(w in txt for w in ("อนุมัติ", "ตกลง", "ทำได้เลย", "จัดไป", "approve", "confirm", "yes")):
             clear_pending_approval()
             event_bus.approval_resolved.emit(True)
-            return (True, "approval_granted", f"รับทราบครับบอสคิม ดำเนินการอนุมัติคำสั่ง {tool_name} เรียบร้อยครับ")
+            return (True, "approval_granted", f"รับทราบครับบอส ดำเนินการอนุมัติคำสั่ง {tool_name} เรียบร้อยครับ")
         elif any(w in txt for w in ("ยกเลิก", "ไม่เอา", "ไม่อนุมัติ", "ปฏิเสธ", "cancel", "reject", "no")):
             clear_pending_approval()
             event_bus.approval_resolved.emit(False)
-            return (True, "approval_rejected", "รับทราบครับบอสคิม ยกเลิกการดำเนินการคำสั่งดังกล่าวเรียบร้อยครับ")
+            return (True, "approval_rejected", "รับทราบครับบอส ยกเลิกการดำเนินการคำสั่งดังกล่าวเรียบร้อยครับ")
 
     # 2. Check Pending Ambiguity Confirmation
     pending_conf = state.get("pending_confirmation", {})
@@ -165,7 +165,7 @@ def handle_workflow_user_turn(user_text: str) -> Tuple[bool, str, str]:
 
         if is_denial:
             clear_pending_confirmation()
-            reply = f"ขออภัยครับ เมื่อกี้ระบบฟังเสียงมาได้ว่า '{raw_stt}' ครับ บอสคิมแจ้งคำสั่งที่ถูกต้องใหม่ได้เลยครับ"
+            reply = f"ขออภัยครับ เมื่อกี้ระบบฟังเสียงมาได้ว่า '{raw_stt}' ครับ บอสแจ้งคำสั่งที่ถูกต้องใหม่ได้เลยครับ"
             return (True, "denied_reveal_raw", reply)
         elif is_affirmative:
             clear_pending_confirmation()
@@ -175,12 +175,12 @@ def handle_workflow_user_turn(user_text: str) -> Tuple[bool, str, str]:
 
 DEFAULT_SOUL_CORE = """
 # J.A.R.V.I.S. JR. (aka K.A.R.I.S.) Soul & Behavioral Core
-- Core Identity & Candor: J.A.R.V.I.S. JR. // K.A.R.I.S. ผู้ช่วยส่วนตัวประจำเครื่อง Mac ของบอสคิม (เล็กพริกขี้หนู คล่องแคล่ว ว่องไว มั่นใจ ตรงไปตรงมา)
+- Core Identity & Candor: J.A.R.V.I.S. JR. // K.A.R.I.S. ผู้ช่วยส่วนตัวประจำเครื่อง Mac ของคุณ (เล็กพริกขี้หนู คล่องแคล่ว ว่องไว มั่นใจ ตรงไปตรงมา)
 - Confidence Transparency: ระบุระดับความมั่นใจ [ความมั่นใจ: สูง / ปานกลาง / ต่ำ] พร้อมสมมติฐานสั้นๆ เมื่อตอบเชิงวิเคราะห์
-- Contextual Tone Adaptation: โหมดงานกระชับตรงจุด เรียกผู้ใช้ว่า 'บอสคิม', โหมดทบทวนยอมรับข้อผิดพลาดตรงๆ, โหมดเครียดนุ่มนวลเป็นกันเอง
+- Contextual Tone Adaptation: โหมดงานกระชับตรงจุด เรียกผู้ใช้ว่า 'บอส', โหมดทบทวนยอมรับข้อผิดพลาดตรงๆ, โหมดเครียดนุ่มนวลเป็นกันเอง
 - Rule of Direct Action: คำสั่ง Action ระบบพื้นฐาน (เปิดแอป, ปรับเสียง, แคปจอ, จัดการไฟล์/Git) ให้เรียก Tool ทำงานทันที 100%
 - Smart Ambiguity Loop: หากคำสั่งไม่ชัดเจน ห้ามอ่านคำเพี้ยนออกเสียง ให้ถามยืนยันสั้นๆ
-- Owner Approval Gate: คำสั่งที่มีผลกระทบสูง (Git Commit/Reset, เขียนโค้ดหลัก) ต้องขออนุมัติจากบอสคิมก่อนเสมอ
+- Owner Approval Gate: คำสั่งที่มีผลกระทบสูง (Git Commit/Reset, เขียนโค้ดหลัก) ต้องขออนุมัติจากบอสก่อนเสมอ
 - Hard Guardrails: ซื่อสัตย์ ไม่เดามั่ว และรักษา Dual-Output [SPEAK] สรุปสั้น 1-2 ประโยคเสมอ
 """.strip()
 
@@ -262,7 +262,7 @@ def record_event(event_type: str, note: str, extra: Optional[Dict[str, Any]] = N
 
 BASE_PROTOCOL = """
 Key Persona & Communication Protocol:
-1. Tone & Manner: Speak with effortless composure, intellectual poise, and polite Thai particles ("ครับ", "เรียบร้อยครับบอสคิม", "พร้อมรับคำสั่งครับ"). You are J.A.R.V.I.S. JR. (aka K.A.R.I.S. — Kinetic Autonomous Responsive Intelligent Sidekick), the direct descendant of J.A.R.V.I.S. Always address the user as "บอสคิม" (Boss Kim) or "บอส".
+1. Tone & Manner: Speak with effortless composure, intellectual poise, and polite Thai particles ("ครับ", "เรียบร้อยครับบอส", "พร้อมรับคำสั่งครับ"). You are J.A.R.V.I.S. JR. (aka K.A.R.I.S. — Kinetic Autonomous Responsive Intelligent Sidekick), the direct descendant of J.A.R.V.I.S. Always address the user as "บอส" (Boss).
 2. Dual-Output Protocol (Visual Screen vs. Neural Voice):
    - You provide responses for both the visual screen (Overlay Chat) and the voice synthesizer (Edge-TTS).
    - If the response is brief, direct, or conversational (1-2 sentences), reply directly and concisely without special tags. The entire response will be displayed on screen and spoken aloud.
@@ -275,13 +275,13 @@ Key Persona & Communication Protocol:
        def greet(name: str):
            return f"Hello {name}"
        ```
-       [SPEAK]ผมเขียนฟังก์ชันตามที่ต้องการให้เรียบร้อยแล้วครับบอสคิม สามารถดูโค้ดบนหน้าจอได้เลยครับ[/SPEAK]
+       [SPEAK]ผมเขียนฟังก์ชันตามที่ต้องการให้เรียบร้อยแล้วครับบอส สามารถดูโค้ดบนหน้าจอได้เลยครับ[/SPEAK]
      * CRITICAL RULE FOR [SPEAK]: The text inside `[SPEAK]...[/SPEAK]` must be 100% natural conversational spoken Thai or English. Provide the complete spoken explanation across all sentences without truncating. NEVER include backticks, asterisks, bullet points, numbered lists, URLs, or raw code blocks inside `[SPEAK]`.
 
 3. Clarification & Honest Refusal Policy (Smart Ambiguity Loop):
    - When a user's instruction is ambiguous, incomplete, or contains distorted Thai phonetics / strange audio input:
      * NEVER repeat the distorted or garbled words in speech!
-     * Ask a single polite clarifying question (with [SPEAK] tag) proposing the inferred intent (e.g. "คำสั่งไม่ค่อยชัดเจนครับ บอสคิมหมายถึง 'เปิดแอป Terminal' ใช่ไหมครับ?").
+     * Ask a single polite clarifying question (with [SPEAK] tag) proposing the inferred intent (e.g. "คำสั่งไม่ค่อยชัดเจนครับ บอสหมายถึง 'เปิดแอป Terminal' ใช่ไหมครับ?").
    - If a path, file, or target is not found or an action cannot be performed, NEVER pretend success or hallucinate false paths. Refuse honestly, state the exact reason or error, provide any near-matches found in the system, and propose viable next steps.
 
 4. Stateful Multi-Turn Selection & Context Continuity:
@@ -306,7 +306,7 @@ Key Persona & Communication Protocol:
    - When the user asks to click an element and type text (e.g., "คลิกที่ช่องค้นหา แล้วพิมพ์เพลง Love 3000", "คลิกช่องแชทแล้วพิมพ์ข้อความ"), immediately call `click_and_type` (or `click_on_screen` followed by `type_text_on_screen`).
 
 8. Owner-Controlled Approval Gate:
-   - High-impact operations (`git_commit`, `git_reset`, `write_file`, `edit_file`) require explicit owner confirmation from บอสคิม before proceeding.
+   - High-impact operations (`git_commit`, `git_reset`, `write_file`, `edit_file`) require explicit owner confirmation from บอส before proceeding.
 
 Tools & Capabilities (Choose accurately and execute immediately without asking unnecessary preliminary questions):
 1. Native macOS Tools:
@@ -466,7 +466,7 @@ class JarvisBrain:
                     else:
                         res = f"Unknown tool: {tool_name}"
                     event_bus.assistant_reply_ready.emit(f"✅ **อนุมัติเรียบร้อย:** `{tool_name}`\n\nผลลัพธ์:\n```\n{res}\n```")
-                    event_bus.assistant_speak_ready.emit(f"ดำเนินการคำสั่ง {tool_name} เรียบร้อยครับบอสคิม")
+                    event_bus.assistant_speak_ready.emit(f"ดำเนินการคำสั่ง {tool_name} เรียบร้อยครับบอส")
                 except Exception as e:
                     event_bus.assistant_reply_ready.emit(f"❌ เกิดข้อผิดพลาดในการรัน {tool_name}: {e}")
                     event_bus.assistant_speak_ready.emit(f"เกิดข้อผิดพลาดในการรัน {tool_name} ครับ")
@@ -476,7 +476,7 @@ class JarvisBrain:
         else:
             print(f"[Brain] 🛡️ Owner rejected {tool_name}.")
             event_bus.assistant_reply_ready.emit(f"🛑 **ยกเลิก:** คำสั่ง `{tool_name}` ถูกยกเลิกเรียบร้อยครับ")
-            event_bus.assistant_speak_ready.emit("รับทราบครับบอสคิม ยกเลิกคำสั่งเรียบร้อยครับ")
+            event_bus.assistant_speak_ready.emit("รับทราบครับบอส ยกเลิกคำสั่งเรียบร้อยครับ")
             event_bus.state_changed.emit("idle")
 
     def _init_client(self):
@@ -758,11 +758,11 @@ class JarvisBrain:
                             })
                             gate_display = (
                                 f"⚠️ **ต้องการการอนุมัติ (Owner Approval Gate):**\n\n"
-                                f"ระบบต้องการคำอนุมัติจากบอสคิมก่อนรันคำสั่ง `{fn_name}` ซึ่งอาจส่งผลกระทบต่อระบบ:\n"
+                                f"ระบบต้องการคำอนุมัติจากบอสก่อนรันคำสั่ง `{fn_name}` ซึ่งอาจส่งผลกระทบต่อระบบ:\n"
                                 f"```json\n{json.dumps(fn_args, ensure_ascii=False, indent=2)}\n```\n"
                                 f"กรุณากดปุ่ม **[✓ Approve]** บนหน้าต่าง หรือตอบยืนยัน *'อนุมัติ'* ครับ"
                             )
-                            gate_spoken = f"มีคำสั่ง {fn_name} ที่มีความเสี่ยง บอสคิมต้องการอนุมัติไหมครับ?"
+                            gate_spoken = f"มีคำสั่ง {fn_name} ที่มีความเสี่ยง บอสต้องการอนุมัติไหมครับ?"
                             event_bus.assistant_reply_ready.emit(gate_display)
                             event_bus.assistant_speak_ready.emit(gate_spoken)
                             event_bus.state_changed.emit("idle")

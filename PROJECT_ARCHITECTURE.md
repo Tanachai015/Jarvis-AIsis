@@ -34,7 +34,7 @@
 J.A.R.V.I.S. JR. // K.A.R.I.S. ได้รับการออกแบบภายใต้สถาปัตยกรรม **Decoupled Event-Driven Architecture** โดยใช้ **PySide6 (Qt for Python)** เป็นแกนกลางในการจัดการ User Interface และ Event Loop มีจุดเด่นสำคัญดังนี้:
 
 - **AI Engine:** ขับเคลื่อนด้วย **Google GenAI SDK (`google-genai`)** ใช้โมเดลหลัก `gemini-3.5-flash-lite` (ความเร็วตอบสนอง ~1.2 วินาที พร้อมโควต้า Free Tier 500 RPD / 15 RPM) เสริมด้วย **Explicit Fallback Chain** สลับโมเดลสำรองอัตโนมัติหากติด 429/503/504
-- **Persona & Identity:** ตัวตนใหม่ **J.A.R.V.I.S. JR. (aka K.A.R.I.S.)** ทายาทรุ่นหลานสายตรงของปู่ J.A.R.V.I.S. ประจำการดูแลเครื่อง Mac ของ **"บอสคิม"** บุคลิกเล็กพริกขี้หนู มินิมอล คล่องแคล่ว พร้อมระบุความมั่นใจ `[ความมั่นใจ: สูง / ปานกลาง / ต่ำ]`
+- **Persona & Identity:** ตัวตนใหม่ **J.A.R.V.I.S. JR. (aka K.A.R.I.S.)** ทายาทรุ่นหลานสายตรงของปู่ J.A.R.V.I.S. ประจำการดูแลเครื่อง Mac ของคุณ บุคลิกเล็กพริกขี้หนู มินิมอล คล่องแคล่ว พร้อมระบุความมั่นใจ `[ความมั่นใจ: สูง / ปานกลาง / ต่ำ]`
 - **Low-Poly Faceted Vector Avatar (`ui/dynamic_island.py`):** อวตาร 3D Low-Poly ด้วย `QPainter` / `QPolygonF` ล้วน แบ่งเหลี่ยมใบหน้าและเปลี่ยนเฉดแสงเงาแบบเรียลไทม์ตามการเอียงหัว (`head_tilt`)
 - **Smart Ambiguity Confirmation Loop:** ระบบดักจับคำสั่งคลุมเครือพร้อมคงสถานะใน `memory/workflow_state.json` ดำเนินการ 3 จังหวะ (ถามย้ำโดยไม่ท่องคำเพี้ยน -> รันทันทีเมื่อตอบใช่ -> เฉลยคำเพี้ยนเมื่อตอบไม่ใช่)
 - **Owner Approval Gate:** ตรวจจับคำสั่งเสี่ยงสูง (`git_commit`, `git_reset`, แก้ไขไฟล์สำคัญ) ป๊อปอัปปุ่ม `[✓ Approve]` และ `[✕ Reject]` บน Dynamic Island ก่อนทำงาน
