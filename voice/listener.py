@@ -119,6 +119,7 @@ class JarvisListener(threading.Thread):
 
         # Connect event bus signals
         event_bus.toggle_voice_record_signal.connect(self.toggle_push_to_talk)
+        event_bus.cancel_voice_record_signal.connect(self.cancel_listening_direct)
         event_bus.voice_mode_changed.connect(self._on_voice_mode_signal)
         event_bus.state_changed.connect(self._on_assistant_state_changed)
 
@@ -323,6 +324,16 @@ class JarvisListener(threading.Thread):
         with self.state_lock:
             self.current_state = self.STATE_ACTIVE_PTT
             self._start_recording(is_followup=False)
+
+    def cancel_listening_direct(self):
+        """Immediately cancels ongoing listening/recording, discards audio without sending, and returns to silent idle."""
+        with self.state_lock:
+            if self.is_recording:
+                print("[Listener] 🛑 Listening cancelled by user (Esc). Audio discarded.")
+                self.suppress_next_followup = True
+                self._cancel_recording_to_standby("ผู้ใช้กดยกเลิก (Esc)")
+                return True
+        return False
 
     def toggle_push_to_talk(self):
         """

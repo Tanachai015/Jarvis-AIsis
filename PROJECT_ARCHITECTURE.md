@@ -25,7 +25,7 @@
    - [3.14 หน่วยความจำถาวรและแก่นความคิด (`memory/`)](#314-หน่วยความจำถาวรและแก่นความคิด-memory)
 4. [แผนภาพลำดับการไหลของข้อมูล (System Data Flow)](#4-แผนภาพลำดับการไหลของข้อมูล-system-data-flow)
 5. [ตารางคีย์ลัดและสิทธิ์ของระบบ macOS (Keybindings & Permissions)](#5-ตารางคีย์ลัดและสิทธิ์ของระบบ-macos-keybindings--permissions)
-6. [ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 24/24 PASS)](#6-ระบบทดสอบอัตโนมัติ-automated-backtest-suite-2424-pass)
+6. [ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 36/36 PASS)](#6-ระบบทดสอบอัตโนมัติ-automated-backtest-suite-3636-pass)
 
 ---
 
@@ -200,6 +200,12 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
      3. เรียก `listener.trigger_barge_in_direct()` เปลี่ยนสถานะเป็น `ACTIVE_PTT` พร้อมรับคำสั่งใหม่ทันที
    - **Zero API / CPU Overhead:** ขณะที่ Jarvis กำลังอ่านข้อความ ไมโครโฟนจะปิดการส่งข้อมูลเข้าคิว (Drain Audio Queue) ไม่มีการส่งเสียงขึ้น Groq Whisper และไม่รันโมเดลคำปลุกซ้อน เพื่อป้องกันปัญหาเสียงลำโพงรบกวนไมค์ (Acoustic Feedback Loop) และประหยัดโควต้า API 100%
    - **Future Roadmap (v1.9.0+):** การพูดแทรกด้วยเสียง (Full-Duplex Voice Barge-in) ถูกกำหนดแผนงานพัฒนาโดยใช้ **macOS Native Audio Unit (`AUVoiceProcessingIO`)** ซึ่งมีระบบ Acoustic Echo Cancellation (AEC) ระดับ Hardware/CoreAudio เพื่อหักลบสัญญาณเสียงลำโพงออกจากไมโครโฟนโดยตรง
+4. **`v1.9.4 Instant Esc Voice Cancellation & Zero Data Transmission`:**
+   - **การกดยกเลิกแบบไร้ร่องรอย (Pure Silent Cancel):** เมื่อผู้ใช้กดปุ่ม `Esc` ขณะไมค์กำลังเปิดรับเสียงหรือบันทึก (`is_recording == True` ในสถานะ `ACTIVE_PTT`):
+     1. Quartz EventTap, Cocoa fallback หรือ Overlay Chat จะตรวจพบและเรียก `listener.cancel_listening_direct()` (หรือยิง `cancel_voice_record_signal`)
+     2. ระบบทำการล้างทิ้งแคชเสียงทั้งหมดทันที (`recorded_chunks.clear()`) และระบาย Audio Queue ทิ้ง ปลอดภัย 100% ไม่มีการแปลง STT และไม่มีการส่ง Prompt/Audio ใดๆ สู่ Cloud หรือ LLM
+     3. กำหนดแฟล็ก `suppress_next_followup = True` เพื่อปิดกั้นการเปิดลูปสนทนาตามหลัง
+     4. สลับสถานะกลับสู่ `STANDBY_WAKE` และสั่งปิด Hardware ไมโครโฟนคืนสู่โหมดเงียบ 100% ส่งผลให้ไอคอนไมโครโฟนสีส้มบน macOS หายไปทันที
 
 ### 3.11 ระบบสังเคราะห์เสียงพูดและ Pre-Cached Acks (`voice/speaker.py`)
 - สลับโทนเสียงภาษาไทย (`th-TH-NiwatNeural`) และอังกฤษ (`en-GB-RyanNeural`) อัตโนมัติ
@@ -224,7 +230,11 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
   - **Unified Single Interface (Zero Redundant Tray):** ยุบรวมไอคอน System Tray แบบเดิมเข้ามาไว้ภายใน `NSStatusItem` 100% พร้อมคลิกขวาเปิด Cyber Context Menu ใต้ตัว Status Item (สลับเปิดแชท, เปิด/ปิดไมค์, สลับคำปลุก Wake Word, ยุบ/ขยายเกาะ, ล้างประวัติ, ออกจากโปรแกรม)
   - **Pure Vector & Pixel Art Graphics (`QPainter` 100%):** วาดโครงสร้างเวกเตอร์และสไปรต์พิกเซลทั้งหมดด้วยโค้ด Python/QPainter ปราศจากไฟล์รูปภาพภายนอก รองรับจอภาพ Retina Display คมชัด 100%
   - **Autonomous Quirks & Chill Pacing:** ระบบสุ่มท่าทางและกิจกรรมว่างของหุ่นยนต์ (เดินไป-มาด้วยความเร็วชิลล์ 5.5 px/s ความถี่ 3.5 Hz แอบส่องขอบเส้นแบ่ง ยืนบิดขี้เกียจ งีบหลับ) พร้อมระบบพับเก็บอัตโนมัติ (Auto-fold) หลังไม่มีการใช้งาน 12 วินาที
-- **Overlay Chat (`ui/overlay_chat.py`):** หน้าต่างลอยสไตล์ Spotlight แยกแท็บสนทนาและข้อมูลดิบ
+- **Overlay Chat (`ui/overlay_chat.py` — v1.9.4 Multi-Monitor Active Screen Tracking):**
+  - หน้าต่างลอยสไตล์ Spotlight แยกแท็บสนทนา (Chat) และข้อมูลดิบ/ผลงานเบื้องหลัง (Process & Raw Data)
+  - **Active Screen Center Tracking:** ตรวจหาหน้าจอที่เมาส์เคอร์เซอร์ของผู้ใช้วางอยู่ด้วย `QGuiApplication.screenAt(QCursor.pos())` และจัดตำแหน่งเปิดหน้าต่างกึ่งกลางหน้าจอ Active นั้นเสมอ ไม่ว่าผู้ใช้จะเรียก `Alt+Space` จากจอหลักหรือจอแยกภายนอก
+  - **Cross-Monitor Seamless Jump:** หากหน้าต่างเปิดอยู่บนหน้าจอหนึ่ง แล้วผู้ใช้ไปทำงานและกดคีย์ลัดบนอีกหน้าจอหนึ่ง ระบบจะย้ายหน้าต่างมาแสดงผลที่กึ่งกลางหน้าจอปัจจุบันทันที
+  - **Integrated Escape Handler:** เมื่อหน้าต่างแชทเปิดและได้รับโฟกัส การกดปุ่ม `Esc` จะยิง `cancel_voice_record_signal` เพื่อยกเลิกการฟังเสียง (หากเปิดไมค์อยู่) พร้อมซ่อนหน้าต่างแชททันที
 
 ### 3.14 หน่วยความจำถาวรและแก่นความคิด (`memory/`)
 - `soul_core.md`: แก่นแท้บุคลิกภาพและความคิด (L0 Context)
@@ -313,8 +323,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 |---|---|---|
 | **`Cmd + Shift + J`** | ทุกสถานะ | สลับเปิด/ปิดการบันทึกเสียง (1-Tap Toggle Voice) |
 | **`Alt + Space`** | ทุกสถานะ | แสดงหรือซ่อนหน้าต่างแชทสไตล์ Spotlight (Overlay Chat) |
+| **`Escape`** *(Esc)* | **ขณะกำลังฟังเสียง (Listening/Recording)** | ยกเลิกทันที (Cancel Voice) $\rightarrow$ ทิ้งข้อมูลเสียงทั้งหมด 100% ไม่ส่งข้อมูลออกไป $\rightarrow$ คืนสู่โหมดเงียบ (Silent Standby) |
 | **`Escape`** *(Esc)* | **ขณะ Jarvis กำลังพูด** | ตัดเสียงทันที (Barge-in Stop) $\rightarrow$ เล่นเสียง "Ok ครับ" $\rightarrow$ เปิดไมค์ฟังคำสั่งใหม่ |
-| **`Escape`** *(Esc)* | ขณะหน้าต่าง Overlay Chat เปิดอยู่ | ปิดซ่อนหน้าต่างแชทลง |
+| **`Escape`** *(Esc)* | ขณะหน้าต่าง Overlay Chat เปิดอยู่ | แคนเซิลการฟังเสียง และปิดซ่อนหน้าต่างแชทลง |
 | **`Escape`** *(Esc)* | นอกเหนือจากเงื่อนไขข้างต้น | ปล่อยผ่านไปให้ระบบปฏิบัติการ macOS ใช้งานตามปกติ |
 
 ### 🔒 สิทธิ์ระบบปฏิบัติการที่จำเป็น (macOS Permissions)
@@ -324,9 +335,9 @@ Jarvis Desktop Assistant ได้รับการออกแบบภาย�
 
 ---
 
-## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 31/31 PASS)
+## 6. ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 36/36 PASS)
 
-ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม **31 เคสทดสอบ** ใน 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
+ระบบมีชุดทดสอบอัตโนมัติแบบ **Offline-first, Zero-Hardware & Zero-Side-Effect** ครอบคลุม **36 เคสทดสอบ** ใน 4 หมวดหมู่หลักในไฟล์ `tests/run_backtest.py`:
 
 ```bash
 # รันการทดสอบครบทุกโมดูล
@@ -352,7 +363,7 @@ python3 tests/run_backtest.py
    - ตรวจสอบการเรียกคำสั่งระบบ (`open -a`, `osascript`, `screencapture`) ผ่าน Mock 100% ไม่เปิดหน้าต่างหรือแคปหน้าจอจริง
    - ตรวจสอบ `AntigravityBridge` ปราศจากคำสั่ง `osascript` 100% และเขียนไฟล์แบบ Atomic Write
    - ตรวจสอบ `Deduplication Guard` บล็อกคำสั่งงานซ้ำซ้อนภายใน Cooldown 60 วินาที
-4. **Suite 4: System Integrity, GUI & Config Validation — 12/12 PASS:**
+4. **Suite 4: System Integrity, GUI & Config Validation — 13/13 PASS:**
    - ทดสอบความเร็ว Cold Import ไม่บล็อกการบูตโปรแกรม ($< 0.3$s)
    - ตรวจสอบตัวกรอง Empty Arguments (`""` / `None`) ใน `MCPManager.call_tool`
    - ตรวจสอบความถูกต้องของสกีมา `voice_settings.json` และ `mcp_servers.json`

@@ -962,8 +962,10 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
             self.assertEqual(config.WAKE_TRIGGER_ENABLED, initial_wake)
 
             # 4. Test Robot click (x < 38) -> toggles expansion
-            manager.fold_all()
             active = manager._get_active_island()
+            active.current_state = "idle"
+            event_bus.state_changed.emit("idle")
+            manager.fold_all()
             self.assertFalse(active.is_expanded)
             manager.handle_status_click(20.0)
             self.assertTrue(active.is_expanded, "Clicking Robot zone (x=20) must expand island")
@@ -981,6 +983,52 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
         finally:
             for isl in manager.islands:
                 isl.close()
+
+    def test_v194_esc_cancel_listening_and_chat_active_screen_spec(self):
+        """Verifies v1.9.4: Esc cancels active voice listening without sending data, and OverlayChat centers on active screen."""
+        from voice.listener import JarvisListener
+        from ui.overlay_chat import OverlayChat
+        from PySide6.QtWidgets import QApplication
+        import numpy as np
+
+        app = QApplication.instance() or QApplication(sys.argv)
+
+        # 1. Verify Esc cancels active listening immediately and discards audio
+        listener = JarvisListener(speaker=MagicMock())
+        self.assertTrue(hasattr(listener, "cancel_listening_direct"), "JarvisListener must implement cancel_listening_direct")
+        self.assertTrue(hasattr(event_bus, "cancel_voice_record_signal"), "event_bus must have cancel_voice_record_signal")
+
+        # Simulate ongoing recording with captured chunks
+        listener.current_state = listener.STATE_ACTIVE_PTT
+        listener.is_recording = True
+        fake_chunk = np.zeros(512, dtype=np.float32)
+        with listener.chunks_lock:
+            listener.recorded_chunks.append(fake_chunk)
+
+        # Signal cancel (Esc key)
+        event_bus.cancel_voice_record_signal.emit()
+
+        self.assertFalse(listener.is_recording, "Listener is_recording must be False after Esc cancel")
+        self.assertEqual(len(listener.recorded_chunks), 0, "Captured audio must be completely discarded")
+        self.assertEqual(listener.current_state, listener.STATE_STANDBY_WAKE, "Listener must transition back to STANDBY_WAKE")
+        self.assertTrue(listener.suppress_next_followup, "Followup loop must be suppressed")
+
+        # 2. Verify OverlayChat active screen detection and positioning
+        chat = OverlayChat()
+        try:
+            self.assertTrue(hasattr(chat, "_get_active_screen"), "OverlayChat must implement _get_active_screen")
+            active_scr = chat._get_active_screen()
+            self.assertIsNotNone(active_scr, "Active screen must not be None")
+
+            # Check that _position_on_screen positions window within active screen geometry
+            chat._position_on_screen()
+            geo = active_scr.geometry()
+            pos = chat.pos()
+            self.assertGreaterEqual(pos.x(), geo.x(), "Chat window x must be within active screen bounds")
+            self.assertLess(pos.x(), geo.x() + geo.width(), "Chat window x must be within active screen bounds")
+            self.assertGreaterEqual(pos.y(), geo.y(), "Chat window y must be within active screen bounds")
+        finally:
+            chat.close()
 
 
 # ============================================================================

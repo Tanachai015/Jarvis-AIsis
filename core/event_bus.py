@@ -36,6 +36,9 @@ class EventBus(QObject):
     # Fired to toggle Voice Recording (1-Tap Toggle: Cmd+Shift+J)
     toggle_voice_record_signal = Signal()
 
+    # Fired to immediately cancel ongoing Voice Recording without sending (Esc)
+    cancel_voice_record_signal = Signal()
+
     # Fired to explicitly show or hide the Overlay Chat window
     show_overlay_signal = Signal()
     hide_overlay_signal = Signal()

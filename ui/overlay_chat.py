@@ -274,9 +274,19 @@ class OverlayChat(QWidget):
         container_layout.addWidget(self.tab_widget)
         outer_layout.addWidget(self.container)
 
+    def _get_active_screen(self):
+        """Returns the screen containing the mouse cursor, falling back to primary screen."""
+        from PySide6.QtGui import QCursor, QGuiApplication
+        cursor_pos = QCursor.pos()
+        screen = QGuiApplication.screenAt(cursor_pos)
+        if screen:
+            return screen
+        app = QApplication.instance()
+        return app.primaryScreen() if app else None
+
     def _position_on_screen(self):
-        """Positions overlay at the top-center of the primary monitor."""
-        screen = QApplication.primaryScreen()
+        """Positions overlay at the top-center of the currently active monitor."""
+        screen = self._get_active_screen()
         if screen:
             screen_geo = screen.geometry()
             x = screen_geo.x() + (screen_geo.width() - self.width()) // 2
@@ -286,7 +296,12 @@ class OverlayChat(QWidget):
     def _setup_shortcuts(self):
         """Sets up key shortcuts like Escape to close."""
         esc_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
-        esc_shortcut.activated.connect(self.hide_overlay)
+        esc_shortcut.activated.connect(self._on_escape_pressed)
+
+    def _on_escape_pressed(self):
+        """Handles Escape key when OverlayChat has focus: cancels active listening and hides overlay."""
+        event_bus.cancel_voice_record_signal.emit()
+        self.hide_overlay()
 
     def _connect_signals(self):
         """Connects signals from event bus."""
@@ -300,8 +315,14 @@ class OverlayChat(QWidget):
         event_bus.raw_data_received.connect(self.on_raw_data)
 
     def toggle_visibility(self):
-        """Toggles overlay visibility."""
+        """Toggles overlay visibility, moving to active screen if toggled from a different screen."""
         if self.isVisible():
+            active_screen = self._get_active_screen()
+            current_screen = self.screen()
+            if active_screen and current_screen and active_screen != current_screen:
+                # User pressed hotkey on another monitor: move to active monitor!
+                self.show_overlay()
+                return
             self.hide_overlay()
         else:
             self.show_overlay()

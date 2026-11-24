@@ -108,7 +108,13 @@ def start_global_hotkey_listener(speaker=None, listener=None, overlay_chat=None)
 
                         # Esc Key (Keycode 53 on macOS)
                         if keycode == 53:
-                            # 1. If speaker is speaking, interrupt immediately!
+                            # 1. If voice listener is currently listening/recording: cancel & discard audio!
+                            if listener and getattr(listener, "is_recording", False):
+                                print("[Hotkey] 🛑 Esc key pressed: Cancelling voice recording without sending...")
+                                listener.cancel_listening_direct()
+                                return None  # Swallow Esc
+
+                            # 2. If speaker is speaking, interrupt immediately!
                             if speaker and getattr(speaker, "is_speaking", False):
                                 print("[Hotkey] 🛑 Esc key pressed: Interrupting speaker immediately...")
                                 speaker.stop_speaking()
@@ -117,7 +123,7 @@ def start_global_hotkey_listener(speaker=None, listener=None, overlay_chat=None)
                                     listener.trigger_barge_in_direct()
                                 return None  # Swallow Esc
 
-                            # 2. If overlay chat is open and active, toggle / hide it
+                            # 3. If overlay chat is open and active, toggle / hide it
                             if overlay_chat and overlay_chat.isVisible():
                                 trigger_toggle_overlay()
                                 return None
@@ -175,6 +181,9 @@ def start_global_hotkey_listener(speaker=None, listener=None, overlay_chat=None)
                             flags = event.modifierFlags()
                             code = event.keyCode()
                             if code == 53:
+                                if listener and getattr(listener, "is_recording", False):
+                                    listener.cancel_listening_direct()
+                                    return
                                 if speaker and getattr(speaker, "is_speaking", False):
                                     speaker.stop_speaking()
                                     speaker.play_cached_ack()
