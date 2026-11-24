@@ -637,9 +637,20 @@ class DynamicIsland(QWidget):
         if event.button() == Qt.LeftButton:
             pos = event.position()
             if not self.is_expanded:
-                # User clicked on the folded pill -> Spring pop-out mode selection!
-                self.expand_manually()
-                return
+                # User clicked on the folded pill -> Hit-test Robot, Chat, Voice, or Wake
+                click_x = pos.x()
+                if 38.0 <= click_x < 54.0:
+                    event_bus.toggle_overlay_signal.emit()
+                    return
+                elif 54.0 <= click_x < 70.0:
+                    event_bus.toggle_voice_record_signal.emit()
+                    return
+                elif click_x >= 70.0:
+                    self._on_toggle_wake_word()
+                    return
+                else:
+                    self.expand_manually()
+                    return
 
             btn = self._get_button_at_pos(pos)
             if btn == "voice":
@@ -1342,12 +1353,24 @@ class DynamicIslandManager:
 
                     if is_right:
                         self._mgr.show_status_context_menu()
-                    else:
-                        self._mgr.toggle_all()
+                        return
+
+                    # Calculate local click_x inside status item button
+                    click_x = 20.0
+                    if event and sender:
+                        try:
+                            loc = event.locationInWindow()
+                            pt = sender.convertPoint_fromView_(loc, None)
+                            click_x = float(pt.x)
+                        except Exception:
+                            pass
+                    self._mgr.handle_status_click(click_x)
 
             statusBar = AppKit.NSStatusBar.systemStatusBar()
             self.status_item = statusBar.statusItemWithLength_(88.0)
             btn = self.status_item.button()
+            if btn:
+                btn.setToolTip_("Jarvis: [Robot] Expand Island | [Chat] Alt+Space | [Voice] Cmd+Shift+J | [Wake] Toggle")
 
             self._status_click_handler = StatusClickHandler.alloc().initWithManager_(self)
             btn.setTarget_(self._status_click_handler)
@@ -1487,3 +1510,61 @@ class DynamicIslandManager:
         for island in self.islands:
             if hasattr(island, "pixel_engine"):
                 island.pixel_engine.set_action(action_name)
+
+    def handle_status_click(self, click_x: float):
+        """Dispatches click on native NSStatusItem to Robot, Chat, Voice, or Wake based on x-coordinate."""
+        print(f"[DynamicIslandManager] 🖱️ Menu Bar Dynamic Island clicked at x={click_x:.1f} pt")
+        if click_x < 38.0:
+            # 1. Robot Zone -> Toggle Expanded Island Pop-out window
+            self.toggle_all()
+        elif 38.0 <= click_x < 54.0:
+            # 2. Chat Zone (💬) -> Toggle Overlay Chat (Alt+Space)
+            event_bus.toggle_overlay_signal.emit()
+        elif 54.0 <= click_x < 70.0:
+            # 3. Voice Zone (🎙️) -> Toggle Voice Recording (Cmd+Shift+J)
+            event_bus.toggle_voice_record_signal.emit()
+        else:
+            # 4. Wake Zone (⚡ / Dot) -> Toggle Wake Word Detection
+            self._toggle_wake_word_direct()
+
+    def _toggle_wake_word_direct(self):
+        """Toggles wake word trigger directly from menu bar dot with instant visual & audio feedback."""
+        config.WAKE_TRIGGER_ENABLED = not config.WAKE_TRIGGER_ENABLED
+        status_text = "เปิดใช้งาน" if config.WAKE_TRIGGER_ENABLED else "ปิดชั่วคราว"
+        print(f"[DynamicIslandManager] ⚡ Wake trigger toggled from Menu Bar: {config.WAKE_TRIGGER_ENABLED}")
+
+        event_bus.voice_mode_changed.emit("wake_on" if config.WAKE_TRIGGER_ENABLED else "wake_off")
+        event_bus.task_log_updated.emit(
+            "Wake Trigger Updated",
+            f"การตรวจจับคำปลุก 'Hey Jarvis' ถูก{status_text}แล้ว (ผ่าน Menu Bar Island)"
+        )
+
+        # Animate pixel robot inside menu bar
+        if config.WAKE_TRIGGER_ENABLED:
+            self.status_engine.trigger_wake()
+            if sys.platform == "darwin":
+                try:
+                    import subprocess
+                    subprocess.Popen(["/usr/bin/afplay", "/System/Library/Sounds/Tink.aiff"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+        else:
+            self.status_engine.set_action('sleep')
+            if sys.platform == "darwin":
+                try:
+                    import subprocess
+                    subprocess.Popen(["/usr/bin/afplay", "/System/Library/Sounds/Pop.aiff"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+
+        # Update active island if expanded
+        active = self._get_active_island()
+        if active:
+            if config.WAKE_TRIGGER_ENABLED:
+                active.trigger_quirk("hum_hop")
+            else:
+                active.trigger_quirk("curious_nod")
+            active.update()
+
+        # Immediate re-render of status item
+        self._on_status_tick()

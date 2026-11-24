@@ -1,5 +1,5 @@
 # เอกสารโครงสร้างสถาปัตยกรรมระบบ J.A.R.V.I.S. Desktop Assistant (Jarvis-AIsis) 🚀
-*(J.A.R.V.I.S. Architecture & Technical Reference Manual — Release v1.9.3)*
+*(J.A.R.V.I.S. Architecture & Technical Reference Manual — Release v1.9.4)*
 
 เอกสารฉบับนี้สรุปภาพรวม สถาปัตยกรรม โครงสร้างไฟล์ ลำดับการทำงานของข้อมูล (Data Flow) และรายละเอียดเชิงลึกของทุกโมดูลในระบบ **Jarvis Desktop Assistant (`Jarvis-AIsis`)** ซึ่งพัฒนาขึ้นเพื่อทำงานบน **macOS (Apple Silicon & Intel)** โดยเฉพาะ ภายใต้ขุมพลัง **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **Vision GUI Automation**, **Single-Pipeline Unified Microphone**, และ **Context-Aware Interrupt Architecture**
 
@@ -352,7 +352,7 @@ python3 tests/run_backtest.py
    - ตรวจสอบการเรียกคำสั่งระบบ (`open -a`, `osascript`, `screencapture`) ผ่าน Mock 100% ไม่เปิดหน้าต่างหรือแคปหน้าจอจริง
    - ตรวจสอบ `AntigravityBridge` ปราศจากคำสั่ง `osascript` 100% และเขียนไฟล์แบบ Atomic Write
    - ตรวจสอบ `Deduplication Guard` บล็อกคำสั่งงานซ้ำซ้อนภายใน Cooldown 60 วินาที
-4. **Suite 4: System Integrity, GUI & Config Validation — 11/11 PASS:**
+4. **Suite 4: System Integrity, GUI & Config Validation — 12/12 PASS:**
    - ทดสอบความเร็ว Cold Import ไม่บล็อกการบูตโปรแกรม ($< 0.3$s)
    - ตรวจสอบตัวกรอง Empty Arguments (`""` / `None`) ใน `MCPManager.call_tool`
    - ตรวจสอบความถูกต้องของสกีมา `voice_settings.json` และ `mcp_servers.json`
@@ -367,3 +367,5 @@ python3 tests/run_backtest.py
      - ตรวจสอบกล่องคำพูดเวกเตอร์ **Robot Speech Bubble** (`_show_robot_bubble`) พร้อมหน่วงเวลา `_auto_fold_timer` อัตโนมัติ
      - ตรวจสอบ **Single-Screen Dynamic Island Pop-out** (`expand_active`) เด้งเปิดเฉพาะจอที่ Active ตามตำแหน่งเมาส์ จออื่นพับเรียบร้อย
      - ตรวจสอบ **Two-Factor Wake Gate:** กรองเสียงเคาะแป้นพิมพ์ด้วยเกณฑ์ 2 เฟรมต่อเนื่อง ($\ge 160$ms) ร่วมกับ Silero VAD ตรวจสอบเสียงมนุษย์ย้อนหลัง 0.8s (`wake_mic_gain: 1.6`, `wake_score_threshold: 0.48`)
+   - ตรวจสอบ **v1.9.4 Menu Bar Dynamic Island Quick Actions:**
+     - ตรวจสอบการแบ่งโซนคลิกบนแถบเมนูบาร์ขนาด 88pt: โซนหุ่นยนต์ ($x < 38$pt) กาง/พับหน้าต่าง, โซนแชท ($38 \le x < 54$pt) เปิด Overlay Chat (`Alt+Space`), โซนเสียง ($54 \le x < 70$pt) สั่งอัดเสียงทันที (`Cmd+Shift+J`), และโซนจุดปลุก ($x \ge 70$pt) กดเปิด/ปิดคำปลุก "Hey Jarvis" ได้ทันทีจาก Menu Bar พร้อมแสงไฟ LED และการขยับของหุ่นยนต์ตอบรับ

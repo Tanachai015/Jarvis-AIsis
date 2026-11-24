@@ -47,9 +47,9 @@ class ChillPixelLifeEngine:
             speed = 15.0 if self.action == 'dash' else 5.5
             self.bot_x += self.dir * speed * dt
 
-            # Walk through left edge (-12) or disappear behind split divider | (47)
-            if self.bot_x >= 47.0:
-                self.bot_x = 47.0
+            # Walk through left edge (-12) or disappear behind split divider | (38)
+            if self.bot_x >= 38.0:
+                self.bot_x = 38.0
                 self.dir = -1.0
             elif self.bot_x <= -12.0:
                 self.bot_x = -12.0
@@ -87,9 +87,9 @@ def render_standby_frame(
     audio_level: float = 0.0,
     is_wake_listening: bool = False
 ) -> QImage:
-    """Renders pixel-perfect 88x22 iPhone-pill status bar frame."""
+    """Renders pixel-perfect 88x22 iPhone-pill status bar frame with Chat, Voice, and Wake zones."""
     W, H = 88, 22
-    splitX = 49
+    splitX = 38
     pill_radius = (H - 1.0) / 2.0
 
     img = QImage(int(W * scale), int(H * scale), QImage.Format_ARGB32_Premultiplied)
@@ -112,14 +112,14 @@ def render_standby_frame(
         p.setPen(QPen(QColor(0, 229, 255, 110), 0.75))
         p.drawPath(pill_path)
 
-    # 2. Left Zone Clip (x: 1 to splitX - 1)
+    # 2. Left Zone Clip (Robot: x 1 to splitX - 1)
     p.save()
     clip_path = QPainterPath()
     clip_path.addRoundedRect(QRectF(1.0, 1.0, splitX - 1.0, H - 2.0), pill_radius, pill_radius)
     p.setClipPath(clip_path)
 
     # Ground line
-    p.fillRect(QRectF(8, 19, splitX - 11, 1), QColor(0, 229, 255, 35))
+    p.fillRect(QRectF(7, 19, splitX - 9, 1), QColor(0, 229, 255, 35))
 
     # Determine sprite
     t = engine.anim_time
@@ -188,28 +188,60 @@ def render_standby_frame(
                 p.fillRect(draw_x + c, draw_y + r, 1, 1, PALETTE[code])
     p.restore()
 
-    # 3. Split Divider
-    p.fillRect(QRectF(splitX, 3, 1, H - 6), QColor(0, 229, 255, 80))
+    # 3. Divider 1 (between Robot and Chat at x = 38)
+    p.fillRect(QRectF(splitX, 3.5, 1.0, H - 7.0), QColor(0, 229, 255, 75))
 
-    # 4. Wave Bars & Mic/Standby Dot
-    wave_x = [54, 58, 62, 66]
+    # 4. Chat Bubble Icon (x: 39..53, center 46.0)
+    bubble_path = QPainterPath()
+    bubble_path.addRoundedRect(QRectF(41.5, 7.0, 9.0, 6.5), 2.0, 2.0)
+    tail = QPainterPath()
+    tail.moveTo(43.0, 12.5)
+    tail.lineTo(41.5, 15.0)
+    tail.lineTo(45.0, 12.5)
+    tail.closeSubpath()
+    bubble_path = bubble_path.united(tail)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor('#38BDF8'))
+    p.drawPath(bubble_path)
+    # Mini chat dots
+    p.fillRect(44, 9, 1, 1, QColor(255, 255, 255, 230))
+    p.fillRect(47, 9, 1, 1, QColor(255, 255, 255, 230))
+
+    # 5. Divider 2 (between Chat and Voice at x = 54)
+    p.fillRect(QRectF(54.0, 5.0, 1.0, H - 10.0), QColor(255, 255, 255, 25))
+
+    # 6. Voice Wave Bars (x: 55..69, center 62.0)
+    wave_x = [57, 60, 63, 66]
     for i in range(4):
         if act == 'wake':
             bh = 4.0 + abs(math.sin(t * 14.0 + i * 1.1)) * 8.0
-            p.fillRect(QRectF(wave_x[i], round(11.0 - bh / 2.0), 2.0, bh), QColor('#00FFD1'))
+            p.fillRect(QRectF(wave_x[i], round(11.0 - bh / 2.0), 1.5, bh), QColor('#00FFD1'))
         else:
-            bh = 2.0 + abs(math.sin(t * 1.4 + i * 0.9)) * 2.5
-            p.fillRect(QRectF(wave_x[i], round(11.0 - bh / 2.0), 2.0, bh), QColor(0, 229, 255, 130))
+            bh = 2.0 + abs(math.sin(t * 1.6 + i * 0.9)) * 2.8
+            p.fillRect(QRectF(wave_x[i], round(11.0 - bh / 2.0), 1.5, bh), QColor(0, 229, 255, 140))
 
+    # 7. Divider 3 (between Voice and Wake at x = 70)
+    p.fillRect(QRectF(70.0, 5.0, 1.0, H - 10.0), QColor(255, 255, 255, 25))
+
+    # 8. Wake Standby Dot (x: 71..87, center 78.5) - Clickable Wake Trigger
+    dot_cx = 78.5
+    dot_cy = 11.0
+    dot_pulse = 0.65 + 0.35 * math.sin(t * 2.2)
     p.setPen(Qt.NoPen)
-    dot_pulse = 0.55 + 0.45 * math.sin(t * 1.6)
     if act == 'wake':
         p.setBrush(QColor('#00FFD1'))
+        p.drawEllipse(QPointF(dot_cx, dot_cy), 3.2, 3.2)
     elif is_wake_on:
-        p.setBrush(QColor(0, 255, 209, int(255 * dot_pulse)))
+        # Outer glow ring
+        p.setBrush(QColor(0, 255, 209, int(55 * dot_pulse)))
+        p.drawEllipse(QPointF(dot_cx, dot_cy), 5.5, 5.5)
+        # Core mint LED dot
+        p.setBrush(QColor('#00FFD1'))
+        p.drawEllipse(QPointF(dot_cx, dot_cy), 2.8, 2.8)
     else:
+        # Calm dim slate dot
         p.setBrush(QColor(100, 116, 139, 120))
-    p.drawEllipse(QPointF(76.0, 11.0), 2.5, 2.5)
+        p.drawEllipse(QPointF(dot_cx, dot_cy), 2.5, 2.5)
 
     p.end()
     return img

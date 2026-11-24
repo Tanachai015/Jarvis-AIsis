@@ -929,6 +929,59 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
         self.assertTrue(hasattr(listener, "wake_consecutive_hits"), "Listener must track wake_consecutive_hits for false positive rejection")
         self.assertTrue(hasattr(listener, "stream_wake_event"), "Listener must have stream_wake_event for On-Demand audio stream control")
 
+    def test_v194_menubar_island_interactive_buttons_spec(self):
+        """Verifies v1.9.4: Menu Bar Dynamic Island interactive zones for Robot, Chat, Voice, and Wake."""
+        from PySide6.QtWidgets import QApplication
+        from ui.dynamic_island import DynamicIslandManager, DynamicIsland
+        from ui.pixel_engine import ChillPixelLifeEngine, render_standby_frame
+        import config
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        manager = DynamicIslandManager()
+        try:
+            self.assertTrue(hasattr(manager, "handle_status_click"), "DynamicIslandManager must implement handle_status_click")
+
+            # 1. Test Chat click (38 <= x < 54) -> emits toggle_overlay_signal
+            chat_emitted = []
+            event_bus.toggle_overlay_signal.connect(lambda: chat_emitted.append(True))
+            manager.handle_status_click(46.0)
+            self.assertEqual(len(chat_emitted), 1, "Clicking Chat zone (x=46) must emit toggle_overlay_signal")
+
+            # 2. Test Voice click (54 <= x < 70) -> emits toggle_voice_record_signal
+            voice_emitted = []
+            event_bus.toggle_voice_record_signal.connect(lambda: voice_emitted.append(True))
+            manager.handle_status_click(62.0)
+            self.assertEqual(len(voice_emitted), 1, "Clicking Voice zone (x=62) must emit toggle_voice_record_signal")
+
+            # 3. Test Wake click (x >= 70) -> toggles config.WAKE_TRIGGER_ENABLED
+            initial_wake = config.WAKE_TRIGGER_ENABLED
+            manager.handle_status_click(76.0)
+            self.assertEqual(config.WAKE_TRIGGER_ENABLED, not initial_wake, "Clicking Wake zone (x=76) must toggle WAKE_TRIGGER_ENABLED")
+            # Toggle back
+            manager.handle_status_click(76.0)
+            self.assertEqual(config.WAKE_TRIGGER_ENABLED, initial_wake)
+
+            # 4. Test Robot click (x < 38) -> toggles expansion
+            manager.fold_all()
+            active = manager._get_active_island()
+            self.assertFalse(active.is_expanded)
+            manager.handle_status_click(20.0)
+            self.assertTrue(active.is_expanded, "Clicking Robot zone (x=20) must expand island")
+            manager.handle_status_click(20.0)
+            self.assertFalse(active.is_expanded, "Clicking Robot zone again must fold island")
+
+            # 5. Verify render_standby_frame renders Chat, Voice, and Wake icons
+            engine = ChillPixelLifeEngine()
+            img_on = render_standby_frame(engine, scale=2.0, is_wake_on=True)
+            self.assertFalse(img_on.isNull())
+            self.assertEqual(img_on.width(), 176)
+            self.assertEqual(img_on.height(), 44)
+            img_off = render_standby_frame(engine, scale=2.0, is_wake_on=False)
+            self.assertFalse(img_off.isNull())
+        finally:
+            for isl in manager.islands:
+                isl.close()
+
 
 # ============================================================================
 # RUNNER & FORMATTED TERMINAL REPORTER
