@@ -1,4 +1,4 @@
-# J.A.R.V.I.S. JR. // K.A.R.I.S. 🚀
+# J.A.R.V.I.S. JR. // KARIS. 🚀
 *(Kinetic Autonomous Responsive Intelligent Sidekick — Release v2.0.0)*
 
 [![Release](https://img.shields.io/badge/Release-v2.0.0-brightgreen?logo=github)](https://github.com/Tanachai015/Karis-JarvisJr/tree/v2.0.0)
