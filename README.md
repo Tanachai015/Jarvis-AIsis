@@ -1,17 +1,17 @@
 # J.A.R.V.I.S. JR. // KARIS. 🚀
-*(Kinetic Autonomous Responsive Intelligent Sidekick — Release v2.0.0)*
+*(Kinetic Autonomous Responsive Intelligent Sidekick — Release v2.1.0)*
 
-[![Release](https://img.shields.io/badge/Release-v2.0.0-brightgreen?logo=github)](https://github.com/Tanachai015/Karis-JarvisJr/tree/v2.0.0)
+[![Release](https://img.shields.io/badge/Release-v2.1.0-brightgreen?logo=github)](https://github.com/Tanachai015/Karis-JarvisJr/tree/v2.1.0)
 [![Platform](https://img.shields.io/badge/Platform-macOS%2014%2B%20(Apple%20Silicon%20%26%20Intel)-blue?logo=apple)](https://www.apple.com/macos/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/UI-PySide6%20(Qt6)-41CD52?logo=qt)](https://www.qt.io/)
 [![AI Engine](https://img.shields.io/badge/AI-Google%20GenAI%20SDK-4285F4?logo=google)](https://aistudio.google.com/)
 [![Protocol](https://img.shields.io/badge/Standard-Official%20MCP%20(31%20Tools)-8B5CF6)](https://modelcontextprotocol.io/)
 [![Speech](https://img.shields.io/badge/STT-Groq%20Cloud%20(0.2s)%20%2B%20Whisper-F55036)](https://groq.com/)
-[![Testing](https://img.shields.io/badge/Automated%20Tests-37%2F37%20PASS%20(100%25)-success)](tests/run_backtest.py)
+[![Testing](https://img.shields.io/badge/Automated%20Tests-38%2F38%20PASS%20(100%25)-success)](tests/run_backtest.py)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-An agentic, event-driven, multimodal AI desktop companion built natively for macOS. Meet **J.A.R.V.I.S. JR. (aka K.A.R.I.S.)** — the high-energy, agile, sidekick dedicated to your Mac (**บอส**). Powered by **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **Low-Poly Faceted Vector Avatar (`QPainter` / `QPolygonF`)**, **Smart Ambiguity Confirmation Loop**, **Owner Approval Gate**, **Single-Screen State Guard**, and **Active-Screen Overlay Chat**.
+An agentic, event-driven, multimodal AI desktop companion built natively for macOS. Meet **J.A.R.V.I.S. JR. (aka K.A.R.I.S.)** — the high-energy, agile, sidekick dedicated to your Mac (**คุณ**). Powered by **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **High-Poly 3D Face Viewport (120 FPS `QPainter` / `QPolygonF`)**, **Unified Cyber Command HUD (820×430 px)**, **Live Todo Accordion Drawer**, **Deterministic Ambiguity Confirmation Tool**, **Owner Approval Gate**, and **Single-Screen State Guard**.
 
 ---
 
@@ -21,24 +21,28 @@ An agentic, event-driven, multimodal AI desktop companion built natively for mac
 
 ---
 
-## 🌟 Key Features & Engineering Highlights (v2.0.0)
+## 🌟 Key Features & Engineering Highlights (v2.1.0)
 
-### 1. 🤖 Low-Poly Faceted Cyber Avatar & Dynamic Island
-- **Pure Vector Polygon Graphics (`QPainter` / `QPolygonF` 100%):** Zero external images or raster files. Features a 3D faceted polygon head, hexagonal dark visor, prism ears, crystal diamond antenna tip, and wireframe mesh torso with cyan vertex nodes.
-- **Dynamic 3D Shading on Head Tilt:** Real-time lighting gradient (`#051624` to `#0E3A5D`) dynamically shifts across head polygons based on kinematics `head_tilt`.
-- **Single-Screen State Guard:** When expanding during speech, voice recording, or hotkey triggers (`Cmd+Shift+J`), the island dynamically activates **only on the active monitor** hosting `QCursor.pos()`, keeping other screens completely hidden.
+### 1. 🤖 High-Poly 3D Interactive Face HUD (120 FPS)
+- **High-Poly 3D Polygon Mesh (`ui/polygon_face.py`):** 49 vertices, 80+ triangles rendered using pure vector `QPainter` (zero external rasters). Features perspective 3D projection, depth shading gradient, vertex nodes, rotating orbital HUD rings, crystal diamond antenna tip, and prism ear pods.
+- **Interactive Mouse Gaze Tracking:** Smooth spring damping (`set_gaze_target`, `cur_yaw`, `cur_pitch`) tracks cursor position across the HUD in real time.
+- **Adaptive 120 FPS / 30 FPS Kinematics:** 120 FPS (8ms interval) during active interaction and expanded HUD; smoothly folds back to 30 FPS (33ms) standby in menu bar to save battery.
 
-### 2. 🛡️ Smart Ambiguity Confirmation Loop
-- **Durable Turn-Based State (`memory/workflow_state.json`):** Safely tracks ambiguous intents across user turns without state loss.
-- **Strict 3-Step Confirmation Flow:**
-  1. **Garble Interception:** Never repeats or articulates corrupted speech. Asks cleanly for the inferred intent (e.g. *"คำสั่งไม่ค่อยชัดเจนครับ บอสหมายถึง 'เปิด Terminal' ใช่ไหมครับ?"*).
-  2. **Affirmation (`ใช่ / ถูกต้อง`):** Directly executes the inferred action without redundant questions.
-  3. **Denial (`ไม่ใช่ / ผิด`):** Explicitly quotes back the raw speech heard so the owner knows what was misrecognized.
+### 2. 🎛️ Unified Cyber Command HUD (`820 × 430 px`) & Live Console
+- **Dual-View Left Console:** One-click tab switcher between `💬 Live Chat` (complete with embedded `QLineEdit` input & send button) and `⚡ Process & Raw` (real-time tool logs, tokens, metrics).
+- **Decision Cards:** Clean overlay cards for Deterministic Ambiguity Confirmation (`[✓ ใช่, ดำเนินการเลย]` / `[✕ ไม่ใช่ / ยกเลิก]`) and Owner Approval Gate (`[✓ Approve]` / `[✕ Reject]`).
 
-### 3. 🔐 Owner Approval Gate
+### 3. 📝 Live Todo Accordion Drawer
+- **Persistent Task Management (`memory/todo_items.json`):** Dedicated `manage_todo` native tool (actions: `add`, `list`, `complete`, `remove`).
+- **Interactive HUD Drawer:** Click `📝 LIVE TODO (N)` on the top telemetry bar to toggle a sleek drawer for quick item entry, completion checkboxes, deletions, and reminder alert test pings (`todo_alert_triggered`).
+
+### 4. 🛡️ Deterministic Ambiguity Confirmation Tool
+- **Interception of Garbled Audio (`ask_clarification`):** Proposes inferred intent cleanly without repeating distorted audio.
+- **Interactive HUD Confirmation:** Directly prompts user with one-click decision buttons or spoken response (`ใช่ / ไม่ใช่`).
+
+### 5. 🔐 Owner Approval Gate
 - **High-Impact Tool Interception:** Automatically halts dangerous actions (`git_commit`, `git_reset`, write/edit operations outside memory/tests) before execution.
 - **Native Dynamic Island Buttons:** Automatically expands the island displaying interactive `[✓ Approve]` (#00FFD1) and `[✕ Reject]` (#FB7185) buttons.
-- **Safe Fallback:** If rejected by the owner, execution cleanly aborts and logs the cancellation safely.
 
 ### 4. 🏝️ True Native macOS `NSStatusItem` Dynamic Island
 - **Native Menu Bar Embedding:** Uses `AppKit.NSStatusBar` (`88.0pt`) as a first-class citizen across all displays and virtual spaces. Automatically avoids macOS camera notch and microphone privacy indicators without window overlapping.

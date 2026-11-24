@@ -1090,6 +1090,107 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
         finally:
             chat.close()
 
+    def test_v210_high_poly_face_and_unified_command_hud_spec(self):
+        """Verifies v2.1.0 High-Poly 3D Face HUD (120 FPS), Live Todo Drawer, Unified Chat/Process Console & Ambiguity Tool."""
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import Qt, QPointF
+        from PySide6.QtGui import QPixmap
+        from ui.dynamic_island import DynamicIsland
+        from ui.polygon_face import HighPolyKarisRenderer
+        from core.event_bus import event_bus
+        from core.tools import manage_todo, ask_clarification
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        island = DynamicIsland()
+        try:
+            # 1. Verify Unified Command HUD Dimensions & Embedded Inputs
+            self.assertEqual(island.expanded_w, 820)
+            self.assertEqual(island.expanded_h, 430)
+            self.assertTrue(hasattr(island, "chat_input"))
+            self.assertTrue(hasattr(island, "todo_input"))
+            flags = island.windowFlags()
+            self.assertFalse(bool(flags & Qt.WindowDoesNotAcceptFocus), "Must allow focus for embedded chat/todo inputs")
+
+            # 2. Verify 120 FPS Adaptive Timer
+            island.expand_manually()
+            self.assertTrue(island.is_expanded)
+            self.assertEqual(island.render_timer.interval(), 8, "Expanded active mode must run at 120 FPS (8ms interval)")
+            island.fold_manually()
+            self.assertFalse(island.is_expanded)
+            self.assertEqual(island.render_timer.interval(), 33, "Folded standby mode must run at 30 FPS (33ms interval)")
+
+            # 3. Verify HighPolyKarisRenderer & Interactive Gaze
+            island.expand_manually()
+            self.assertIsInstance(island.face_renderer, HighPolyKarisRenderer)
+            face_rnd = island.face_renderer
+            face_rnd.set_gaze_target(0.4, -0.3)
+            self.assertEqual(face_rnd.target_yaw, 0.4)
+            self.assertEqual(face_rnd.target_pitch, -0.3)
+            face_rnd.update(0.016)
+            self.assertNotEqual(face_rnd.cur_yaw, 0.0)
+
+            # 4. Verify Unified Console View Switcher (Live Chat vs Process & Raw)
+            self.assertEqual(island._active_console_view, "chat")
+            self.assertTrue(island.chat_input.isVisible())
+
+            # Switch to process tab
+            island._active_console_view = "process"
+            island._sync_child_widgets()
+            self.assertFalse(island.chat_input.isVisible(), "Chat input must hide in process view")
+
+            island._active_console_view = "chat"
+            island._sync_child_widgets()
+            self.assertTrue(island.chat_input.isVisible())
+
+            # Test sending chat from embedded input
+            initial_count = len(island._chat_messages)
+            island.chat_input.setText("สวัสดีคาริส")
+            island._on_send_chat()
+            self.assertEqual(len(island._chat_messages), initial_count + 1)
+            self.assertEqual(island.chat_input.text(), "")
+
+            # 5. Verify Live Todo Accordion Drawer
+            self.assertFalse(island._todo_drawer_open)
+            island._todo_drawer_open = True
+            drawer_btns = island._get_buttons_map()
+            self.assertIn("btn_todo_add", drawer_btns)
+            self.assertIn("btn_todo_alert", drawer_btns)
+            self.assertIn("btn_todo_close", drawer_btns)
+
+            # Test todo tool integration
+            add_res = manage_todo("add", text="ทดสอบระบบตรวจบั๊ก v2.1.0")
+            self.assertIn("บันทึกสิ่งที่ต้องทำ", add_res)
+            island._load_todo_cache()
+            self.assertTrue(any("ทดสอบระบบตรวจบั๊ก v2.1.0" in t.get("text", "") for t in island._todos_cache))
+
+            # Test todo alert trigger
+            alert_emitted = []
+            event_bus.todo_alert_triggered.connect(lambda t: alert_emitted.append(t))
+            event_bus.todo_alert_triggered.emit("แจ้งเตือนตรวจงาน")
+            self.assertEqual(len(alert_emitted), 1)
+            self.assertEqual(island._bubble_title, "⏰ Todo Reminder Alert!")
+
+            # 6. Verify Deterministic Ambiguity Confirmation Tool
+            ask_res = ask_clarification("กวดวิชา", "ค้นหาโรงเรียนกวดวิชา", "ต้องการให้ค้นหาโรงเรียนกวดวิชาใช่ไหมครับ?")
+            self.assertIn("ระบบแสดงการ์ดยืนยัน", ask_res)
+            self.assertTrue(island._pending_confirmation_active)
+            conf_btns = island._get_buttons_map()
+            self.assertIn("confirm_yes", conf_btns)
+            self.assertIn("confirm_no", conf_btns)
+            self.assertEqual(island._pending_confirmation_info["inferred_intent"], "ค้นหาโรงเรียนกวดวิชา")
+
+            # Resolve confirmation
+            island._on_resolve_confirmation(True)
+            self.assertFalse(island._pending_confirmation_active)
+
+            # 7. Zero-Crash Render of 820x430 HUD
+            pix = QPixmap(820, 430)
+            island.render(pix)
+            self.assertEqual(pix.width(), 820)
+            self.assertEqual(pix.height(), 430)
+        finally:
+            island.close()
+
 
 # ============================================================================
 # RUNNER & FORMATTED TERMINAL REPORTER

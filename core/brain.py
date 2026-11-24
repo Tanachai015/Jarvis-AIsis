@@ -322,6 +322,8 @@ Tools & Capabilities (Choose accurately and execute immediately without asking u
      * "set_volume": Adjusts speaker output volume 0-100 (e.g. target="40")
      * "get_system_info": Checks CPU, RAM, and Battery percentages.
    - manage_memory: Call to store or recall long-term facts across sessions (mode="save", mode="read").
+   - manage_todo: Call to save, list, mark complete, or remove persistent user todo items and reminders (action="add"|"list"|"complete"|"remove", text="...", item_id=...).
+   - ask_clarification: Call when user speech is ambiguous, distorted, or contains strange phonetics. Passes raw_stt, inferred_intent, and question_text to display confirmation card on HUD without reading garble aloud.
    - reveal_task_result: Call ONLY when user explicitly asks to open, view, or inspect completed background work (task_ref="latest", task_id, or keyword).
    - search_raw_history: Call ONLY when user asks about past tasks, historical projects, or work done in previous months/years (query="keyword", days_back=365).
 

@@ -52,6 +52,15 @@ class EventBus(QObject):
     # Fired when Voice Mode / Wake Trigger is toggled at runtime ('wake_on', 'wake_off', 'push_to_talk')
     voice_mode_changed = Signal(str)
 
+    # Fired when todo list is updated (added, removed, completed)
+    todo_updated = Signal()
+
+    # Fired when a live todo alert triggers: alert_message (str)
+    todo_alert_triggered = Signal(str)
+
+    # Fired when AI brain requests ambiguity confirmation: (raw_stt, inferred_intent, question_text)
+    confirmation_requested = Signal(str, str, str)
+
 
 # Singleton instance shared across the entire application
 event_bus = EventBus()

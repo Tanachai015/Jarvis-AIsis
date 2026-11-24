@@ -8,15 +8,17 @@ import sys
 import time
 import math
 import random
-from typing import Optional, Dict, Any
+import json
+from typing import Optional, Dict, Any, List
 
 from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPoint, QPropertyAnimation, QEasingCurve, Property, QBuffer, QIODevice
 from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QPen, QBrush, QGuiApplication, QScreen, QCursor, QPolygonF
-from PySide6.QtWidgets import QWidget, QApplication, QMenu
+from PySide6.QtWidgets import QWidget, QApplication, QMenu, QLineEdit
 
 import config
 from core.event_bus import event_bus
 from ui.pixel_engine import ChillPixelLifeEngine, render_standby_frame
+from ui.polygon_face import HighPolyKarisRenderer
 
 # Setup macOS PyObjC if available
 _HAS_APPKIT = False
@@ -113,11 +115,10 @@ class DynamicIsland(QWidget):
             self.screen = app.primaryScreen() if app else None
         self.on_clear_history = on_clear_history
 
-        # macOS Frameless Always-On-Top Window Flags (v1.9.2: NO Qt.Tool, with BypassWindowManager)
+        # macOS Frameless Always-On-Top Window Flags (v2.1.0: Focusable for embedded inputs)
         self.setWindowFlags(
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
-            | Qt.WindowDoesNotAcceptFocus
             | Qt.BypassWindowManagerHint
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -130,14 +131,17 @@ class DynamicIsland(QWidget):
         self._hovered_btn: Optional[str] = None
         self._hovered_capsule: bool = False
 
-        # Geometry & Dimension Settings
+        # Geometry & Dimension Settings (v2.1.0 Unified Cyber Command HUD: 820x430 px)
         self.edge = "top"
         self.bar_thickness = 24
         self.folded_w = 88
         self.folded_h = 22
-        self.expanded_w = 360
-        self.expanded_h = 70
+        self.expanded_w = 820
+        self.expanded_h = 430
         self.menubar_offset_x = 0
+
+        # High-Poly 3D Face Renderer (v2.1.0: 49 Vertices, 80+ Triangles, 120 FPS)
+        self.face_renderer = HighPolyKarisRenderer()
 
         # Robot Speech Bubble State (v1.9.3)
         self._bubble_title: Optional[str] = None
@@ -172,7 +176,7 @@ class DynamicIsland(QWidget):
         self.anim.setDuration(320)
         self.anim.setEasingCurve(QEasingCurve.Type.OutBack)
 
-        # 60 FPS / 30 FPS Adaptive Render Timer
+        # 120 FPS / 30 FPS Adaptive Render Timer (v2.1.0)
         self.render_timer = QTimer(self)
         self.render_timer.timeout.connect(self._on_animation_tick)
         self.render_timer.start(33)  # Start at 30 FPS for idle
@@ -190,6 +194,62 @@ class DynamicIsland(QWidget):
             screen.geometryChanged.connect(self._on_screen_geometry_changed)
             screen.availableGeometryChanged.connect(self._on_screen_geometry_changed)
 
+        # Console View & Live Todo Drawer State (v2.1.0)
+        self._active_console_view: str = "chat"  # "chat" or "process"
+        self._todo_drawer_open: bool = False
+        self._pending_confirmation_active: bool = False
+        self._pending_confirmation_info: Dict[str, Any] = {}
+        self._todos_cache: List[Dict[str, Any]] = []
+        self._chat_messages: List[Dict[str, str]] = [
+            {"sender": "karis", "text": "สวัสดีครับบอส! ผม K.A.R.I.S. พร้อมช่วยจัดการงานและดูแล Mac ให้แล้วครับ", "time": time.strftime("%H:%M")}
+        ]
+        self._process_logs: List[Dict[str, str]] = [
+            {"time": time.strftime("%H:%M:%S"), "title": "System Boot", "msg": "K.A.R.I.S. High-Poly 3D Face HUD initialized (120 FPS active)."}
+        ]
+        self._load_todo_cache()
+
+        # Embedded Chat Input Field (v2.1.0)
+        self.chat_input = QLineEdit(self)
+        self.chat_input.setPlaceholderText("พิมพ์คุยกับ Karis... (กด Enter)")
+        self.chat_input.setStyleSheet("""
+            QLineEdit {
+                background-color: rgba(14, 22, 38, 0.95);
+                color: #F1F5F9;
+                border: 1px solid rgba(0, 229, 255, 0.4);
+                border-radius: 6px;
+                padding: 3px 8px;
+                font-family: -apple-system;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #00E5FF;
+                background-color: rgba(20, 34, 58, 0.98);
+            }
+        """)
+        self.chat_input.returnPressed.connect(self._on_send_chat)
+        self.chat_input.hide()
+
+        # Embedded Todo Input Field (v2.1.0)
+        self.todo_input = QLineEdit(self)
+        self.todo_input.setPlaceholderText("เพิ่มงาน Todo ใหม่... (กด Enter)")
+        self.todo_input.setStyleSheet("""
+            QLineEdit {
+                background-color: rgba(10, 20, 34, 0.95);
+                color: #00FFD1;
+                border: 1px solid rgba(0, 255, 209, 0.4);
+                border-radius: 6px;
+                padding: 3px 8px;
+                font-family: -apple-system;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #00FFD1;
+                background-color: rgba(16, 32, 50, 0.98);
+            }
+        """)
+        self.todo_input.returnPressed.connect(self._on_add_todo_from_input)
+        self.todo_input.hide()
+
         # Connect event bus signals
         event_bus.state_changed.connect(self.on_state_changed)
         event_bus.task_log_updated.connect(self._on_task_log_updated)
@@ -197,6 +257,19 @@ class DynamicIsland(QWidget):
         self._pending_approval_info: Dict[str, Any] = {}
         event_bus.approval_requested.connect(self._on_approval_requested)
         event_bus.approval_resolved.connect(self._on_approval_resolved_slot)
+
+        if hasattr(event_bus, "todo_updated"):
+            event_bus.todo_updated.connect(self._on_todo_updated)
+        if hasattr(event_bus, "todo_alert_triggered"):
+            event_bus.todo_alert_triggered.connect(self._on_todo_alert_triggered)
+        if hasattr(event_bus, "confirmation_requested"):
+            event_bus.confirmation_requested.connect(self._on_confirmation_requested)
+        if hasattr(event_bus, "user_message_received"):
+            event_bus.user_message_received.connect(lambda msg: self._add_chat_message("user", msg))
+        if hasattr(event_bus, "assistant_reply_ready"):
+            event_bus.assistant_reply_ready.connect(lambda reply: self._add_chat_message("karis", reply))
+        if hasattr(event_bus, "raw_data_received"):
+            event_bus.raw_data_received.connect(self._on_raw_data_received)
 
         # In standby idle state, Expanded Island window starts hidden
         self.hide()
@@ -463,11 +536,13 @@ class DynamicIsland(QWidget):
             self.fold_manually()
 
     def expand_manually(self):
-        """Manually pops out the island into expanded interactive mode."""
+        """Manually pops out the island into expanded interactive mode (120 FPS)."""
         self._manually_expanded = True
+        self.render_timer.setInterval(8)  # 120 FPS
         self.show()
         self.raise_()
         self._apply_geometry_for_state(animated=True)
+        self._sync_child_widgets()
         self._reset_auto_fold_timer()
         self.update()
 
@@ -477,6 +552,9 @@ class DynamicIsland(QWidget):
             return
         self._manually_expanded = False
         self._hovered_btn = None
+        self._todo_drawer_open = False
+        self.render_timer.setInterval(33)  # 30 FPS
+        self._sync_child_widgets()
         self.hide()
         self.update()
 
@@ -486,6 +564,143 @@ class DynamicIsland(QWidget):
             self.fold_manually()
         else:
             self.expand_manually()
+
+    def _load_todo_cache(self):
+        """Loads cached todo items from memory/todo_items.json."""
+        try:
+            from core.tools import TODO_ITEMS_FILE
+            if TODO_ITEMS_FILE.exists():
+                with open(TODO_ITEMS_FILE, "r", encoding="utf-8") as f:
+                    self._todos_cache = json.load(f)
+            else:
+                self._todos_cache = []
+        except Exception:
+            self._todos_cache = []
+
+    def _sync_child_widgets(self):
+        """Positions and shows/hides embedded input widgets according to expanded & view state."""
+        if not hasattr(self, "chat_input") or not hasattr(self, "todo_input"):
+            return
+        if self.is_expanded:
+            if self._active_console_view == "chat":
+                self.chat_input.setGeometry(18, 384, 216, 26)
+                if not self.chat_input.isVisible():
+                    self.chat_input.show()
+            else:
+                if self.chat_input.isVisible():
+                    self.chat_input.hide()
+
+            if self._todo_drawer_open:
+                self.todo_input.setGeometry(170, 68, 340, 24)
+                if not self.todo_input.isVisible():
+                    self.todo_input.show()
+            else:
+                if self.todo_input.isVisible():
+                    self.todo_input.hide()
+        else:
+            if self.chat_input.isVisible():
+                self.chat_input.hide()
+            if self.todo_input.isVisible():
+                self.todo_input.hide()
+
+    def _on_todo_updated(self):
+        """Refreshes cached todo list and re-renders HUD."""
+        self._load_todo_cache()
+        self.update()
+
+    def _on_todo_alert_triggered(self, todo_text: str):
+        """Displays prominent reminder alert bubble and plays alert ping."""
+        self.expand_manually()
+        self._show_robot_bubble(
+            title="⏰ Todo Reminder Alert!",
+            subtext=todo_text,
+            duration=8.0,
+            title_color=QColor("#FB7185")
+        )
+        if sys.platform == "darwin":
+            try:
+                import subprocess
+                subprocess.Popen(["/usr/bin/afplay", "/System/Library/Sounds/Ping.aiff"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        self.update()
+
+    def _on_confirmation_requested(self, raw_stt: str, inferred_intent: str, question_text: str):
+        """Displays ambiguity clarification confirmation card on Dynamic Island HUD."""
+        self._pending_confirmation_active = True
+        self._pending_confirmation_info = {
+            "raw_stt": raw_stt,
+            "inferred_intent": inferred_intent,
+            "question_text": question_text,
+        }
+        self.expand_manually()
+        self._show_robot_bubble(
+            title="K.A.R.I.S. Smart Confirmation",
+            subtext=question_text,
+            duration=15.0,
+            title_color=QColor("#FBBF24")
+        )
+        self.update()
+
+    def _on_resolve_confirmation(self, confirmed: bool):
+        """Resolves confirmation card, updates workflow state, and notifies task log."""
+        self._pending_confirmation_active = False
+        inferred = self._pending_confirmation_info.get("inferred_intent", "")
+        try:
+            from core.brain import clear_pending_confirmation
+            clear_pending_confirmation()
+        except Exception:
+            pass
+        self._pending_confirmation_info = {}
+        if confirmed and inferred:
+            event_bus.task_log_updated.emit("Confirmation", f"บอสยืนยัน: ดำเนินการ '{inferred}'")
+            event_bus.user_message_received.emit(inferred)
+        else:
+            event_bus.task_log_updated.emit("Confirmation", "บอสปฏิเสธ/ยกเลิกคำสั่ง")
+        self.update()
+        if self.current_state == "idle":
+            self.fold_manually()
+
+    def _on_send_chat(self):
+        """Dispatches chat input message from embedded QLineEdit to event bus."""
+        text = self.chat_input.text().strip()
+        if not text:
+            return
+        self.chat_input.clear()
+        event_bus.user_message_received.emit(text)
+
+    def _on_add_todo_from_input(self):
+        """Adds todo item from embedded QLineEdit using manage_todo."""
+        text = self.todo_input.text().strip()
+        if not text:
+            return
+        self.todo_input.clear()
+        try:
+            from core.tools import manage_todo
+            manage_todo("add", text=text)
+            self._load_todo_cache()
+            self.update()
+        except Exception as e:
+            print(f"[DynamicIsland] Error adding todo: {e}")
+
+    def _add_chat_message(self, sender: str, text: str):
+        """Appends chat message to console history."""
+        t_str = time.strftime("%H:%M")
+        self._chat_messages.append({"sender": sender, "text": text, "time": t_str})
+        if len(self._chat_messages) > 30:
+            self._chat_messages.pop(0)
+        self.update()
+
+    def _on_raw_data_received(self, data_type: str, data: Any):
+        """Appends raw process logs to console history."""
+        t_str = time.strftime("%H:%M:%S")
+        msg = str(data)
+        if len(msg) > 90:
+            msg = msg[:87] + "..."
+        self._process_logs.append({"time": t_str, "title": data_type, "msg": msg})
+        if len(self._process_logs) > 40:
+            self._process_logs.pop(0)
+        self.update()
 
     def _show_robot_bubble(self, title: str, subtext: str, duration: float = 3.0, title_color: Optional[QColor] = None):
         """Displays pure vector speech bubble pointing from robot's mouth with auto-fold delay."""
@@ -553,18 +768,41 @@ class DynamicIsland(QWidget):
             self.fold_manually()
 
     def _get_buttons_map(self) -> Dict[str, QRectF]:
-        """Returns bounding rects for interactive buttons (standard mode or pending approval mode)."""
+        """Returns bounding rects for interactive buttons (standard mode, approval mode, or confirmation mode)."""
+        btns: Dict[str, QRectF] = {}
+
         if getattr(self, "_pending_approval_active", False):
-            return {
-                "approve": QRectF(62.0, 42.0, 138.0, 22.0),
-                "reject": QRectF(206.0, 42.0, 138.0, 22.0),
-            }
-        return {
-            "voice": QRectF(62.0, 42.0, 68.0, 22.0),
-            "chat": QRectF(134.0, 42.0, 64.0, 22.0),
-            "wake": QRectF(202.0, 42.0, 90.0, 22.0),
-            "menu": QRectF(296.0, 42.0, 52.0, 22.0),
-        }
+            btns["approve"] = QRectF(326.0, 368.0, 218.0, 30.0)
+            btns["reject"] = QRectF(556.0, 368.0, 218.0, 30.0)
+
+        if getattr(self, "_pending_confirmation_active", False):
+            btns["confirm_yes"] = QRectF(326.0, 368.0, 218.0, 30.0)
+            btns["confirm_no"] = QRectF(556.0, 368.0, 218.0, 30.0)
+
+        # Standard Top Bar & Console buttons (non-overlapping)
+        btns["wake"] = QRectF(14.0, 7.0, 136.0, 26.0)
+        btns["todo_trigger"] = QRectF(158.0, 7.0, 134.0, 26.0)
+        btns["chat"] = QRectF(300.0, 7.0, 96.0, 26.0)
+        btns["voice"] = QRectF(404.0, 7.0, 96.0, 26.0)
+        btns["menu"] = QRectF(754.0, 7.0, 52.0, 26.0)
+
+        btns["tab_chat"] = QRectF(18.0, 46.0, 128.0, 24.0)
+        btns["tab_process"] = QRectF(152.0, 46.0, 128.0, 24.0)
+        btns["btn_send"] = QRectF(238.0, 384.0, 42.0, 26.0)
+
+        # If todo drawer is open
+        if getattr(self, "_todo_drawer_open", False):
+            btns["btn_todo_add"] = QRectF(516.0, 68.0, 80.0, 24.0)
+            btns["btn_todo_alert"] = QRectF(170.0, 262.0, 150.0, 22.0)
+            btns["btn_todo_close"] = QRectF(520.0, 262.0, 76.0, 22.0)
+            todos = getattr(self, "_todos_cache", [])
+            for idx, item in enumerate(todos[:5]):
+                item_y = 98.0 + idx * 30.0
+                item_id = item.get("id", idx)
+                btns[f"todo_toggle_{item_id}"] = QRectF(170.0, item_y, 22.0, 22.0)
+                btns[f"todo_del_{item_id}"] = QRectF(572.0, item_y, 22.0, 22.0)
+
+        return btns
 
     def _get_button_at_pos(self, pos: QPointF) -> Optional[str]:
         if not self.is_expanded:
@@ -641,6 +879,14 @@ class DynamicIsland(QWidget):
     def mouseMoveEvent(self, event):
         pos = event.position()
         if self.is_expanded:
+            # 3D Gaze tracking toward mouse cursor
+            dx = (pos.x() - 550.0) / 260.0
+            dy = (pos.y() - 205.0) / 180.0
+            yaw = max(-0.55, min(0.55, dx * 0.55))
+            pitch = max(-0.4, min(0.4, dy * 0.4))
+            if hasattr(self, "face_renderer"):
+                self.face_renderer.set_gaze_target(yaw, pitch)
+
             btn = self._get_button_at_pos(pos)
             if btn != self._hovered_btn:
                 self._hovered_btn = btn
@@ -653,6 +899,8 @@ class DynamicIsland(QWidget):
                 self.update()
 
     def leaveEvent(self, event):
+        if hasattr(self, "face_renderer"):
+            self.face_renderer.reset_gaze()
         if self._hovered_btn or self._hovered_capsule:
             self._hovered_btn = None
             self._hovered_capsule = False
@@ -684,6 +932,8 @@ class DynamicIsland(QWidget):
                     return
 
             btn = self._get_button_at_pos(pos)
+
+            # 1. Approval Gate Mode
             if getattr(self, "_pending_approval_active", False):
                 if btn == "approve":
                     event_bus.approval_resolved.emit(True)
@@ -692,21 +942,100 @@ class DynamicIsland(QWidget):
                     event_bus.approval_resolved.emit(False)
                     return
 
+            # 2. Confirmation Gate Mode (Deterministic Ambiguity Confirmation)
+            if getattr(self, "_pending_confirmation_active", False):
+                if btn == "confirm_yes":
+                    self._on_resolve_confirmation(True)
+                    return
+                elif btn == "confirm_no":
+                    self._on_resolve_confirmation(False)
+                    return
+
+            # 3. Live Todo Drawer Interactions
+            if getattr(self, "_todo_drawer_open", False):
+                if btn == "btn_todo_close":
+                    self._todo_drawer_open = False
+                    self._sync_child_widgets()
+                    self.update()
+                    return
+                elif btn == "btn_todo_add":
+                    self._on_add_todo_from_input()
+                    return
+                elif btn == "btn_todo_alert":
+                    event_bus.todo_alert_triggered.emit("🔔 ทดสอบการแจ้งเตือนงานด่วนจาก K.A.R.I.S.")
+                    return
+                elif btn and btn.startswith("todo_toggle_"):
+                    try:
+                        item_id = int(btn.split("_")[-1])
+                        from core.tools import manage_todo
+                        manage_todo("complete", item_id=item_id)
+                        self._load_todo_cache()
+                        self.update()
+                    except Exception as e:
+                        print(f"[DynamicIsland] Error toggling todo: {e}")
+                    return
+                elif btn and btn.startswith("todo_del_"):
+                    try:
+                        item_id = int(btn.split("_")[-1])
+                        from core.tools import manage_todo
+                        manage_todo("remove", item_id=item_id)
+                        self._load_todo_cache()
+                        self.update()
+                    except Exception as e:
+                        print(f"[DynamicIsland] Error deleting todo: {e}")
+                    return
+
+            # 4. Standard HUD and Top Bar Navigation
+            if btn == "todo_trigger":
+                self._todo_drawer_open = not self._todo_drawer_open
+                self._sync_child_widgets()
+                self._reset_auto_fold_timer()
+                self.update()
+                return
+
+            if btn == "tab_chat":
+                self._active_console_view = "chat"
+                self._sync_child_widgets()
+                self._reset_auto_fold_timer()
+                self.update()
+                return
+            elif btn == "tab_process":
+                self._active_console_view = "process"
+                self._sync_child_widgets()
+                self._reset_auto_fold_timer()
+                self.update()
+                return
+            elif btn == "btn_send":
+                self._on_send_chat()
+                self._reset_auto_fold_timer()
+                return
+
             if btn == "voice":
                 event_bus.toggle_voice_record_signal.emit()
                 self._reset_auto_fold_timer()
             elif btn == "chat":
-                event_bus.toggle_overlay_signal.emit()
+                if self._active_console_view != "chat":
+                    self._active_console_view = "chat"
+                    self._sync_child_widgets()
+                self.chat_input.setFocus()
                 self._reset_auto_fold_timer()
             elif btn == "wake":
                 self._on_toggle_wake_word()
                 self._reset_auto_fold_timer()
             elif btn == "menu":
-                global_pos = self.mapToGlobal(QPoint(int(296), int(self.height() + 2)))
+                global_pos = self.mapToGlobal(QPoint(int(754), int(36)))
                 self._show_context_menu(global_pos)
             else:
-                # Clicked on robot or background: if idle, fold back
-                if self.current_state == "idle":
+                # Clicked outside buttons: if click was outside the todo drawer when open, close drawer
+                if self._todo_drawer_open:
+                    drawer_rect = QRectF(158, 36, 460, 266)
+                    if not drawer_rect.contains(pos):
+                        self._todo_drawer_open = False
+                        self._sync_child_widgets()
+                        self.update()
+                        return
+                # If idle and clicked on background, fold back
+                if self.current_state == "idle" and not self._pending_approval_active and not self._pending_confirmation_active:
                     self.fold_manually()
 
     def on_state_changed(self, new_state: str):
@@ -727,16 +1056,17 @@ class DynamicIsland(QWidget):
         prev_state = self.current_state
         self.current_state = clean_state
 
-        # Adaptive FPS: 60 FPS for active states, 30 FPS for folded idle
+        # Adaptive FPS: 120 FPS for active states / expanded mode, 30 FPS for folded idle
         if self.current_state == "idle":
             self.render_timer.setInterval(33)  # 30 FPS
             self._custom_subtext = ""
             if not self._manually_expanded:
                 self.hide()
             else:
+                self.render_timer.setInterval(8)  # 120 FPS when expanded
                 self._reset_auto_fold_timer()
         else:
-            self.render_timer.setInterval(16)  # 60 FPS
+            self.render_timer.setInterval(8)  # 120 FPS
             # Single-Screen State Guard: only show island on the active cursor screen
             cursor_pos = QCursor.pos()
             active_scr = QGuiApplication.screenAt(cursor_pos) or (QApplication.instance().primaryScreen() if QApplication.instance() else None)
@@ -749,6 +1079,7 @@ class DynamicIsland(QWidget):
             self.raise_()
             self._apply_geometry_for_state(animated=True)
 
+        self._sync_child_widgets()
         self.update()
 
     def _on_task_log_updated(self, title: str, content: str):
@@ -761,13 +1092,17 @@ class DynamicIsland(QWidget):
             self.update()
 
     def _on_animation_tick(self):
-        """60 FPS / 30 FPS tick updating kinematics, quirks, and Chill Pixel Life standby."""
+        """120 FPS / 30 FPS tick updating 3D face, kinematics, quirks, and Chill Pixel Life standby."""
         now = time.time()
         t = now - self.start_time
 
+        # Update 3D Face Renderer (120 FPS dt ~ 0.008 when expanded)
+        dt = 0.008 if self.is_expanded else 0.033
+        if hasattr(self, "face_renderer"):
+            self.face_renderer.update(dt)
+
         # Update Chill Pixel Life standby engine (30 FPS dt ~ 0.033)
         if hasattr(self, "pixel_engine"):
-            dt = 0.016 if self.is_expanded else 0.033
             self.pixel_engine.update(dt)
 
         # Autonomous Quirks engine during idle or listening (expanded mode)
@@ -785,11 +1120,11 @@ class DynamicIsland(QWidget):
         self.update()
 
     # =========================================================================
-    # Pure Vector Graphics (QPainter Cyber Mini-Robot Avatar)
+    # Pure Vector Graphics (QPainter Cyber Mini-Robot Avatar & Unified HUD)
     # =========================================================================
 
     def paintEvent(self, event):
-        """Renders 60 FPS cyber capsule and animated vector robot avatar."""
+        """Renders 120 FPS Unified Cyber Command HUD and High-Poly 3D Face."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
@@ -800,12 +1135,10 @@ class DynamicIsland(QWidget):
 
         cfg = self.STATES.get(self.current_state, self.STATES["idle"])
         neon_color = cfg["color"]
-
         t = time.time() - self.start_time
 
-        # 2. Render Avatar / Standby Pill
+        # 1. Render Avatar / Standby Pill in Menu Bar (Folded)
         if is_folded:
-            # Standby Mode in Menu Bar: Chill Pixel Life & Pill Waveform (88x22)
             if hasattr(self, "pixel_engine"):
                 img = render_standby_frame(
                     self.pixel_engine,
@@ -830,192 +1163,453 @@ class DynamicIsland(QWidget):
                 painter.scale(scale_s, scale_s)
                 self._draw_cyber_robot(painter, t, cfg, is_mini=True)
                 painter.restore()
-        else:
-            # Expanded Mode: Capsule Background with Frosting & Cyber Border
-            rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
-            radius = 18.0
-            bg_color = QColor(7, 11, 19, 240)
-            border_pen = QPen(QColor(neon_color.red(), neon_color.green(), neon_color.blue(), 100), 1.2)
-            border_pen.setCosmetic(True)
-            painter.setBrush(QBrush(bg_color))
-            painter.setPen(border_pen)
-            painter.drawRoundedRect(rect, radius, radius)
+            return
 
-            # Expanded Mode: Full 48x48 animated avatar on the left
+        # 2. Expanded Mode: Unified Cyber Command HUD (820x430)
+        self._sync_child_widgets()
+
+        # Capsule Background with Cyber Border
+        rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
+        radius = 18.0
+        bg_color = QColor(7, 11, 19, 248)
+        border_pen = QPen(QColor(neon_color.red(), neon_color.green(), neon_color.blue(), 130), 1.2)
+        border_pen.setCosmetic(True)
+        painter.setBrush(QBrush(bg_color))
+        painter.setPen(border_pen)
+        painter.drawRoundedRect(rect, radius, radius)
+
+        # ---------------------------------------------------------------------
+        # Top Telemetry & Navigation Bar (y = 0..38)
+        # ---------------------------------------------------------------------
+        painter.setPen(QPen(QColor(255, 255, 255, 25), 1.0))
+        painter.drawLine(QPointF(14.0, 38.0), QPointF(w - 14.0, 38.0))
+
+        btns = self._get_buttons_map()
+
+        # [wake] button (Header / Standby Toggle)
+        b_wake = btns.get("wake", QRectF(14.0, 7.0, 136.0, 26.0))
+        is_hov_wake = (self._hovered_btn == "wake")
+        painter.save()
+        painter.setBrush(QBrush(QColor(0, 229, 255, 45) if is_hov_wake else QColor(10, 20, 34, 180)))
+        painter.setPen(QPen(QColor(0, 229, 255, 200) if is_hov_wake else QColor(0, 229, 255, 70), 1.0))
+        painter.drawRoundedRect(b_wake, 6.0, 6.0)
+        font_hdr = QFont("-apple-system", 9, QFont.Bold)
+        painter.setFont(font_hdr)
+        painter.setPen(QPen(QColor("#00E5FF"), 1))
+        painter.drawText(b_wake.adjusted(10, 0, -20, 0), Qt.AlignLeft | Qt.AlignVCenter, "◈ K.A.R.I.S. // JR.")
+        # Wake LED
+        wake_led_col = QColor("#00FFD1") if config.WAKE_TRIGGER_ENABLED else QColor("#94A3B8")
+        painter.setBrush(QBrush(wake_led_col))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(QPointF(b_wake.right() - 10.0, b_wake.center().y()), 3.0, 3.0)
+        painter.restore()
+
+        # [todo_trigger] button
+        b_todo = btns.get("todo_trigger", QRectF(158.0, 7.0, 134.0, 26.0))
+        is_hov_todo = (self._hovered_btn == "todo_trigger")
+        todo_active = getattr(self, "_todo_drawer_open", False)
+        inc_count = len([x for x in self._todos_cache if not x.get("done")])
+        painter.save()
+        todo_bg = QColor(0, 255, 209, 65) if (is_hov_todo or todo_active) else QColor(10, 28, 30, 180)
+        todo_bd = QColor(0, 255, 209, 230) if (is_hov_todo or todo_active) else QColor(0, 255, 209, 80)
+        painter.setBrush(QBrush(todo_bg))
+        painter.setPen(QPen(todo_bd, 1.0))
+        painter.drawRoundedRect(b_todo, 6.0, 6.0)
+        painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+        painter.setPen(QPen(QColor("#FFFFFF") if (is_hov_todo or todo_active) else QColor("#00FFD1"), 1))
+        painter.drawText(b_todo, Qt.AlignCenter, f"📝 LIVE TODO ({inc_count})")
+        painter.restore()
+
+        # [chat] button
+        b_chat = btns.get("chat", QRectF(300.0, 7.0, 96.0, 26.0))
+        is_hov_chat = (self._hovered_btn == "chat")
+        painter.save()
+        painter.setBrush(QBrush(QColor(56, 189, 248, 55) if is_hov_chat else QColor(10, 24, 38, 180)))
+        painter.setPen(QPen(QColor(56, 189, 248, 220) if is_hov_chat else QColor(56, 189, 248, 70), 1.0))
+        painter.drawRoundedRect(b_chat, 6.0, 6.0)
+        painter.setFont(QFont("-apple-system", 8, QFont.Medium))
+        painter.setPen(QPen(QColor("#F1F5F9"), 1))
+        painter.drawText(b_chat, Qt.AlignCenter, "💬 Chat")
+        painter.restore()
+
+        # [voice] button
+        b_voice = btns.get("voice", QRectF(404.0, 7.0, 96.0, 26.0))
+        is_hov_voice = (self._hovered_btn == "voice")
+        is_listen = (self.current_state == "listening")
+        painter.save()
+        v_bg = QColor(0, 255, 209, 70) if (is_listen or is_hov_voice) else QColor(10, 28, 32, 180)
+        v_bd = QColor(0, 255, 209, 240) if (is_listen or is_hov_voice) else QColor(0, 255, 209, 70)
+        painter.setBrush(QBrush(v_bg))
+        painter.setPen(QPen(v_bd, 1.0))
+        painter.drawRoundedRect(b_voice, 6.0, 6.0)
+        painter.setFont(QFont("-apple-system", 8, QFont.Medium))
+        painter.setPen(QPen(QColor("#FFFFFF") if (is_listen or is_hov_voice) else QColor("#E2E8F0"), 1))
+        painter.drawText(b_voice, Qt.AlignCenter, "🎙️ Voice")
+        painter.restore()
+
+        # Status text & mini live wave
+        painter.save()
+        painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+        painter.setPen(QPen(QColor("#94A3B8"), 1))
+        sub_text = self._custom_subtext if self._custom_subtext else cfg["status"]
+        painter.drawText(QRectF(510.0, 7.0, 210.0, 26.0), Qt.AlignLeft | Qt.AlignVCenter, f"• {sub_text}")
+
+        # Live wave bars
+        wave_x = 724.0
+        wave_y = 20.0
+        painter.setPen(Qt.NoPen)
+        for i in range(3):
+            bar_mult = 1.0 if self.current_state == "speaking" else (0.65 if self.current_state == "listening" else 0.25)
+            bar_h = 3.0 + abs(math.sin(t * (8.0 + i * 2.5) + i)) * 10.0 * bar_mult
+            bx = wave_x + i * 4.0
+            by = wave_y - bar_h / 2.0
+            painter.setBrush(QBrush(neon_color))
+            painter.drawRoundedRect(QRectF(bx, by, 2.0, bar_h), 1.0, 1.0)
+        painter.restore()
+
+        # [menu] button
+        b_menu = btns.get("menu", QRectF(754.0, 7.0, 52.0, 26.0))
+        is_hov_menu = (self._hovered_btn == "menu")
+        painter.save()
+        painter.setBrush(QBrush(QColor(148, 163, 184, 50) if is_hov_menu else QColor(15, 23, 42, 180)))
+        painter.setPen(QPen(QColor(148, 163, 184, 200) if is_hov_menu else QColor(100, 116, 139, 70), 1.0))
+        painter.drawRoundedRect(b_menu, 6.0, 6.0)
+        painter.setFont(QFont("-apple-system", 8, QFont.Medium))
+        painter.setPen(QPen(QColor("#E2E8F0"), 1))
+        painter.drawText(b_menu, Qt.AlignCenter, "⚙️ More")
+        painter.restore()
+
+        # ---------------------------------------------------------------------
+        # Left Column: Unified Console (x: 14..284, y: 44..416)
+        # ---------------------------------------------------------------------
+        console_rect = QRectF(14.0, 42.0, 270.0, 374.0)
+        painter.save()
+        painter.setBrush(QBrush(QColor(10, 16, 26, 220)))
+        painter.setPen(QPen(QColor(0, 229, 255, 45), 1.0))
+        painter.drawRoundedRect(console_rect, 8.0, 8.0)
+
+        # Console Tabs (Live Chat vs Process & Raw)
+        b_tab_chat = btns.get("tab_chat", QRectF(18.0, 46.0, 128.0, 24.0))
+        b_tab_proc = btns.get("tab_process", QRectF(152.0, 46.0, 128.0, 24.0))
+        is_chat_tab = (self._active_console_view == "chat")
+
+        # Chat tab
+        painter.setBrush(QBrush(QColor(0, 229, 255, 55) if is_chat_tab else QColor(15, 23, 38, 180)))
+        painter.setPen(QPen(QColor(0, 229, 255, 220) if is_chat_tab else QColor(255, 255, 255, 30), 1.0))
+        painter.drawRoundedRect(b_tab_chat, 5.0, 5.0)
+        painter.setFont(QFont("-apple-system", 8, QFont.Bold if is_chat_tab else QFont.Medium))
+        painter.setPen(QPen(QColor("#00E5FF") if is_chat_tab else QColor("#94A3B8"), 1))
+        painter.drawText(b_tab_chat, Qt.AlignCenter, "💬 Live Chat")
+
+        # Process tab
+        painter.setBrush(QBrush(QColor(0, 229, 255, 55) if not is_chat_tab else QColor(15, 23, 38, 180)))
+        painter.setPen(QPen(QColor(0, 229, 255, 220) if not is_chat_tab else QColor(255, 255, 255, 30), 1.0))
+        painter.drawRoundedRect(b_tab_proc, 5.0, 5.0)
+        painter.setFont(QFont("-apple-system", 8, QFont.Bold if not is_chat_tab else QFont.Medium))
+        painter.setPen(QPen(QColor("#00E5FF") if not is_chat_tab else QColor("#94A3B8"), 1))
+        painter.drawText(b_tab_proc, Qt.AlignCenter, "⚡ Process & Raw")
+
+        # Render Active Tab Content
+        if is_chat_tab:
+            # Chat history area
+            chat_stream_rect = QRectF(18.0, 74.0, 262.0, 304.0)
             painter.save()
-            painter.translate(8.0, 11.0)
-            self._draw_cyber_robot(painter, t, cfg, is_mini=False)
+            painter.setClipRect(chat_stream_rect)
+            recent_msgs = self._chat_messages[-5:]
+            cur_y = chat_stream_rect.bottom() - 8.0
+            for msg in reversed(recent_msgs):
+                is_user = (msg.get("sender") == "user")
+                bubble_color = QColor(15, 32, 54, 210) if is_user else QColor(10, 36, 42, 220)
+                border_color = QColor(56, 189, 248, 120) if is_user else QColor(0, 229, 255, 120)
+                sender_name = "Boss" if is_user else "Karis"
+                prefix_col = QColor("#38BDF8") if is_user else QColor("#00FFD1")
+
+                text_content = msg.get("text", "")
+                if len(text_content) > 58:
+                    text_content = text_content[:55] + "..."
+
+                b_h = 38.0
+                b_y = cur_y - b_h
+                b_box = QRectF(22.0, b_y, 254.0, b_h)
+
+                painter.setBrush(QBrush(bubble_color))
+                painter.setPen(QPen(border_color, 1.0))
+                painter.drawRoundedRect(b_box, 6.0, 6.0)
+
+                painter.setFont(QFont("-apple-system", 7, QFont.Bold))
+                painter.setPen(QPen(prefix_col, 1))
+                painter.drawText(QRectF(b_box.x() + 8, b_box.y() + 4, 180, 14), Qt.AlignLeft, f"{sender_name} • {msg.get('time', '')}")
+
+                painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+                painter.setPen(QPen(QColor("#E2E8F0"), 1))
+                painter.drawText(QRectF(b_box.x() + 8, b_box.y() + 18, 238, 16), Qt.AlignLeft, text_content)
+
+                cur_y = b_y - 6.0
+                if cur_y < chat_stream_rect.top():
+                    break
             painter.restore()
 
-            # Status Texts or Robot Speech Bubble (Top area)
-            text_x = 62.0
-            text_w = w - text_x - 30.0
-
-            show_bubble = bool(self._bubble_title and time.time() < self._bubble_expire_time)
-            if show_bubble:
-                # Robot Speech Bubble (Pure Vector QPainterPath pointing to robot)
-                rem = self._bubble_expire_time - time.time()
-                bubble_alpha = min(1.0, rem / 0.35) if rem < 0.35 else 1.0
-
-                bubble_rect = QRectF(text_x, 5.0, text_w, 33.0)
-                beak = QPainterPath()
-                beak.moveTo(text_x, 17.0)
-                beak.lineTo(text_x - 7.0, 21.0)
-                beak.lineTo(text_x, 25.0)
-                beak.closeSubpath()
-
-                bubble_path = QPainterPath()
-                bubble_path.addRoundedRect(bubble_rect, 6.0, 6.0)
-                bubble_path = bubble_path.united(beak)
-
-                bubble_bg = QColor(10, 16, 29, int(240 * bubble_alpha))
-                b_color = self._bubble_title_color
-                bubble_border = QColor(b_color.red(), b_color.green(), b_color.blue(), int(210 * bubble_alpha))
-
-                painter.save()
-                painter.setBrush(QBrush(bubble_bg))
-                b_pen = QPen(bubble_border, 1.2)
-                b_pen.setCosmetic(True)
-                painter.setPen(b_pen)
-                painter.drawPath(bubble_path)
-
-                # Bubble Title
-                font_b_title = painter.font()
-                font_b_title.setStyleHint(QFont.SansSerif)
-                font_b_title.setFamily("-apple-system")
-                font_b_title.setPointSize(8)
-                font_b_title.setWeight(QFont.Bold)
-                painter.setFont(font_b_title)
-                t_col = QColor(b_color.red(), b_color.green(), b_color.blue(), int(255 * bubble_alpha))
-                painter.setPen(QPen(t_col, 1))
-                painter.drawText(QRectF(text_x + 6.0, 7.0, text_w - 12.0, 14.0), Qt.AlignLeft | Qt.AlignVCenter, self._bubble_title)
-
-                # Bubble Subtext
-                font_b_sub = painter.font()
-                font_b_sub.setStyleHint(QFont.SansSerif)
-                font_b_sub.setFamily("-apple-system")
-                font_b_sub.setPointSize(7)
-                font_b_sub.setWeight(QFont.Medium)
-                painter.setFont(font_b_sub)
-                s_col = QColor(226, 232, 240, int(230 * bubble_alpha))
-                painter.setPen(QPen(s_col, 1))
-                painter.drawText(QRectF(text_x + 6.0, 21.0, text_w - 12.0, 14.0), Qt.AlignLeft | Qt.AlignVCenter, self._bubble_subtext or "")
-                painter.restore()
-            else:
-                # Title
-                painter.setPen(QPen(neon_color, 1))
-                font_title = painter.font()
-                font_title.setStyleHint(QFont.Monospace)
-                font_title.setFamily("Menlo")
-                font_title.setPointSize(9)
-                font_title.setWeight(QFont.Bold)
-                painter.setFont(font_title)
-                painter.drawText(QRectF(text_x, 8.0, 95.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, "K.A.R.I.S. // JR.")
-
-                # Status Text
-                painter.setPen(QPen(QColor("#F1F5F9"), 1))
-                font_status = painter.font()
-                font_status.setStyleHint(QFont.SansSerif)
-                font_status.setFamily("-apple-system")
-                font_status.setPointSize(9)
-                font_status.setWeight(QFont.Medium)
-                painter.setFont(font_status)
-                painter.drawText(QRectF(text_x + 92.0, 8.0, text_w - 92.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, f"• {cfg['status']}")
-
-                # Subtext
-                subtext_str = self._custom_subtext if self._custom_subtext else cfg["subtext"]
+            # [btn_send]
+            b_send = btns.get("btn_send", QRectF(238.0, 384.0, 42.0, 26.0))
+            is_hov_send = (self._hovered_btn == "btn_send")
+            painter.setBrush(QBrush(QColor(0, 229, 255, 75) if is_hov_send else QColor(0, 229, 255, 40)))
+            painter.setPen(QPen(QColor(0, 229, 255, 230) if is_hov_send else QColor(0, 229, 255, 120), 1.0))
+            painter.drawRoundedRect(b_send, 6.0, 6.0)
+            painter.setFont(QFont("-apple-system", 9, QFont.Bold))
+            painter.setPen(QPen(QColor("#00E5FF"), 1))
+            painter.drawText(b_send, Qt.AlignCenter, "🚀")
+        else:
+            # Process & Raw Logs
+            log_stream_rect = QRectF(18.0, 74.0, 262.0, 334.0)
+            painter.save()
+            painter.setClipRect(log_stream_rect)
+            recent_logs = self._process_logs[-11:]
+            log_y = log_stream_rect.top() + 4.0
+            painter.setFont(QFont("Menlo", 7, QFont.Normal))
+            for item in recent_logs:
+                painter.setPen(QPen(QColor("#00FFD1"), 1))
+                t_str = f"[{item.get('time', '')}]"
+                painter.drawText(QPointF(22.0, log_y + 10.0), t_str)
+                painter.setPen(QPen(QColor("#38BDF8"), 1))
+                painter.drawText(QPointF(84.0, log_y + 10.0), item.get('title', ''))
                 painter.setPen(QPen(QColor("#94A3B8"), 1))
-                font_sub = painter.font()
-                font_sub.setStyleHint(QFont.SansSerif)
-                font_sub.setFamily("-apple-system")
-                font_sub.setPointSize(8)
-                font_sub.setWeight(QFont.Normal)
-                painter.setFont(font_sub)
-                painter.drawText(QRectF(text_x, 24.0, text_w, 14.0), Qt.AlignLeft | Qt.AlignVCenter, subtext_str)
+                line_msg = item.get('msg', '')
+                if len(line_msg) > 34:
+                    line_msg = line_msg[:32] + ".."
+                painter.drawText(QPointF(22.0, log_y + 22.0), f"  {line_msg}")
+                log_y += 28.0
+                if log_y > log_stream_rect.bottom() - 10:
+                    break
+            painter.restore()
 
-            # Mini Live Wave Indicator (Top right edge)
-            wave_x = w - 24.0
-            wave_y = 15.0
-            painter.setPen(Qt.NoPen)
-            for i in range(3):
-                bar_mult = 1.0 if self.current_state == "speaking" else (0.65 if self.current_state == "listening" else 0.25)
-                bar_h = 3.0 + abs(math.sin(t * (8.0 + i * 2.5) + i)) * 10.0 * bar_mult
-                bx = wave_x + i * 4.0
-                by = wave_y - bar_h / 2.0
-                painter.setBrush(QBrush(neon_color))
-                painter.drawRoundedRect(QRectF(bx, by, 2.0, bar_h), 1.0, 1.0)
+        painter.restore()
 
-            # 3. Interactive Mode Selection Buttons (Bottom Row)
-            btns = self._get_buttons_map()
-            for name, b_rect in btns.items():
-                is_hover = (self._hovered_btn == name)
-                painter.save()
+        # ---------------------------------------------------------------------
+        # Right Column: High-Poly 3D Face Viewport (x: 294..806, y: 44..416)
+        # ---------------------------------------------------------------------
+        stage_rect = QRectF(294.0, 42.0, 512.0, 374.0)
+        painter.save()
+        painter.setBrush(QBrush(QColor(8, 14, 24, 200)))
+        painter.setPen(QPen(QColor(0, 229, 255, 45), 1.0))
+        painter.drawRoundedRect(stage_rect, 8.0, 8.0)
 
-                if name == "approve":
-                    label = "✓ Approve"
-                    accent = QColor("#00FFD1")
-                    bg_col = QColor(0, 255, 209, 65) if is_hover else QColor(10, 40, 35, 210)
-                    bd_col = QColor(0, 255, 209, 240) if is_hover else QColor(0, 255, 209, 140)
-                elif name == "reject":
-                    label = "✕ Reject"
-                    accent = QColor("#FB7185")
-                    bg_col = QColor(251, 113, 133, 65) if is_hover else QColor(40, 15, 25, 210)
-                    bd_col = QColor(251, 113, 133, 240) if is_hover else QColor(251, 113, 133, 140)
-                elif name == "voice":
-                    label = "🎙️ Voice"
-                    accent = QColor("#00FFD1")
-                    bg_col = QColor(0, 255, 209, 50) if is_hover else QColor(10, 28, 32, 190)
-                    bd_col = QColor(0, 255, 209, 220) if is_hover else QColor(0, 255, 209, 80)
-                elif name == "chat":
-                    label = "💬 Chat"
-                    accent = QColor("#38BDF8")
-                    bg_col = QColor(56, 189, 248, 50) if is_hover else QColor(10, 24, 38, 190)
-                    bd_col = QColor(56, 189, 248, 220) if is_hover else QColor(56, 189, 248, 80)
-                elif name == "wake":
-                    is_wake_on = config.WAKE_TRIGGER_ENABLED
-                    label = "⚡ Wake: ON" if is_wake_on else "⚡ Wake: OFF"
-                    accent = QColor("#00FFD1") if is_wake_on else QColor("#94A3B8")
-                    if is_wake_on:
-                        bg_col = QColor(0, 255, 209, 55) if is_hover else QColor(10, 32, 38, 210)
-                        bd_col = QColor(0, 255, 209, 240) if is_hover else QColor(0, 255, 209, 140)
-                        # Outer Glow for Active Wake Standby
-                        glow_pen = QPen(QColor(0, 255, 209, 45), 2.2)
-                        glow_pen.setCosmetic(True)
-                        painter.setPen(glow_pen)
-                        painter.setBrush(Qt.NoBrush)
-                        painter.drawRoundedRect(b_rect.adjusted(-1.5, -1.5, 1.5, 1.5), 7.0, 7.0)
-                    else:
-                        bg_col = QColor(148, 163, 184, 40) if is_hover else QColor(20, 24, 30, 190)
-                        bd_col = QColor(148, 163, 184, 180) if is_hover else QColor(100, 116, 139, 70)
-                else:  # menu
-                    label = "⚙️ More"
-                    accent = QColor("#94A3B8")
-                    bg_col = QColor(148, 163, 184, 50) if is_hover else QColor(15, 23, 42, 190)
-                    bd_col = QColor(148, 163, 184, 220) if is_hover else QColor(100, 116, 139, 70)
+        # Render 3D High-Poly Face HUD (120 FPS Perspective & Orbital Rings)
+        if hasattr(self, "face_renderer"):
+            self.face_renderer.render(
+                painter,
+                cx=550.0,
+                cy=205.0,
+                scale=2.7,
+                state=self.current_state
+            )
 
-                painter.setBrush(QBrush(bg_col))
-                painter.setPen(QPen(bd_col, 1))
-                painter.drawRoundedRect(b_rect, 6.0, 6.0)
+        # Speech Bubble pointing from 3D Face
+        show_bubble = bool(self._bubble_title and time.time() < self._bubble_expire_time)
+        if show_bubble:
+            rem = self._bubble_expire_time - time.time()
+            bubble_alpha = min(1.0, rem / 0.35) if rem < 0.35 else 1.0
+            bubble_rect = QRectF(308.0, 50.0, 484.0, 44.0)
 
-                font_btn = painter.font()
-                font_btn.setStyleHint(QFont.SansSerif)
-                font_btn.setFamily("-apple-system")
-                font_btn.setPointSize(8)
-                font_btn.setWeight(QFont.Bold if is_hover else QFont.Medium)
-                painter.setFont(font_btn)
-                text_col = QColor("#FFFFFF") if is_hover else (accent if name == "wake" else QColor("#E2E8F0"))
-                painter.setPen(QPen(text_col, 1))
-                painter.drawText(b_rect, Qt.AlignCenter, label)
+            beak = QPainterPath()
+            beak.moveTo(520.0, 94.0)
+            beak.lineTo(540.0, 110.0)
+            beak.lineTo(544.0, 94.0)
+            beak.closeSubpath()
 
-                if name == "wake" and is_wake_on:
-                    # Draw mini mint status LED on top-right of wake button
-                    dot_x = b_rect.right() - 8.0
-                    dot_y = b_rect.top() + 6.0
-                    painter.setPen(Qt.NoPen)
-                    painter.setBrush(QBrush(QColor("#00FFD1")))
-                    painter.drawEllipse(QPointF(dot_x, dot_y), 2.0, 2.0)
+            bubble_path = QPainterPath()
+            bubble_path.addRoundedRect(bubble_rect, 8.0, 8.0)
+            bubble_path = bubble_path.united(beak)
 
-                painter.restore()
+            b_bg = QColor(10, 18, 32, int(245 * bubble_alpha))
+            b_col = self._bubble_title_color
+            b_bd = QColor(b_col.red(), b_col.green(), b_col.blue(), int(220 * bubble_alpha))
+
+            painter.setBrush(QBrush(b_bg))
+            painter.setPen(QPen(b_bd, 1.2))
+            painter.drawPath(bubble_path)
+
+            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setPen(QPen(QColor(b_col.red(), b_col.green(), b_col.blue(), int(255 * bubble_alpha)), 1))
+            painter.drawText(QRectF(316.0, 54.0, 468.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, self._bubble_title)
+
+            painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+            painter.setPen(QPen(QColor(226, 232, 240, int(230 * bubble_alpha)), 1))
+            painter.drawText(QRectF(316.0, 70.0, 468.0, 18.0), Qt.AlignLeft | Qt.AlignVCenter, self._bubble_subtext or "")
+
+        # Decision Cards (Ambiguity Confirmation vs Owner Approval Gate)
+        if getattr(self, "_pending_confirmation_active", False):
+            # Deterministic Ambiguity Confirmation Card
+            card_rect = QRectF(314.0, 272.0, 472.0, 134.0)
+            painter.setBrush(QBrush(QColor(12, 20, 32, 248)))
+            painter.setPen(QPen(QColor(251, 191, 36, 230), 1.4))
+            painter.drawRoundedRect(card_rect, 10.0, 10.0)
+
+            painter.setFont(QFont("-apple-system", 9, QFont.Bold))
+            painter.setPen(QPen(QColor("#FBBF24"), 1))
+            painter.drawText(QRectF(326.0, 278.0, 448.0, 18.0), Qt.AlignLeft | Qt.AlignVCenter, "◈ K.A.R.I.S. SMART AMBIGUITY CONFIRMATION")
+
+            raw_txt = self._pending_confirmation_info.get("raw_stt", "")
+            q_txt = self._pending_confirmation_info.get("question_text", "")
+            inferred = self._pending_confirmation_info.get("inferred_intent", "")
+
+            painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+            painter.setPen(QPen(QColor("#94A3B8"), 1))
+            painter.drawText(QRectF(326.0, 300.0, 448.0, 16.0), Qt.AlignLeft, f"ตรวจพบเสียงรบกวน/ไม่ชัดเจน: \"{raw_txt}\"")
+
+            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setPen(QPen(QColor("#00FFD1"), 1))
+            painter.drawText(QRectF(326.0, 320.0, 448.0, 18.0), Qt.AlignLeft, f"ยืนยันดำเนินการ: \"{inferred}\"")
+
+            painter.setFont(QFont("-apple-system", 8, QFont.Medium))
+            painter.setPen(QPen(QColor("#F1F5F9"), 1))
+            painter.drawText(QRectF(326.0, 342.0, 448.0, 18.0), Qt.AlignLeft, f"คำถาม: {q_txt}")
+
+            # Buttons [confirm_yes] and [confirm_no]
+            b_yes = btns.get("confirm_yes", QRectF(326.0, 368.0, 218.0, 30.0))
+            b_no = btns.get("confirm_no", QRectF(556.0, 368.0, 218.0, 30.0))
+            is_hov_yes = (self._hovered_btn == "confirm_yes")
+            is_hov_no = (self._hovered_btn == "confirm_no")
+
+            painter.setBrush(QBrush(QColor(0, 255, 209, 75) if is_hov_yes else QColor(10, 40, 35, 220)))
+            painter.setPen(QPen(QColor(0, 255, 209, 240) if is_hov_yes else QColor(0, 255, 209, 120), 1.0))
+            painter.drawRoundedRect(b_yes, 6.0, 6.0)
+            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setPen(QPen(QColor("#FFFFFF") if is_hov_yes else QColor("#00FFD1"), 1))
+            painter.drawText(b_yes, Qt.AlignCenter, "✓ ใช่, ดำเนินการเลย")
+
+            painter.setBrush(QBrush(QColor(251, 113, 133, 75) if is_hov_no else QColor(40, 15, 25, 220)))
+            painter.setPen(QPen(QColor(251, 113, 133, 240) if is_hov_no else QColor(251, 113, 133, 120), 1.0))
+            painter.drawRoundedRect(b_no, 6.0, 6.0)
+            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setPen(QPen(QColor("#FFFFFF") if is_hov_no else QColor("#FB7185"), 1))
+            painter.drawText(b_no, Qt.AlignCenter, "✕ ไม่ใช่ / ยกเลิก")
+
+        elif getattr(self, "_pending_approval_active", False):
+            # Owner Approval Gate Card
+            card_rect = QRectF(314.0, 274.0, 472.0, 134.0)
+            painter.setBrush(QBrush(QColor(24, 12, 20, 248)))
+            painter.setPen(QPen(QColor(251, 113, 133, 230), 1.4))
+            painter.drawRoundedRect(card_rect, 10.0, 10.0)
+
+            painter.setFont(QFont("-apple-system", 9, QFont.Bold))
+            painter.setPen(QPen(QColor("#FB7185"), 1))
+            painter.drawText(QRectF(326.0, 282.0, 448.0, 18.0), Qt.AlignLeft | Qt.AlignVCenter, "⚠️ OWNER APPROVAL REQUIRED")
+
+            prompt_str = self._pending_approval_info.get("prompt", "ระบบต้องการยืนยันก่อนรันคำสั่ง")
+            painter.setFont(QFont("-apple-system", 8, QFont.Medium))
+            painter.setPen(QPen(QColor("#F1F5F9"), 1))
+            painter.drawText(QRectF(326.0, 310.0, 448.0, 42.0), Qt.AlignLeft | Qt.TextWordWrap, prompt_str)
+
+            # Buttons [approve] and [reject]
+            b_appr = btns.get("approve", QRectF(326.0, 368.0, 218.0, 30.0))
+            b_rej = btns.get("reject", QRectF(556.0, 368.0, 218.0, 30.0))
+            is_hov_appr = (self._hovered_btn == "approve")
+            is_hov_rej = (self._hovered_btn == "reject")
+
+            painter.setBrush(QBrush(QColor(0, 255, 209, 75) if is_hov_appr else QColor(10, 40, 35, 220)))
+            painter.setPen(QPen(QColor(0, 255, 209, 240) if is_hov_appr else QColor(0, 255, 209, 120), 1.0))
+            painter.drawRoundedRect(b_appr, 6.0, 6.0)
+            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setPen(QPen(QColor("#FFFFFF") if is_hov_appr else QColor("#00FFD1"), 1))
+            painter.drawText(b_appr, Qt.AlignCenter, "✓ Approve")
+
+            painter.setBrush(QBrush(QColor(251, 113, 133, 75) if is_hov_rej else QColor(40, 15, 25, 220)))
+            painter.setPen(QPen(QColor(251, 113, 133, 240) if is_hov_rej else QColor(251, 113, 133, 120), 1.0))
+            painter.drawRoundedRect(b_rej, 6.0, 6.0)
+            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setPen(QPen(QColor("#FFFFFF") if is_hov_rej else QColor("#FB7185"), 1))
+            painter.drawText(b_rej, Qt.AlignCenter, "✕ Reject")
+
+        painter.restore()
+
+        # ---------------------------------------------------------------------
+        # Overlay: Live Todo Accordion Drawer (when _todo_drawer_open is True)
+        # ---------------------------------------------------------------------
+        if getattr(self, "_todo_drawer_open", False):
+            d_rect = QRectF(158.0, 36.0, 460.0, 266.0)
+            painter.save()
+            painter.setBrush(QBrush(QColor(8, 16, 28, 252)))
+            painter.setPen(QPen(QColor(0, 255, 209, 200), 1.4))
+            painter.drawRoundedRect(d_rect, 10.0, 10.0)
+
+            # Drawer Title
+            painter.setFont(QFont("-apple-system", 9, QFont.Bold))
+            painter.setPen(QPen(QColor("#00FFD1"), 1))
+            painter.drawText(QRectF(170.0, 42.0, 300.0, 20.0), Qt.AlignLeft | Qt.AlignVCenter, "📝 LIVE TODO & REMINDER ACCORDION DRAWER")
+
+            # [btn_todo_add]
+            b_add = btns.get("btn_todo_add", QRectF(516.0, 68.0, 80.0, 24.0))
+            is_hov_add = (self._hovered_btn == "btn_todo_add")
+            painter.setBrush(QBrush(QColor(0, 255, 209, 60) if is_hov_add else QColor(10, 34, 38, 200)))
+            painter.setPen(QPen(QColor(0, 255, 209, 230) if is_hov_add else QColor(0, 255, 209, 100), 1.0))
+            painter.drawRoundedRect(b_add, 5.0, 5.0)
+            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setPen(QPen(QColor("#FFFFFF") if is_hov_add else QColor("#00FFD1"), 1))
+            painter.drawText(b_add, Qt.AlignCenter, "+ เพิ่ม")
+
+            # Todo list items
+            todos = self._todos_cache[:5]
+            if not todos:
+                painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+                painter.setPen(QPen(QColor("#94A3B8"), 1))
+                painter.drawText(QRectF(170.0, 108.0, 420.0, 24.0), Qt.AlignCenter, "ขณะนี้ไม่มีรายการ Todo ค้างอยู่ครับบอส")
+            else:
+                for idx, item in enumerate(todos):
+                    item_y = 98.0 + idx * 30.0
+                    item_id = item.get("id", idx)
+                    is_done = bool(item.get("done"))
+
+                    b_tgl = btns.get(f"todo_toggle_{item_id}", QRectF(170.0, item_y, 22.0, 22.0))
+                    b_del = btns.get(f"todo_del_{item_id}", QRectF(572.0, item_y, 22.0, 22.0))
+                    is_hov_tgl = (self._hovered_btn == f"todo_toggle_{item_id}")
+                    is_hov_del = (self._hovered_btn == f"todo_del_{item_id}")
+
+                    # Toggle checkbox
+                    painter.setBrush(QBrush(QColor(0, 255, 209, 65) if is_done else (QColor(0, 255, 209, 30) if is_hov_tgl else QColor(15, 24, 38, 200))))
+                    painter.setPen(QPen(QColor(0, 255, 209, 200) if is_done else QColor(100, 116, 139, 100), 1.0))
+                    painter.drawRoundedRect(b_tgl, 4.0, 4.0)
+                    if is_done:
+                        painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+                        painter.setPen(QPen(QColor("#00FFD1"), 1))
+                        painter.drawText(b_tgl, Qt.AlignCenter, "✓")
+
+                    # Text
+                    text_str = item.get("text", "")
+                    if len(text_str) > 42:
+                        text_str = text_str[:40] + "..."
+                    painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+                    painter.setPen(QPen(QColor("#64748B") if is_done else QColor("#F1F5F9"), 1))
+                    painter.drawText(QRectF(198.0, item_y, 368.0, 22.0), Qt.AlignLeft | Qt.AlignVCenter, text_str)
+
+                    # Delete button
+                    painter.setBrush(QBrush(QColor(251, 113, 133, 60) if is_hov_del else QColor(25, 15, 25, 180)))
+                    painter.setPen(QPen(QColor(251, 113, 133, 200) if is_hov_del else QColor(251, 113, 133, 70), 1.0))
+                    painter.drawRoundedRect(b_del, 4.0, 4.0)
+                    painter.setFont(QFont("-apple-system", 7, QFont.Bold))
+                    painter.setPen(QPen(QColor("#FB7185"), 1))
+                    painter.drawText(b_del, Qt.AlignCenter, "✕")
+
+            # Bottom row controls
+            b_alert = btns.get("btn_todo_alert", QRectF(170.0, 262.0, 150.0, 22.0))
+            b_close = btns.get("btn_todo_close", QRectF(520.0, 262.0, 76.0, 22.0))
+            is_hov_alert = (self._hovered_btn == "btn_todo_alert")
+            is_hov_close = (self._hovered_btn == "btn_todo_close")
+
+            painter.setBrush(QBrush(QColor(251, 191, 36, 50) if is_hov_alert else QColor(20, 24, 35, 180)))
+            painter.setPen(QPen(QColor(251, 191, 36, 200) if is_hov_alert else QColor(251, 191, 36, 80), 1.0))
+            painter.drawRoundedRect(b_alert, 4.0, 4.0)
+            painter.setFont(QFont("-apple-system", 7, QFont.Bold))
+            painter.setPen(QPen(QColor("#FBBF24"), 1))
+            painter.drawText(b_alert, Qt.AlignCenter, "🔔 ทดสอบแจ้งเตือน")
+
+            painter.setBrush(QBrush(QColor(148, 163, 184, 50) if is_hov_close else QColor(20, 24, 35, 180)))
+            painter.setPen(QPen(QColor(148, 163, 184, 180) if is_hov_close else QColor(100, 116, 139, 70), 1.0))
+            painter.drawRoundedRect(b_close, 4.0, 4.0)
+            painter.setFont(QFont("-apple-system", 7, QFont.Medium))
+            painter.setPen(QPen(QColor("#E2E8F0"), 1))
+            painter.drawText(b_close, Qt.AlignCenter, "▲ ปิด")
+
+            painter.restore()
 
     def _draw_cyber_robot(self, painter: QPainter, t: float, cfg: Dict[str, Any], is_mini: bool = False):
         """

@@ -27,6 +27,7 @@ from core.event_bus import event_bus
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MEMORY_DIR = PROJECT_ROOT / "memory"
 JARVIS_MEMORY_FILE = MEMORY_DIR / "jarvis_memory.json"
+TODO_ITEMS_FILE = MEMORY_DIR / "todo_items.json"
 
 # Global references set once at initialization
 _antigravity_bridge = None
@@ -642,6 +643,141 @@ def click_and_type(target_description: str, text: str, press_enter: bool = False
 
 
 # ============================================================================
+# 10. manage_todo
+# ============================================================================
+def manage_todo(action: str, text: Optional[str] = None, item_id: Optional[int] = None) -> str:
+    """
+    Manages persistent user todo items and reminders in memory/todo_items.json.
+    Supported actions: 'add', 'list', 'complete', 'remove'.
+
+    Args:
+        action: The operation to perform ('add', 'list', 'complete', 'remove').
+        text: The todo description text (required for 'add').
+        item_id: The integer ID of the todo item (required for 'complete' or 'remove').
+    """
+    def _load_todos() -> List[Dict[str, Any]]:
+        if not TODO_ITEMS_FILE.exists():
+            return []
+        try:
+            with open(TODO_ITEMS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+
+    def _save_todos(items: List[Dict[str, Any]]):
+        TODO_ITEMS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(TODO_ITEMS_FILE, "w", encoding="utf-8") as f:
+            json.dump(items, f, ensure_ascii=False, indent=2)
+
+    clean_action = (action or "").strip().lower()
+    todos = _load_todos()
+
+    if clean_action == "add":
+        if not text or not text.strip():
+            return "ข้อผิดพลาด: กรุณาระบุข้อความสิ่งที่ต้องการให้จำในพารามิเตอร์ text"
+        new_item = {
+            "id": int(time.time() * 1000),
+            "text": text.strip(),
+            "done": False,
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        todos.insert(0, new_item)
+        _save_todos(todos)
+        event_bus.todo_updated.emit()
+        msg = f"บันทึกสิ่งที่ต้องทำ: '{text.strip()}' เรียบร้อยแล้วครับบอส"
+        event_bus.task_log_updated.emit("Todo Tool", msg)
+        return msg
+
+    elif clean_action == "list":
+        if not todos:
+            return "ขณะนี้ไม่มีรายการ Todo ค้างอยู่ครับบอส"
+        lines = ["📌 รายการ Live Todo ทั้งหมด:"]
+        for t in todos:
+            status = "✓ [เสร็จแล้ว]" if t.get("done") else "○ [ค้างอยู่]"
+            lines.append(f"- ID {t.get('id')}: {status} {t.get('text')}")
+        return "\n".join(lines)
+
+    elif clean_action == "complete":
+        if item_id is None:
+            # If item_id not provided, match by text substring if text provided
+            matched = False
+            if text:
+                for t in todos:
+                    if text.strip().lower() in t.get("text", "").lower() and not t.get("done"):
+                        t["done"] = True
+                        matched = True
+                        item_id = t.get("id")
+                        break
+            if not matched:
+                return "ข้อผิดพลาด: กรุณาระบุ item_id ของงานที่ทำเสร็จแล้ว"
+        else:
+            found = False
+            for t in todos:
+                if t.get("id") == item_id:
+                    t["done"] = True
+                    found = True
+                    break
+            if not found:
+                return f"ไม่พบรายการ Todo ที่มี ID {item_id}"
+
+        _save_todos(todos)
+        event_bus.todo_updated.emit()
+        msg = f"ติ๊กทำรายการ ID {item_id} เสร็จเรียบร้อยแล้วครับบอส"
+        event_bus.task_log_updated.emit("Todo Tool", msg)
+        return msg
+
+    elif clean_action == "remove":
+        if item_id is None:
+            if text:
+                initial_len = len(todos)
+                todos = [t for t in todos if text.strip().lower() not in t.get("text", "").lower()]
+                if len(todos) < initial_len:
+                    _save_todos(todos)
+                    event_bus.todo_updated.emit()
+                    return f"ลบรายการที่ตรงกับ '{text}' เรียบร้อยแล้วครับบอส"
+            return "ข้อผิดพลาด: กรุณาระบุ item_id ของงานที่ต้องการลบ"
+
+        initial_len = len(todos)
+        todos = [t for t in todos if t.get("id") != item_id]
+        if len(todos) == initial_len:
+            return f"ไม่พบรายการ Todo ที่มี ID {item_id}"
+
+        _save_todos(todos)
+        event_bus.todo_updated.emit()
+        msg = f"ลบรายการ Todo ID {item_id} เรียบร้อยแล้วครับบอส"
+        event_bus.task_log_updated.emit("Todo Tool", msg)
+        return msg
+
+    return f"ไม่รู้จักคำสั่ง '{action}' ใน manage_todo (รองรับเฉพาะ: add, list, complete, remove)"
+
+
+# ============================================================================
+# 11. ask_clarification
+# ============================================================================
+def ask_clarification(raw_stt: str, inferred_intent: str, question_text: str) -> str:
+    """
+    Deterministic Ambiguity Confirmation Tool:
+    Invoked when user speech is garbled, noisy, or ambiguous.
+    Records pending confirmation in workflow state and displays interactive confirmation card on HUD.
+    Never recites the distorted words aloud.
+
+    Args:
+        raw_stt: The raw distorted phonetic transcript captured by STT.
+        inferred_intent: The best logical intent inferred by the AI brain.
+        question_text: The polite clarifying question proposing the inferred action to the user.
+    """
+    try:
+        from core.brain import set_pending_confirmation
+        set_pending_confirmation(raw_stt=raw_stt, inferred_intent=inferred_intent)
+    except Exception as e:
+        print(f"[Tools] Note setting pending confirmation: {e}")
+
+    event_bus.confirmation_requested.emit(raw_stt, inferred_intent, question_text)
+    event_bus.task_log_updated.emit("Ambiguity Confirmation", f"ถามยืนยัน: '{question_text}'")
+    return f"ระบบแสดงการ์ดยืนยันคำสั่ง: '{inferred_intent}' บนหน้าจอ พร้อมถามบอสว่า: '{question_text}'"
+
+
+# ============================================================================
 # Static Registry of Native macOS Tools
 # ============================================================================
 AVAILABLE_TOOLS = [
@@ -654,6 +790,8 @@ AVAILABLE_TOOLS = [
     click_on_screen,
     type_text_on_screen,
     click_and_type,
+    manage_todo,
+    ask_clarification,
 ]
 
 # Quick dispatch lookup map for native tools

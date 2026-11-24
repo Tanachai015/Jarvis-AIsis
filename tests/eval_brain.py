@@ -163,5 +163,116 @@ class TestOwnerApprovalGate(unittest.TestCase):
             self.assertEqual(action, "approval_rejected")
 
 
+class TestLiveTodoAndClarificationTools(unittest.TestCase):
+    """Verifies manage_todo and ask_clarification native tools (v2.1.0)."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.mock_memory = Path(self.temp_dir.name)
+        self.todo_file = self.mock_memory / "todo_items.json"
+        self.workflow_file = self.mock_memory / "workflow_state.json"
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_manage_todo_lifecycle(self):
+        """Verifies add, list, complete, remove actions in manage_todo."""
+        import core.tools as tools_mod
+
+        with patch.object(tools_mod, "JARVIS_MEMORY_FILE", self.mock_memory / "jarvis_memory.json"), \
+             patch.object(tools_mod, "TODO_ITEMS_FILE", self.todo_file):
+
+            # 1. Add todo item
+            res_add = tools_mod.manage_todo(action="add", text="ส่งสรุปงาน v2.1.0 ให้บอส")
+            self.assertIn("ส่งสรุปงาน v2.1.0", res_add)
+            self.assertTrue(self.todo_file.exists())
+
+            # 2. List items
+            res_list = tools_mod.manage_todo(action="list")
+            self.assertIn("ส่งสรุปงาน v2.1.0", res_list)
+
+            # Read raw file to get ID
+            with open(self.todo_file, "r", encoding="utf-8") as f:
+                items = json.load(f)
+            self.assertEqual(len(items), 1)
+            item_id = items[0]["id"]
+            self.assertFalse(items[0]["done"])
+
+            # 3. Complete item
+            res_comp = tools_mod.manage_todo(action="complete", item_id=item_id)
+            self.assertIn("เรียบร้อย", res_comp)
+            with open(self.todo_file, "r", encoding="utf-8") as f:
+                items = json.load(f)
+            self.assertTrue(items[0]["done"])
+
+            # 4. Remove item
+            res_rem = tools_mod.manage_todo(action="remove", item_id=item_id)
+            self.assertIn("ลบ", res_rem)
+            with open(self.todo_file, "r", encoding="utf-8") as f:
+                items = json.load(f)
+            self.assertEqual(len(items), 0)
+
+    def test_ask_clarification_tool(self):
+        """Verifies ask_clarification sets pending_confirmation and emits signal."""
+        import core.tools as tools_mod
+        import core.brain as brain_mod
+
+        with patch.object(brain_mod, "WORKFLOW_STATE_FILE", self.workflow_file):
+            emitted_signals = []
+            def _on_conf(raw, inf, q):
+                emitted_signals.append((raw, inf, q))
+            event_bus.confirmation_requested.connect(_on_conf)
+
+            try:
+                res = tools_mod.ask_clarification(
+                    raw_stt="เป็ด แอป เทอร์มีแนล",
+                    inferred_intent="เปิดแอป Terminal",
+                    question_text="คำสั่งไม่ค่อยชัดเจนครับ บอสหมายถึง 'เปิดแอป Terminal' ใช่ไหมครับ?"
+                )
+                self.assertIn("Terminal", res)
+                self.assertEqual(len(emitted_signals), 1)
+                self.assertEqual(emitted_signals[0][0], "เป็ด แอป เทอร์มีแนล")
+                self.assertEqual(emitted_signals[0][1], "เปิดแอป Terminal")
+
+                # State must be pending confirmation
+                state = brain_mod.load_workflow_state()
+                self.assertTrue(state["pending_confirmation"]["active"])
+                self.assertEqual(state["pending_confirmation"]["inferred_intent"], "เปิดแอป Terminal")
+            finally:
+                event_bus.confirmation_requested.disconnect(_on_conf)
+
+
+class TestHighPoly3DRenderer(unittest.TestCase):
+    """Verifies HighPolyKarisRenderer 3D mesh (49 vertices, 80+ triangles, QPainter zero-crash)."""
+
+    def test_renderer_structure_and_paint(self):
+        """Verifies HighPolyKarisRenderer math and rendering across all robot states."""
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QPixmap, QPainter
+        from ui.polygon_face import HighPolyKarisRenderer
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        renderer = HighPolyKarisRenderer()
+
+        # Verify mesh density
+        self.assertGreaterEqual(len(renderer.VERTICES), 46, "Renderer must have at least 46-49 vertices")
+        self.assertGreaterEqual(len(renderer.TRIANGLES), 60, "Renderer must have 60-80+ triangles")
+
+        # Verify Gaze Target methods
+        renderer.set_gaze_target(0.3, -0.2)
+        self.assertEqual(renderer.target_yaw, 0.3)
+        self.assertEqual(renderer.target_pitch, -0.2)
+        renderer.reset_gaze()
+        self.assertEqual(renderer.target_yaw, 0.0)
+        self.assertEqual(renderer.target_pitch, 0.0)
+
+        # Verify QPainter zero-crash rendering across all states
+        pix = QPixmap(520, 380)
+        painter = QPainter(pix)
+        for st in ["idle", "listening", "thinking", "running_tool", "speaking", "wake_ack", "confused"]:
+            renderer.render(painter, width=520, height=380, state=st, now=1.0)
+        painter.end()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
