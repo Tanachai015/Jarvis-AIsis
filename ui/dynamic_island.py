@@ -1397,10 +1397,13 @@ class DynamicIsland(QWidget):
         if hasattr(self, "face_renderer"):
             self.face_renderer.render(
                 painter,
+                width=512,
+                height=374,
+                state=self.current_state,
+                now=time.time(),
                 cx=550.0,
-                cy=205.0,
-                scale=2.7,
-                state=self.current_state
+                cy=218.0,
+                scale=20.0
             )
 
         # Speech Bubble pointing from 3D Face
