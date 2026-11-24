@@ -697,24 +697,28 @@ def manage_todo(action: str, text: Optional[str] = None, item_id: Optional[int] 
             lines.append(f"- ID {t.get('id')}: {status} {t.get('text')}")
         return "\n".join(lines)
 
-    elif clean_action == "complete":
+    elif clean_action in ("complete", "uncomplete", "toggle"):
         if item_id is None:
             # If item_id not provided, match by text substring if text provided
             matched = False
             if text:
                 for t in todos:
-                    if text.strip().lower() in t.get("text", "").lower() and not t.get("done"):
-                        t["done"] = True
+                    if text.strip().lower() in t.get("text", "").lower():
+                        if clean_action == "complete" and t.get("done"):
+                            continue
+                        if clean_action == "uncomplete" and not t.get("done"):
+                            continue
+                        t["done"] = (not t.get("done")) if clean_action == "toggle" else (clean_action == "complete")
                         matched = True
                         item_id = t.get("id")
                         break
             if not matched:
-                return "ข้อผิดพลาด: กรุณาระบุ item_id ของงานที่ทำเสร็จแล้ว"
+                return "ข้อผิดพลาด: กรุณาระบุ item_id ของงานที่ต้องการอัปเดต"
         else:
             found = False
             for t in todos:
                 if t.get("id") == item_id:
-                    t["done"] = True
+                    t["done"] = (not t.get("done")) if clean_action == "toggle" else (clean_action == "complete")
                     found = True
                     break
             if not found:
@@ -722,7 +726,8 @@ def manage_todo(action: str, text: Optional[str] = None, item_id: Optional[int] 
 
         _save_todos(todos)
         event_bus.todo_updated.emit()
-        msg = f"ติ๊กทำรายการ ID {item_id} เสร็จเรียบร้อยแล้วครับบอส"
+        is_now_done = next((bool(x.get("done")) for x in todos if x.get("id") == item_id), True)
+        msg = f"ติ๊กทำรายการ ID {item_id} {'เสร็จเรียบร้อย' if is_now_done else 'กลับมาเป็นค้างอยู่'} แล้วครับบอส"
         event_bus.task_log_updated.emit("Todo Tool", msg)
         return msg
 

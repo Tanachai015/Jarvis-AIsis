@@ -12,7 +12,7 @@ import json
 from typing import Optional, Dict, Any, List
 
 from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPoint, QPropertyAnimation, QEasingCurve, Property, QBuffer, QIODevice
-from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QPen, QBrush, QGuiApplication, QScreen, QCursor, QPolygonF
+from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QFontMetrics, QPen, QBrush, QGuiApplication, QScreen, QCursor, QPolygonF
 from PySide6.QtWidgets import QWidget, QApplication, QMenu, QLineEdit
 
 import config
@@ -540,15 +540,15 @@ class DynamicIsland(QWidget):
         self._apply_geometry_for_state(animated=False)
 
     def _reset_auto_fold_timer(self):
-        """Restarts or stops auto-fold timer."""
+        """Restarts or stops auto-fold timer. Manual HUD expansion stays open until user closes it."""
         if self._auto_fold_timer.isActive():
             self._auto_fold_timer.stop()
-        if self.current_state == "idle":
+        if self.current_state == "idle" and not self._manually_expanded:
             self._auto_fold_timer.start(12000)
 
     def _on_auto_fold_timeout(self):
-        """Folds manually expanded island back to menu bar after inactivity."""
-        if self.current_state == "idle" and self._manually_expanded:
+        """Folds auto-popped notification bubble back to menu bar (never folds manual HUD)."""
+        if self.current_state == "idle" and not self._manually_expanded:
             self.fold_manually()
 
     def expand_manually(self):
@@ -983,7 +983,7 @@ class DynamicIsland(QWidget):
                     try:
                         item_id = int(btn.split("_")[-1])
                         from core.tools import manage_todo
-                        manage_todo("complete", item_id=item_id)
+                        manage_todo("toggle", item_id=item_id)
                         self._load_todo_cache()
                         self.update()
                     except Exception as e:
@@ -1327,34 +1327,47 @@ class DynamicIsland(QWidget):
             chat_stream_rect = QRectF(18.0, 74.0, 262.0, 304.0)
             painter.save()
             painter.setClipRect(chat_stream_rect)
-            recent_msgs = self._chat_messages[-5:]
+            recent_msgs = self._chat_messages[-12:]
             cur_y = chat_stream_rect.bottom() - 8.0
+            fm_msg = QFontMetrics(self._font_norm_8)
+            max_bw = 208.0
+            max_text_w = int(max_bw - 16.0)
+
             for msg in reversed(recent_msgs):
                 is_user = (msg.get("sender") == "user")
-                bubble_color = QColor(15, 32, 54, 210) if is_user else QColor(10, 36, 42, 220)
-                border_color = QColor(56, 189, 248, 120) if is_user else QColor(0, 229, 255, 120)
+                bubble_color = QColor(18, 42, 74, 225) if is_user else QColor(8, 34, 40, 225)
+                border_color = QColor(56, 189, 248, 160) if is_user else QColor(0, 229, 255, 145)
                 sender_name = "Boss" if is_user else "Karis"
                 prefix_col = QColor("#38BDF8") if is_user else QColor("#00FFD1")
 
-                text_content = msg.get("text", "")
-                if len(text_content) > 58:
-                    text_content = text_content[:55] + "..."
+                text_content = (msg.get("text", "") or "").strip()
+                text_rect = fm_msg.boundingRect(0, 0, max_text_w, 2000, Qt.AlignLeft | Qt.TextWordWrap, text_content)
 
-                b_h = 38.0
+                b_w = max(112.0, min(max_bw, float(text_rect.width()) + 20.0))
+                b_h = 22.0 + max(16.0, float(text_rect.height())) + 8.0
+                b_x = (chat_stream_rect.right() - 4.0 - b_w) if is_user else (chat_stream_rect.left() + 4.0)
                 b_y = cur_y - b_h
-                b_box = QRectF(22.0, b_y, 254.0, b_h)
+                b_box = QRectF(b_x, b_y, b_w, b_h)
 
                 painter.setBrush(QBrush(bubble_color))
                 painter.setPen(QPen(border_color, 1.0))
-                painter.drawRoundedRect(b_box, 6.0, 6.0)
+                painter.drawRoundedRect(b_box, 8.0, 8.0)
 
                 painter.setFont(self._font_bold_7)
                 painter.setPen(QPen(prefix_col, 1))
-                painter.drawText(QRectF(b_box.x() + 8, b_box.y() + 4, 180, 14), Qt.AlignLeft, f"{sender_name} • {msg.get('time', '')}")
+                painter.drawText(
+                    QRectF(b_box.x() + 8.0, b_box.y() + 4.0, b_w - 16.0, 14.0),
+                    Qt.AlignLeft | Qt.AlignVCenter,
+                    f"{sender_name} • {msg.get('time', '')}"
+                )
 
                 painter.setFont(self._font_norm_8)
                 painter.setPen(QPen(QColor("#E2E8F0"), 1))
-                painter.drawText(QRectF(b_box.x() + 8, b_box.y() + 18, 238, 16), Qt.AlignLeft, text_content)
+                painter.drawText(
+                    QRectF(b_box.x() + 8.0, b_box.y() + 20.0, b_w - 16.0, float(text_rect.height()) + 4.0),
+                    Qt.AlignLeft | Qt.TextWordWrap,
+                    text_content
+                )
 
                 cur_y = b_y - 6.0
                 if cur_y < chat_stream_rect.top():
