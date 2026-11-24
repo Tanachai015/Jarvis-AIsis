@@ -68,7 +68,7 @@ class OverlayChat(QWidget):
 
         # Header bar with Title and Status
         header_layout = QHBoxLayout()
-        header_title = QLabel("JARVIS DESKTOP", self.container)
+        header_title = QLabel("J.A.R.V.I.S. JR. // K.A.R.I.S.", self.container)
         header_title.setStyleSheet("""
             font-size: 11px;
             font-weight: 700;
@@ -86,7 +86,7 @@ class OverlayChat(QWidget):
 
         # Input box (Prompt)
         self.input_field = QLineEdit(self.container)
-        self.input_field.setPlaceholderText("Ask Jarvis anything or command Antigravity... (Enter to send)")
+        self.input_field.setPlaceholderText("Ask Karis anything or command Antigravity... (Enter to send)")
         self.input_field.setStyleSheet("""
             QLineEdit {
                 background-color: rgba(38, 38, 48, 0.9);
@@ -372,7 +372,7 @@ class OverlayChat(QWidget):
                         border: 1px solid rgba(255, 255, 255, 0.08); color: #F1F5F9;
                         padding: 8px 14px; border-radius: 12px; font-size: 13px; max-width: 85%;
                         line-height: 1.5;">
-                <b style="color: #60A5FA;">Jarvis:</b><br>{self._escape_html(message)}
+                <b style="color: #00FFD1;">Karis:</b><br>{self._escape_html(message)}
             </div>
         </div>
         """

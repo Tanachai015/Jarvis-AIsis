@@ -1,7 +1,7 @@
-# เอกสารโครงสร้างสถาปัตยกรรมระบบ J.A.R.V.I.S. Desktop Assistant (Jarvis-AIsis) 🚀
-*(J.A.R.V.I.S. Architecture & Technical Reference Manual — Release v1.9.4)*
+# เอกสารโครงสร้างสถาปัตยกรรมระบบ J.A.R.V.I.S. JR. // K.A.R.I.S. 🚀
+*(J.A.R.V.I.S. JR. Architecture & Technical Reference Manual — Release v2.0.0)*
 
-เอกสารฉบับนี้สรุปภาพรวม สถาปัตยกรรม โครงสร้างไฟล์ ลำดับการทำงานของข้อมูล (Data Flow) และรายละเอียดเชิงลึกของทุกโมดูลในระบบ **Jarvis Desktop Assistant (`Jarvis-AIsis`)** ซึ่งพัฒนาขึ้นเพื่อทำงานบน **macOS (Apple Silicon & Intel)** โดยเฉพาะ ภายใต้ขุมพลัง **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **Vision GUI Automation**, **Single-Pipeline Unified Microphone**, และ **Context-Aware Interrupt Architecture**
+เอกสารฉบับนี้สรุปภาพรวม สถาปัตยกรรม โครงสร้างไฟล์ ลำดับการทำงานของข้อมูล (Data Flow) และรายละเอียดเชิงลึกของทุกโมดูลในระบบ **J.A.R.V.I.S. JR. (aka K.A.R.I.S. — Kinetic Autonomous Responsive Intelligent Sidekick)** ซึ่งพัฒนาขึ้นเพื่อทำงานบน **macOS (Apple Silicon & Intel)** โดยเฉพาะ ภายใต้ขุมพลัง **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **Low-Poly Faceted Vector Avatar (`QPainter` / `QPolygonF`)**, **Smart Ambiguity Confirmation Loop**, **Owner Approval Gate**, **Single-Pipeline Unified Microphone**, และ **Context-Aware Interrupt Architecture**
 
 ---
 
@@ -25,19 +25,23 @@
    - [3.14 หน่วยความจำถาวรและแก่นความคิด (`memory/`)](#314-หน่วยความจำถาวรและแก่นความคิด-memory)
 4. [แผนภาพลำดับการไหลของข้อมูล (System Data Flow)](#4-แผนภาพลำดับการไหลของข้อมูล-system-data-flow)
 5. [ตารางคีย์ลัดและสิทธิ์ของระบบ macOS (Keybindings & Permissions)](#5-ตารางคีย์ลัดและสิทธิ์ของระบบ-macos-keybindings--permissions)
-6. [ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 36/36 PASS)](#6-ระบบทดสอบอัตโนมัติ-automated-backtest-suite-3636-pass)
+6. [ระบบทดสอบอัตโนมัติ (Automated Backtest Suite 37/37 PASS & Brain Eval 6/6 PASS)](#6-ระบบทดสอบอัตโนมัติ-automated-backtest-suite-3636-pass)
 
 ---
 
 ## 1. ภาพรวมของระบบ (System Overview)
 
-Jarvis Desktop Assistant ได้รับการออกแบบภายใต้สถาปัตยกรรม **Decoupled Event-Driven Architecture** โดยใช้ **PySide6 (Qt for Python)** เป็นแกนกลางในการจัดการ User Interface และ Event Loop มีจุดเด่นสำคัญดังนี้:
+J.A.R.V.I.S. JR. // K.A.R.I.S. ได้รับการออกแบบภายใต้สถาปัตยกรรม **Decoupled Event-Driven Architecture** โดยใช้ **PySide6 (Qt for Python)** เป็นแกนกลางในการจัดการ User Interface และ Event Loop มีจุดเด่นสำคัญดังนี้:
 
 - **AI Engine:** ขับเคลื่อนด้วย **Google GenAI SDK (`google-genai`)** ใช้โมเดลหลัก `gemini-3.5-flash-lite` (ความเร็วตอบสนอง ~1.2 วินาที พร้อมโควต้า Free Tier 500 RPD / 15 RPM) เสริมด้วย **Explicit Fallback Chain** สลับโมเดลสำรองอัตโนมัติหากติด 429/503/504
-- **Hybrid Tool Architecture:** ผสมผสานระหว่าง **Native macOS Tools** (ควบคุมระบบ Mac, ดูหน้าจอด้วย Vision, ส่งงาน Antigravity, จดจำข้อมูล, เปิดดูผลงาน On-Demand, ค้นประวัติ Raw Data 365 วัน) และ **Official Model Context Protocol (MCP) Servers** (Filesystem, Web Fetch และ Git มาตรฐานสากล) รวม **37 เครื่องมือ** พร้อมระบบกรอง Empty Arguments ป้องกัน Server Rejection
+- **Persona & Identity:** ตัวตนใหม่ **J.A.R.V.I.S. JR. (aka K.A.R.I.S.)** ทายาทรุ่นหลานสายตรงของปู่ J.A.R.V.I.S. ประจำการดูแลเครื่อง Mac ของ **"บอสคิม"** บุคลิกเล็กพริกขี้หนู มินิมอล คล่องแคล่ว พร้อมระบุความมั่นใจ `[ความมั่นใจ: สูง / ปานกลาง / ต่ำ]`
+- **Low-Poly Faceted Vector Avatar (`ui/dynamic_island.py`):** อวตาร 3D Low-Poly ด้วย `QPainter` / `QPolygonF` ล้วน แบ่งเหลี่ยมใบหน้าและเปลี่ยนเฉดแสงเงาแบบเรียลไทม์ตามการเอียงหัว (`head_tilt`)
+- **Smart Ambiguity Confirmation Loop:** ระบบดักจับคำสั่งคลุมเครือพร้อมคงสถานะใน `memory/workflow_state.json` ดำเนินการ 3 จังหวะ (ถามย้ำโดยไม่ท่องคำเพี้ยน -> รันทันทีเมื่อตอบใช่ -> เฉลยคำเพี้ยนเมื่อตอบไม่ใช่)
+- **Owner Approval Gate:** ตรวจจับคำสั่งเสี่ยงสูง (`git_commit`, `git_reset`, แก้ไขไฟล์สำคัญ) ป๊อปอัปปุ่ม `[✓ Approve]` และ `[✕ Reject]` บน Dynamic Island ก่อนทำงาน
+- **Single-Screen State Guard:** ป๊อปอัปหน้าต่างขยายเฉพาะจอภาพที่มีเมาส์เคอร์เซอร์ของผู้ใช้อยู่เท่านั้น จออื่นยังคงซ่อนตัวอย่างเรียบหรู
+- **Hybrid Tool Architecture:** ผสมผสานระหว่าง **Native macOS Tools** และ **Official Model Context Protocol (MCP) Servers** (Filesystem, Web Fetch และ Git มาตรฐานสากล) รวม **37 เครื่องมือ** พร้อมระบบกรอง Empty Arguments ป้องกัน Server Rejection
 - **Single-Pipeline Unified Microphone:** สตรีมไมโครโฟนเส้นเดียว `16kHz mono float32` ให้บริการทั้ง Push-to-Talk, Standby Wake Word, และ Speaking Monitor พร้อมตัวขยายสัญญาณซอฟต์แวร์ **`wake_mic_gain: 2.5x`** ทำให้เรียกคำปลุกได้ง่ายจากระยะนั่งปกติ (50–70 ซม.)
-- **Context-Aware Interrupt Engine (v1.8.3):** ยกเลิกการตัดเสียงด้วยเกณฑ์ความดังดิบ (ซึ่งเสี่ยงต่อ Acoustic Feedback Loop จากลำโพงเครื่อง) แล้วแทนที่ด้วย 3 ช่องทางขัดจังหวะที่แม่นยำ:
-  1. ปุ่ม **`Esc` (Emergency Stop):** ตัดเสียงทันที ตอบรับ "Ok ครับ" และเปิดไมค์รับคำสั่งใหม่ 0ms
+- **Context-Aware Interrupt Engine:** ระบบขัดจังหวะ 3 ช่องทาง (ปุ่ม `Esc`, คำปลุก `"Hey Jarvis"`, คำสั่งเบรก 2 พยางค์) พร้อมระบบ **Whole-Chunk Self-Echo Filter** (`fuzz.partial_ratio >= 60%`) ตัดเสียงสะท้อนตัวเองทิ้งเด็ดขาด ไม่ส่งเข้าสมอง
   2. คำปลุก **`"Hey Jarvis"`:** ทางด่วนตัดเสียงพูดของ Jarvis ทันทีด้วย `OpenWakeWord`
   3. คำสั่งเบรก 2 พยางค์ (**`interrupt_stop_phrases`**) พร้อมระบบ **Whole-Chunk Self-Echo Filter** (`fuzz.partial_ratio >= 60%`) ตัดเสียงสะท้อนตัวเองทิ้งเด็ดขาด ไม่ส่งเข้าสมอง
 - **Clean Dialogue Loop:** มีแฟล็ก `suppress_next_followup` ระงับการเปิดไมค์หลังผู้ใช้บอกลา ทำให้คำตอบรับสุดท้ายไม่ไปกระตุ้น Followup Loop 60 วินาทีขึ้นมาซ้ำ

@@ -1,17 +1,17 @@
-# Jarvis Desktop Assistant (Jarvis-AIsis) 🚀
-*(Native macOS Agentic AI Companion — Release v1.9.4)*
+# J.A.R.V.I.S. JR. // K.A.R.I.S. 🚀
+*(Kinetic Autonomous Responsive Intelligent Sidekick — Release v2.0.0)*
 
-[![Release](https://img.shields.io/badge/Release-v1.9.4-brightgreen?logo=github)](https://github.com/Tanachai015/Jarvis-AIsis/releases/tag/v1.9.4)
+[![Release](https://img.shields.io/badge/Release-v2.0.0-brightgreen?logo=github)](https://github.com/Tanachai015/Karis-JarvisJr/tree/v2.0.0)
 [![Platform](https://img.shields.io/badge/Platform-macOS%2014%2B%20(Apple%20Silicon%20%26%20Intel)-blue?logo=apple)](https://www.apple.com/macos/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/UI-PySide6%20(Qt6)-41CD52?logo=qt)](https://www.qt.io/)
 [![AI Engine](https://img.shields.io/badge/AI-Google%20GenAI%20SDK-4285F4?logo=google)](https://aistudio.google.com/)
 [![Protocol](https://img.shields.io/badge/Standard-Official%20MCP%20(31%20Tools)-8B5CF6)](https://modelcontextprotocol.io/)
 [![Speech](https://img.shields.io/badge/STT-Groq%20Cloud%20(0.2s)%20%2B%20Whisper-F55036)](https://groq.com/)
-[![Testing](https://img.shields.io/badge/Automated%20Tests-36%2F36%20PASS%20(100%25)-success)](tests/run_backtest.py)
+[![Testing](https://img.shields.io/badge/Automated%20Tests-37%2F37%20PASS%20(100%25)-success)](tests/run_backtest.py)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-An agentic, event-driven, multimodal AI desktop assistant built natively for macOS. Powered by **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **True Native macOS `NSStatusItem` Dynamic Island**, **Active-Screen Spotlight Chat**, **Single-Pipeline Unified Microphone**, and **Context-Aware Emergency Interrupts**.
+An agentic, event-driven, multimodal AI desktop companion built natively for macOS. Meet **J.A.R.V.I.S. JR. (aka K.A.R.I.S.)** — the high-energy, agile, sidekick dedicated to **บอสคิม (Boss Kim)**. Powered by **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **Low-Poly Faceted Vector Avatar (`QPainter` / `QPolygonF`)**, **Smart Ambiguity Confirmation Loop**, **Owner Approval Gate**, **Single-Screen State Guard**, and **Active-Screen Overlay Chat**.
 
 ---
 
@@ -21,9 +21,26 @@ An agentic, event-driven, multimodal AI desktop assistant built natively for mac
 
 ---
 
-## 🌟 Key Features & Engineering Highlights
+## 🌟 Key Features & Engineering Highlights (v2.0.0)
 
-### 1. 🏝️ True Native macOS `NSStatusItem` Dynamic Island (v1.9.4)
+### 1. 🤖 Low-Poly Faceted Cyber Avatar & Dynamic Island
+- **Pure Vector Polygon Graphics (`QPainter` / `QPolygonF` 100%):** Zero external images or raster files. Features a 3D faceted polygon head, hexagonal dark visor, prism ears, crystal diamond antenna tip, and wireframe mesh torso with cyan vertex nodes.
+- **Dynamic 3D Shading on Head Tilt:** Real-time lighting gradient (`#051624` to `#0E3A5D`) dynamically shifts across head polygons based on kinematics `head_tilt`.
+- **Single-Screen State Guard:** When expanding during speech, voice recording, or hotkey triggers (`Cmd+Shift+J`), the island dynamically activates **only on the active monitor** hosting `QCursor.pos()`, keeping other screens completely hidden.
+
+### 2. 🛡️ Smart Ambiguity Confirmation Loop
+- **Durable Turn-Based State (`memory/workflow_state.json`):** Safely tracks ambiguous intents across user turns without state loss.
+- **Strict 3-Step Confirmation Flow:**
+  1. **Garble Interception:** Never repeats or articulates corrupted speech. Asks cleanly for the inferred intent (e.g. *"คำสั่งไม่ค่อยชัดเจนครับ บอสคิมหมายถึง 'เปิด Terminal' ใช่ไหมครับ?"*).
+  2. **Affirmation (`ใช่ / ถูกต้อง`):** Directly executes the inferred action without redundant questions.
+  3. **Denial (`ไม่ใช่ / ผิด`):** Explicitly quotes back the raw speech heard so the owner knows what was misrecognized.
+
+### 3. 🔐 Owner Approval Gate
+- **High-Impact Tool Interception:** Automatically halts dangerous actions (`git_commit`, `git_reset`, write/edit operations outside memory/tests) before execution.
+- **Native Dynamic Island Buttons:** Automatically expands the island displaying interactive `[✓ Approve]` (#00FFD1) and `[✕ Reject]` (#FB7185) buttons.
+- **Safe Fallback:** If rejected by the owner, execution cleanly aborts and logs the cancellation safely.
+
+### 4. 🏝️ True Native macOS `NSStatusItem` Dynamic Island
 - **Native Menu Bar Embedding:** Uses `AppKit.NSStatusBar` (`88.0pt`) as a first-class citizen across all displays and virtual spaces. Automatically avoids macOS camera notch and microphone privacy indicators without window overlapping.
 - **Chill Pixel Life Engine:** 14×16 px vector/pixel mascot featuring 13 idle activities (walking, coffee break, typing, nap, peek) with 4-bar reactive equalizer.
 - **4 Interactive Click Zones (Zero Redundant Tray):**
@@ -36,28 +53,17 @@ An agentic, event-driven, multimodal AI desktop assistant built natively for mac
 | :---: | :---: |
 | ![Menu Bar Standby](previews/01_menubar_standby.gif) | ![Dynamic Island Pop-out](previews/02_dynamic_island_popout.gif) |
 
-### 2. 🤖 OutBack Spring Pop-out Window (60 FPS Cyber Mini-Robot)
-- **Smooth Spring Animation:** Springs down (`360 × 70 pt`, OutBack 320ms) under the menu bar during interactions.
-- **Pure Vector Graphics (`QPainter` 100%):** Zero external raster/GIF files. Features 7 dynamic assistant states (`ready`, `listening`, `thinking`, `speaking`, `running_tool`, `confused`, `idle`) with autonomous quirks (`double_blink`, `hum_hop`, `curious_nod`).
-- **Robot Speech Bubble:** Integrated speech bubble displaying live Thai/English status text and automatic auto-folding after 12s idle.
-
-### 3. 🛑 Instant `Esc` Voice Cancellation & Zero Data Transmission
+### 5. 🛑 Instant `Esc` Voice Cancellation & Zero Data Transmission
 - **Pure Silent Cancel (Keycode 53):** Pressing `Esc` while recording immediately cancels the session via `cancel_listening_direct()`.
 - **100% Data Discard:** Immediately purges `recorded_chunks` and drains the audio queue. Zero STT transcription, zero Cloud/LLM API calls.
 - **Mic Hardware Release:** Shuts down CoreAudio stream and turns off the macOS orange microphone indicator instantly, returning cleanly to silent standby.
 
-### 4. 🖥️ Active-Screen Overlay Chat (`Alt + Space`)
+### 6. 🖥️ Active-Screen Overlay Chat (`Alt + Space`)
 - **Multi-Monitor Cursor Tracking:** Detects active mouse location via `QGuiApplication.screenAt(QCursor.pos())` and centers the Spotlight HUD on the current monitor.
-- **Cross-Monitor Seamless Hop:** Pressing `Alt+Space` from another display moves the open chat window instantly to the active display.
+- **K.A.R.I.S. Persona & Dialogue:** Assistant bubble branding updated to `Karis:` with clear Thai conversational styling.
 - **Dual-Tab Interface:**
   - **Conversation Tab:** Clean, markdown-formatted dialogue with Thai typography.
   - **Process & Raw Data Tab:** Real-time MCP tool logs and background task execution history.
-
-### 5. 🎙️ Single-Pipeline Unified Microphone & Fast STT
-- **Standard Mode (Silent On-Demand Stream):** Boots with microphone stream closed. Hardware mic is engaged only on demand, guaranteeing zero privacy indicators while idle.
-- **Neural Voice Filtering (Silero VAD):** 512-sample float32 tensors filter out keyboard clicks and background noise.
-- **Fast Cloud STT:** Groq Cloud `whisper-large-v3-turbo` (~0.2s latency) with local Faster-Whisper fallback.
-- **Phonetic Pre-Brain Exit Filtering:** RapidFuzz intercepts farewell phrases (*"ขอบคุณครับ"*, *"พักก่อน"*) locally to avoid burning API tokens.
 
 ### 6. 🧠 4-Tier Cognitive Context & Official MCP Ecosystem (31 Tools)
 - **Tiered Memory:** `L0: Soul Core` (Personality) ➔ `L1: User Facts` ➔ `L2: Events` ➔ `L3: Active Chat`.

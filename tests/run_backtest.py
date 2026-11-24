@@ -885,12 +885,12 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
         try:
             self.assertTrue(hasattr(island, "_show_robot_bubble"), "DynamicIsland must implement _show_robot_bubble")
             island._show_robot_bubble(
-                title='Call me "Hey Jarvis"',
+                title='Call me "Hey Jarvis" (aka Karis)',
                 subtext="เปิดโหมด Wake Standby แล้วครับ พร้อมรับเสียงเรียก",
                 duration=3.0,
                 title_color=QColor("#00FFD1")
             )
-            self.assertEqual(island._bubble_title, 'Call me "Hey Jarvis"')
+            self.assertEqual(island._bubble_title, 'Call me "Hey Jarvis" (aka Karis)')
             self.assertIn("เปิดโหมด Wake Standby", island._bubble_subtext)
             self.assertGreater(island._bubble_expire_time, time.time())
             self.assertTrue(island._auto_fold_timer.isActive(), "Auto fold timer must be active and delayed")
@@ -1027,6 +1027,66 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
             self.assertGreaterEqual(pos.x(), geo.x(), "Chat window x must be within active screen bounds")
             self.assertLess(pos.x(), geo.x() + geo.width(), "Chat window x must be within active screen bounds")
             self.assertGreaterEqual(pos.y(), geo.y(), "Chat window y must be within active screen bounds")
+        finally:
+            chat.close()
+
+    def test_v200_low_poly_avatar_and_approval_gate_spec(self):
+        """Verifies v2.0.0 Low-Poly Faceted avatar rendering, Approval Gate UI and active screen guard."""
+        from PySide6.QtWidgets import QApplication, QLabel
+        from PySide6.QtGui import QPixmap, QPainter
+        from ui.dynamic_island import DynamicIsland
+        from ui.overlay_chat import OverlayChat
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        island = DynamicIsland()
+        try:
+            # 1. Verify Low-Poly Faceted Avatar zero-crash rendering across all states
+            pix = QPixmap(340, 72)
+            painter = QPainter(pix)
+            for test_st in ["idle", "speaking", "listening", "thinking", "running_tool", "wake_ack", "confused"]:
+                island.current_state = test_st
+                island._draw_cyber_robot(painter, 1.0, island.STATES[test_st], is_mini=False)
+            painter.end()
+
+            # 2. Verify Approval Gate switches buttons to approve/reject
+            self.assertFalse(island._pending_approval_active)
+            normal_btns = island._get_buttons_map()
+            self.assertIn("voice", normal_btns)
+            self.assertIn("chat", normal_btns)
+
+            # Trigger approval requested
+            event_bus.approval_requested.emit({
+                "action": "approval_required",
+                "tool_name": "git_reset",
+                "prompt": "ต้องการยืนยันรัน git_reset หรือไม่ครับ?"
+            })
+            self.assertTrue(island._pending_approval_active, "Island must activate pending approval mode")
+            approval_btns = island._get_buttons_map()
+            self.assertIn("approve", approval_btns)
+            self.assertIn("reject", approval_btns)
+            self.assertEqual(island._bubble_title, "Owner Approval Required")
+
+            # Resolve approval
+            event_bus.approval_resolved.emit(True)
+            self.assertFalse(island._pending_approval_active, "Pending approval mode must be cleared on resolution")
+
+            # 3. Verify Single-Screen State Guard in on_state_changed
+            island.on_state_changed("speaking")
+            self.assertEqual(island.current_state, "speaking")
+        finally:
+            island.close()
+
+        # 4. Verify OverlayChat v2.0.0 Branding
+        chat = OverlayChat()
+        try:
+            # Find title label
+            labels = chat.findChildren(QLabel)
+            title_texts = [lbl.text() for lbl in labels]
+            self.assertTrue(
+                any("J.A.R.V.I.S. JR. // K.A.R.I.S." in t for t in title_texts),
+                "OverlayChat header must reflect J.A.R.V.I.S. JR. // K.A.R.I.S."
+            )
+            self.assertIn("Karis", chat.input_field.placeholderText())
         finally:
             chat.close()
 

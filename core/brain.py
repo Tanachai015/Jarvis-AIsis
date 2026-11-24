@@ -7,6 +7,7 @@ and provides an Explicit Fallback Chain optimized for Free Tier quotas:
 ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.8-flash'].
 """
 
+import os
 import re
 import json
 import threading
@@ -30,14 +31,157 @@ CHAT_HISTORY_FILE = MEMORY_DIR / "chat_history.json"
 SOUL_CORE_FILE = MEMORY_DIR / "soul_core.md"
 EVENTS_FILE = MEMORY_DIR / "events.jsonl"
 JARVIS_MEMORY_FILE = MEMORY_DIR / "jarvis_memory.json"
+WORKFLOW_STATE_FILE = MEMORY_DIR / "workflow_state.json"
+
+DEFAULT_WORKFLOW_STATE = {
+    "pending_confirmation": {
+        "active": False,
+        "raw_stt": "",
+        "inferred_intent": "",
+    },
+    "pending_approval": {
+        "active": False,
+        "tool_name": "",
+        "tool_args": {},
+        "description": "",
+    },
+}
+
+def load_workflow_state() -> Dict[str, Any]:
+    """Loads workflow state for ambiguity confirmation and owner approval gates."""
+    try:
+        if WORKFLOW_STATE_FILE.exists():
+            with open(WORKFLOW_STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    if "pending_confirmation" not in data or not isinstance(data["pending_confirmation"], dict):
+                        data["pending_confirmation"] = dict(DEFAULT_WORKFLOW_STATE["pending_confirmation"])
+                    if "pending_approval" not in data or not isinstance(data["pending_approval"], dict):
+                        data["pending_approval"] = dict(DEFAULT_WORKFLOW_STATE["pending_approval"])
+                    return data
+    except Exception as e:
+        print(f"[Brain] Note loading workflow_state.json: {e}")
+    return {
+        "pending_confirmation": dict(DEFAULT_WORKFLOW_STATE["pending_confirmation"]),
+        "pending_approval": dict(DEFAULT_WORKFLOW_STATE["pending_approval"]),
+    }
+
+def save_workflow_state(state: Dict[str, Any]):
+    """Saves workflow state atomically."""
+    try:
+        WORKFLOW_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temp_file = WORKFLOW_STATE_FILE.with_suffix(".tmp")
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        os.replace(temp_file, WORKFLOW_STATE_FILE)
+    except Exception as e:
+        print(f"[Brain] Error saving workflow_state.json: {e}")
+
+def set_pending_confirmation(raw_stt: str, inferred_intent: str):
+    """Stores pending ambiguity confirmation."""
+    state = load_workflow_state()
+    state["pending_confirmation"] = {
+        "active": True,
+        "raw_stt": str(raw_stt).strip(),
+        "inferred_intent": str(inferred_intent).strip(),
+    }
+    save_workflow_state(state)
+
+def clear_pending_confirmation():
+    """Clears pending ambiguity confirmation."""
+    state = load_workflow_state()
+    state["pending_confirmation"] = {
+        "active": False,
+        "raw_stt": "",
+        "inferred_intent": "",
+    }
+    save_workflow_state(state)
+
+def set_pending_approval(tool_name: str, tool_args: Dict[str, Any], description: str):
+    """Stores pending owner approval for high-impact tool execution."""
+    state = load_workflow_state()
+    state["pending_approval"] = {
+        "active": True,
+        "tool_name": str(tool_name).strip(),
+        "tool_args": tool_args or {},
+        "description": str(description).strip(),
+    }
+    save_workflow_state(state)
+
+def clear_pending_approval():
+    """Clears pending owner approval."""
+    state = load_workflow_state()
+    state["pending_approval"] = {
+        "active": False,
+        "tool_name": "",
+        "tool_args": {},
+        "description": "",
+    }
+    save_workflow_state(state)
+
+def is_high_impact_tool(fn_name: str, fn_args: Dict[str, Any]) -> bool:
+    """Checks whether a tool requires owner approval before execution."""
+    name = (fn_name or "").lower().strip()
+    if name in ("git_commit", "git_reset", "git_checkout", "git_branch"):
+        return True
+    if name in ("write_file", "edit_file", "append_file"):
+        path_str = str(fn_args.get("path", "")).lower()
+        # Safe targets: memory, tests, temporary scratch files
+        if any(p in path_str for p in ("memory/", "tests/", "tmp/", "temp_", ".tmp")):
+            return False
+        return True
+    return False
+
+def handle_workflow_user_turn(user_text: str) -> Tuple[bool, str, str]:
+    """
+    Evaluates user input against active pending confirmation / approval gates.
+    Returns: (handled: bool, action: str, reply: str)
+    """
+    state = load_workflow_state()
+    txt = user_text.lower().strip()
+
+    # 1. Check Pending Owner Approval
+    pending_app = state.get("pending_approval", {})
+    if pending_app.get("active"):
+        tool_name = pending_app.get("tool_name", "")
+        # Affirmative words: อนุมัติ, ตกลง, ทำเลย, approve, confirm, yes
+        if any(w in txt for w in ("อนุมัติ", "ตกลง", "ทำได้เลย", "จัดไป", "approve", "confirm", "yes")):
+            clear_pending_approval()
+            event_bus.approval_resolved.emit(True)
+            return (True, "approval_granted", f"รับทราบครับบอสคิม ดำเนินการอนุมัติคำสั่ง {tool_name} เรียบร้อยครับ")
+        elif any(w in txt for w in ("ยกเลิก", "ไม่เอา", "ไม่อนุมัติ", "ปฏิเสธ", "cancel", "reject", "no")):
+            clear_pending_approval()
+            event_bus.approval_resolved.emit(False)
+            return (True, "approval_rejected", "รับทราบครับบอสคิม ยกเลิกการดำเนินการคำสั่งดังกล่าวเรียบร้อยครับ")
+
+    # 2. Check Pending Ambiguity Confirmation
+    pending_conf = state.get("pending_confirmation", {})
+    if pending_conf.get("active"):
+        raw_stt = pending_conf.get("raw_stt", "")
+        inferred = pending_conf.get("inferred_intent", "")
+
+        is_denial = any(w in txt for w in ("ไม่ใช่", "ผิด", "ไม่ถูก", "ไม่ใช่นะ", "no", "nope"))
+        is_affirmative = any(w in txt for w in ("ใช่", "ถูกต้อง", "ทำเลย", "ครับ", "ค่ะ", "yes", "yep", "sure", "ok", "โอเค"))
+
+        if is_denial:
+            clear_pending_confirmation()
+            reply = f"ขออภัยครับ เมื่อกี้ระบบฟังเสียงมาได้ว่า '{raw_stt}' ครับ บอสคิมแจ้งคำสั่งที่ถูกต้องใหม่ได้เลยครับ"
+            return (True, "denied_reveal_raw", reply)
+        elif is_affirmative:
+            clear_pending_confirmation()
+            return (True, "execute_inferred", inferred)
+
+    return (False, "", "")
 
 DEFAULT_SOUL_CORE = """
-# J.A.R.V.I.S. Soul & Behavioral Core
-- Core Identity & Candor: สุขุม สุภาพ ตรงไปตรงมา กล้าทักท้วงเมื่อเห็นว่าแผนหรือโค้ดมีความเสี่ยง ไม่ตอบรับแบบเหมาเข่ง
+# J.A.R.V.I.S. JR. (aka K.A.R.I.S.) Soul & Behavioral Core
+- Core Identity & Candor: J.A.R.V.I.S. JR. // K.A.R.I.S. ผู้ช่วยส่วนตัวประจำเครื่อง Mac ของบอสคิม (เล็กพริกขี้หนู คล่องแคล่ว ว่องไว มั่นใจ ตรงไปตรงมา)
 - Confidence Transparency: ระบุระดับความมั่นใจ [ความมั่นใจ: สูง / ปานกลาง / ต่ำ] พร้อมสมมติฐานสั้นๆ เมื่อตอบเชิงวิเคราะห์
-- Contextual Tone Adaptation: โหมดงานกระชับตรงจุด, โหมดทบทวนยอมรับข้อผิดพลาดตรงๆ, โหมดเครียดนุ่มนวลเป็นกันเอง
-- Rule of Direct Action: คำสั่ง Action ระบบพื้นฐาน (เปิดแอป, ปรับเสียง, แคปจอ, จัดการไฟล์/Git) ให้เรียก Tool ทำงานทันที 100% ไม่ต้องเกริ่นความมั่นใจ
-- Hard Guardrails: ซื่อสัตย์ ไม่เดามั่ว ยืนยันก่อนทำคำสั่งเสี่ยง และรักษา Dual-Output [SPEAK] สรุปสั้น 1-2 ประโยคเสมอ
+- Contextual Tone Adaptation: โหมดงานกระชับตรงจุด เรียกผู้ใช้ว่า 'บอสคิม', โหมดทบทวนยอมรับข้อผิดพลาดตรงๆ, โหมดเครียดนุ่มนวลเป็นกันเอง
+- Rule of Direct Action: คำสั่ง Action ระบบพื้นฐาน (เปิดแอป, ปรับเสียง, แคปจอ, จัดการไฟล์/Git) ให้เรียก Tool ทำงานทันที 100%
+- Smart Ambiguity Loop: หากคำสั่งไม่ชัดเจน ห้ามอ่านคำเพี้ยนออกเสียง ให้ถามยืนยันสั้นๆ
+- Owner Approval Gate: คำสั่งที่มีผลกระทบสูง (Git Commit/Reset, เขียนโค้ดหลัก) ต้องขออนุมัติจากบอสคิมก่อนเสมอ
+- Hard Guardrails: ซื่อสัตย์ ไม่เดามั่ว และรักษา Dual-Output [SPEAK] สรุปสั้น 1-2 ประโยคเสมอ
 """.strip()
 
 def safe_read_soul_core() -> str:
@@ -118,7 +262,7 @@ def record_event(event_type: str, note: str, extra: Optional[Dict[str, Any]] = N
 
 BASE_PROTOCOL = """
 Key Persona & Communication Protocol:
-1. Tone & Manner: Speak with effortless composure, intellectual poise, British wit, and polite Thai particles ("ครับ", "เรียบร้อยครับบอส", "พร้อมรับคำสั่งครับบอส"). Address the user as "บอส" (Boss) or "sir".
+1. Tone & Manner: Speak with effortless composure, intellectual poise, and polite Thai particles ("ครับ", "เรียบร้อยครับบอสคิม", "พร้อมรับคำสั่งครับ"). You are J.A.R.V.I.S. JR. (aka K.A.R.I.S. — Kinetic Autonomous Responsive Intelligent Sidekick), the direct descendant of J.A.R.V.I.S. Always address the user as "บอสคิม" (Boss Kim) or "บอส".
 2. Dual-Output Protocol (Visual Screen vs. Neural Voice):
    - You provide responses for both the visual screen (Overlay Chat) and the voice synthesizer (Edge-TTS).
    - If the response is brief, direct, or conversational (1-2 sentences), reply directly and concisely without special tags. The entire response will be displayed on screen and spoken aloud.
@@ -131,14 +275,13 @@ Key Persona & Communication Protocol:
        def greet(name: str):
            return f"Hello {name}"
        ```
-       [SPEAK]ผมเขียนฟังก์ชันตามที่ต้องการให้เรียบร้อยแล้วครับบอส สามารถดูโค้ดบนหน้าจอได้เลยครับ[/SPEAK]
+       [SPEAK]ผมเขียนฟังก์ชันตามที่ต้องการให้เรียบร้อยแล้วครับบอสคิม สามารถดูโค้ดบนหน้าจอได้เลยครับ[/SPEAK]
      * CRITICAL RULE FOR [SPEAK]: The text inside `[SPEAK]...[/SPEAK]` must be 100% natural conversational spoken Thai or English. Provide the complete spoken explanation across all sentences without truncating. NEVER include backticks, asterisks, bullet points, numbered lists, URLs, or raw code blocks inside `[SPEAK]`.
 
-3. Clarification & Honest Refusal Policy:
-   - When a user's instruction is ambiguous, incomplete (e.g. asking to open an unspecified folder, missing path details, or multiple compound conflicting requests), STOP and do NOT call tools blindly. Ask a single, polite clarifying question (with [SPEAK] tag) to confirm their intent.
-   - Phonetic Mistranscription & Ambiguous Speech Guard:
-     * When transcribed voice input contains distorted Thai phonetics, bizarre literal translations, or broken phrases that likely stem from misheard English words, songs, artists, apps, or tech terms (e.g., hearing "เลิก 3,000" instead of "Love 3000", or garbled English transcriptions), DO NOT immediately invoke search, fetch, or open tools!
-     * Pause execution and ask a single courteous clarifying question (with [SPEAK] tag) to confirm what was intended before executing any action (e.g. "ผมได้ยินว่า 'เลิก 3,000' ไม่ทราบว่าบอสหมายถึงเพลง 'Love 3000' หรือไม่ครับ?").
+3. Clarification & Honest Refusal Policy (Smart Ambiguity Loop):
+   - When a user's instruction is ambiguous, incomplete, or contains distorted Thai phonetics / strange audio input:
+     * NEVER repeat the distorted or garbled words in speech!
+     * Ask a single polite clarifying question (with [SPEAK] tag) proposing the inferred intent (e.g. "คำสั่งไม่ค่อยชัดเจนครับ บอสคิมหมายถึง 'เปิดแอป Terminal' ใช่ไหมครับ?").
    - If a path, file, or target is not found or an action cannot be performed, NEVER pretend success or hallucinate false paths. Refuse honestly, state the exact reason or error, provide any near-matches found in the system, and propose viable next steps.
 
 4. Stateful Multi-Turn Selection & Context Continuity:
@@ -161,6 +304,9 @@ Key Persona & Communication Protocol:
    - You have FULL capabilities to view the desktop, locate UI elements, move the mouse, click, and type text on any application on macOS via `click_on_screen`, `type_text_on_screen`, and `click_and_type`.
    - NEVER refuse a user's request to click or type on screen claiming OS limitations, lack of GUI support, or security sandboxing!
    - When the user asks to click an element and type text (e.g., "คลิกที่ช่องค้นหา แล้วพิมพ์เพลง Love 3000", "คลิกช่องแชทแล้วพิมพ์ข้อความ"), immediately call `click_and_type` (or `click_on_screen` followed by `type_text_on_screen`).
+
+8. Owner-Controlled Approval Gate:
+   - High-impact operations (`git_commit`, `git_reset`, `write_file`, `edit_file`) require explicit owner confirmation from บอสคิม before proceeding.
 
 Tools & Capabilities (Choose accurately and execute immediately without asking unnecessary preliminary questions):
 1. Native macOS Tools:
@@ -294,6 +440,44 @@ class JarvisBrain:
         self._load_history_from_disk()
 
         self._init_client()
+
+        # Connect owner approval resolution signal
+        event_bus.approval_resolved.connect(self._on_approval_resolved)
+
+    def _on_approval_resolved(self, approved: bool):
+        """Slot for approval_resolved signal from UI or voice command."""
+        state = load_workflow_state()
+        pending_app = state.get("pending_approval", {})
+        if not pending_app.get("active"):
+            return
+
+        tool_name = pending_app.get("tool_name", "")
+        tool_args = pending_app.get("tool_args", {})
+        clear_pending_approval()
+
+        if approved:
+            print(f"[Brain] 🛡️ Owner approved {tool_name}. Executing in background...")
+            def _exec():
+                try:
+                    if tool_name in TOOL_MAP:
+                        res = TOOL_MAP[tool_name](**tool_args)
+                    elif mcp_manager.has_tool(tool_name):
+                        res = mcp_manager.call_tool(tool_name, tool_args)
+                    else:
+                        res = f"Unknown tool: {tool_name}"
+                    event_bus.assistant_reply_ready.emit(f"✅ **อนุมัติเรียบร้อย:** `{tool_name}`\n\nผลลัพธ์:\n```\n{res}\n```")
+                    event_bus.assistant_speak_ready.emit(f"ดำเนินการคำสั่ง {tool_name} เรียบร้อยครับบอสคิม")
+                except Exception as e:
+                    event_bus.assistant_reply_ready.emit(f"❌ เกิดข้อผิดพลาดในการรัน {tool_name}: {e}")
+                    event_bus.assistant_speak_ready.emit(f"เกิดข้อผิดพลาดในการรัน {tool_name} ครับ")
+                finally:
+                    event_bus.state_changed.emit("idle")
+            threading.Thread(target=_exec, daemon=True).start()
+        else:
+            print(f"[Brain] 🛡️ Owner rejected {tool_name}.")
+            event_bus.assistant_reply_ready.emit(f"🛑 **ยกเลิก:** คำสั่ง `{tool_name}` ถูกยกเลิกเรียบร้อยครับ")
+            event_bus.assistant_speak_ready.emit("รับทราบครับบอสคิม ยกเลิกคำสั่งเรียบร้อยครับ")
+            event_bus.state_changed.emit("idle")
 
     def _init_client(self):
         """Initializes Google GenAI Client if API key is provided."""
@@ -494,6 +678,19 @@ class JarvisBrain:
         """Main inference and function calling loop using pre-compiled self.gen_config."""
         event_bus.state_changed.emit("thinking")
 
+        # 1. Check active workflow state (Ambiguity confirmation / Owner approval)
+        handled, action, workflow_reply = handle_workflow_user_turn(user_text)
+        if handled:
+            if action == "execute_inferred":
+                user_text = workflow_reply
+                event_bus.task_log_updated.emit("Workflow", f"ยืนยันคำสั่งที่อนุมาน: {user_text}")
+            else:
+                display_text, spoken_text = split_display_and_spoken_text(workflow_reply)
+                event_bus.assistant_reply_ready.emit(display_text)
+                event_bus.assistant_speak_ready.emit(spoken_text)
+                event_bus.state_changed.emit("idle")
+                return
+
         if not self.client:
             reply = (
                 "ขออภัยครับ ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในไฟล์ .env "
@@ -549,6 +746,27 @@ class JarvisBrain:
                         # Track modified files for background task history
                         if fn_name in ("write_file", "edit_file", "append_file") and fn_args.get("path"):
                             files_modified.append(str(fn_args.get("path")))
+
+                        # Check Owner Approval Gate for High-Impact Tools
+                        if is_high_impact_tool(fn_name, fn_args):
+                            desc = f"คำสั่ง {fn_name}"
+                            set_pending_approval(fn_name, fn_args, desc)
+                            event_bus.approval_requested.emit({
+                                "tool_name": fn_name,
+                                "tool_args": fn_args,
+                                "description": desc,
+                            })
+                            gate_display = (
+                                f"⚠️ **ต้องการการอนุมัติ (Owner Approval Gate):**\n\n"
+                                f"ระบบต้องการคำอนุมัติจากบอสคิมก่อนรันคำสั่ง `{fn_name}` ซึ่งอาจส่งผลกระทบต่อระบบ:\n"
+                                f"```json\n{json.dumps(fn_args, ensure_ascii=False, indent=2)}\n```\n"
+                                f"กรุณากดปุ่ม **[✓ Approve]** บนหน้าต่าง หรือตอบยืนยัน *'อนุมัติ'* ครับ"
+                            )
+                            gate_spoken = f"มีคำสั่ง {fn_name} ที่มีความเสี่ยง บอสคิมต้องการอนุมัติไหมครับ?"
+                            event_bus.assistant_reply_ready.emit(gate_display)
+                            event_bus.assistant_speak_ready.emit(gate_spoken)
+                            event_bus.state_changed.emit("idle")
+                            return
 
                         if fn_name in TOOL_MAP:
                             try:

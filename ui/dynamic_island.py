@@ -11,7 +11,7 @@ import random
 from typing import Optional, Dict, Any
 
 from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPoint, QPropertyAnimation, QEasingCurve, Property, QBuffer, QIODevice
-from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QPen, QBrush, QGuiApplication, QScreen, QCursor
+from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QPen, QBrush, QGuiApplication, QScreen, QCursor, QPolygonF
 from PySide6.QtWidgets import QWidget, QApplication, QMenu
 
 import config
@@ -193,6 +193,10 @@ class DynamicIsland(QWidget):
         # Connect event bus signals
         event_bus.state_changed.connect(self.on_state_changed)
         event_bus.task_log_updated.connect(self._on_task_log_updated)
+        self._pending_approval_active: bool = False
+        self._pending_approval_info: Dict[str, Any] = {}
+        event_bus.approval_requested.connect(self._on_approval_requested)
+        event_bus.approval_resolved.connect(self._on_approval_resolved_slot)
 
         # In standby idle state, Expanded Island window starts hidden
         self.hide()
@@ -511,7 +515,7 @@ class DynamicIsland(QWidget):
         if config.WAKE_TRIGGER_ENABLED:
             self.trigger_quirk("hum_hop")
             self._show_robot_bubble(
-                title='Call me "Hey Jarvis"',
+                title='Call me "Hey Jarvis" (aka Karis)',
                 subtext="เปิดโหมด Wake Standby แล้วครับ พร้อมรับเสียงเรียก",
                 duration=3.0,
                 title_color=QColor("#00FFD1")
@@ -526,8 +530,35 @@ class DynamicIsland(QWidget):
             )
         self.update()
 
+    def _on_approval_requested(self, payload: dict):
+        """Displays approval prompt in Dynamic Island when a high-impact action is requested."""
+        self._pending_approval_active = True
+        self._pending_approval_info = payload or {}
+        prompt_msg = payload.get("prompt") or f"ต้องการยืนยันรัน {payload.get('tool_name', 'คำสั่ง')} หรือไม่ครับ?"
+        self.expand_manually()
+        self._show_robot_bubble(
+            title="Owner Approval Required",
+            subtext=prompt_msg,
+            duration=12.0,
+            title_color=QColor("#FB7185")
+        )
+        self.update()
+
+    def _on_approval_resolved_slot(self, approved: bool):
+        """Resolves approval mode and restores normal buttons."""
+        self._pending_approval_active = False
+        self._pending_approval_info = {}
+        self.update()
+        if self.current_state == "idle":
+            self.fold_manually()
+
     def _get_buttons_map(self) -> Dict[str, QRectF]:
-        """Returns bounding rects for the 4 interactive mode buttons."""
+        """Returns bounding rects for interactive buttons (standard mode or pending approval mode)."""
+        if getattr(self, "_pending_approval_active", False):
+            return {
+                "approve": QRectF(62.0, 42.0, 138.0, 22.0),
+                "reject": QRectF(206.0, 42.0, 138.0, 22.0),
+            }
         return {
             "voice": QRectF(62.0, 42.0, 68.0, 22.0),
             "chat": QRectF(134.0, 42.0, 64.0, 22.0),
@@ -653,6 +684,14 @@ class DynamicIsland(QWidget):
                     return
 
             btn = self._get_button_at_pos(pos)
+            if getattr(self, "_pending_approval_active", False):
+                if btn == "approve":
+                    event_bus.approval_resolved.emit(True)
+                    return
+                elif btn == "reject":
+                    event_bus.approval_resolved.emit(False)
+                    return
+
             if btn == "voice":
                 event_bus.toggle_voice_record_signal.emit()
                 self._reset_auto_fold_timer()
@@ -698,6 +737,14 @@ class DynamicIsland(QWidget):
                 self._reset_auto_fold_timer()
         else:
             self.render_timer.setInterval(16)  # 60 FPS
+            # Single-Screen State Guard: only show island on the active cursor screen
+            cursor_pos = QCursor.pos()
+            active_scr = QGuiApplication.screenAt(cursor_pos) or (QApplication.instance().primaryScreen() if QApplication.instance() else None)
+            my_scr = self.screen or (self.window().screen() if hasattr(self, 'window') else None)
+            if active_scr and my_scr and (my_scr != active_scr):
+                self.hide()
+                return
+
             self.show()
             self.raise_()
             self._apply_geometry_for_state(animated=True)
@@ -863,7 +910,7 @@ class DynamicIsland(QWidget):
                 font_title.setPointSize(9)
                 font_title.setWeight(QFont.Bold)
                 painter.setFont(font_title)
-                painter.drawText(QRectF(text_x, 8.0, 75.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, "J.A.R.V.I.S.")
+                painter.drawText(QRectF(text_x, 8.0, 95.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, "K.A.R.I.S. // JR.")
 
                 # Status Text
                 painter.setPen(QPen(QColor("#F1F5F9"), 1))
@@ -873,7 +920,7 @@ class DynamicIsland(QWidget):
                 font_status.setPointSize(9)
                 font_status.setWeight(QFont.Medium)
                 painter.setFont(font_status)
-                painter.drawText(QRectF(text_x + 72.0, 8.0, text_w - 72.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, f"• {cfg['status']}")
+                painter.drawText(QRectF(text_x + 92.0, 8.0, text_w - 92.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, f"• {cfg['status']}")
 
                 # Subtext
                 subtext_str = self._custom_subtext if self._custom_subtext else cfg["subtext"]
@@ -904,7 +951,17 @@ class DynamicIsland(QWidget):
                 is_hover = (self._hovered_btn == name)
                 painter.save()
 
-                if name == "voice":
+                if name == "approve":
+                    label = "✓ Approve"
+                    accent = QColor("#00FFD1")
+                    bg_col = QColor(0, 255, 209, 65) if is_hover else QColor(10, 40, 35, 210)
+                    bd_col = QColor(0, 255, 209, 240) if is_hover else QColor(0, 255, 209, 140)
+                elif name == "reject":
+                    label = "✕ Reject"
+                    accent = QColor("#FB7185")
+                    bg_col = QColor(251, 113, 133, 65) if is_hover else QColor(40, 15, 25, 210)
+                    bd_col = QColor(251, 113, 133, 240) if is_hover else QColor(251, 113, 133, 140)
+                elif name == "voice":
                     label = "🎙️ Voice"
                     accent = QColor("#00FFD1")
                     bg_col = QColor(0, 255, 209, 50) if is_hover else QColor(10, 28, 32, 190)
@@ -1064,29 +1121,67 @@ class DynamicIsland(QWidget):
         thin_pen = QPen(neon, 1.1)
         thin_pen.setCosmetic(True)
 
+        # Low-Poly Facet Shading based on head_tilt
+        tilt_ratio = max(-1.0, min(1.0, head_tilt * 4.0))
+        def _facet_color(delta: float) -> QColor:
+            factor = max(0.0, min(1.0, 0.5 + delta * 0.5))
+            r = int(5 + (14 - 5) * factor)
+            g = int(22 + (58 - 22) * factor)
+            b = int(36 + (93 - 36) * factor)
+            return QColor(r, g, b)
+
+        col_forehead = _facet_color(0.3)
+        col_temple_l = _facet_color(-tilt_ratio * 0.6)
+        col_temple_r = _facet_color(tilt_ratio * 0.6)
+        col_cheek_l = _facet_color(-tilt_ratio * 0.9)
+        col_cheek_r = _facet_color(tilt_ratio * 0.9)
+
         painter.translate(0.0, body_y + 1.2)
 
-        # 1. Torso & Shoulders (Skip or simplify in mini mode)
+        # 1. Low-Poly Faceted Torso & Shoulders (Skip or simplify in mini mode)
         if not is_mini:
-            torso_path = QPainterPath()
-            torso_path.moveTo(12.5, 42.5)
-            torso_path.lineTo(12.5, 34.8)
-            torso_path.quadTo(12.5, 29.2, 18.2, 29.2)
-            torso_path.lineTo(29.8, 29.2)
-            torso_path.quadTo(35.5, 29.2, 35.5, 34.8)
-            torso_path.lineTo(35.5, 42.5)
+            torso_mesh_pen = QPen(QColor(0, 229, 255, 90), 1.0)
+            torso_mesh_pen.setCosmetic(True)
 
-            painter.setBrush(QBrush(bg_tint))
+            poly_chest_center = QPolygonF([
+                QPointF(18.2, 29.2), QPointF(29.8, 29.2),
+                QPointF(32.0, 42.5), QPointF(16.0, 42.5)
+            ])
+            poly_shoulder_l = QPolygonF([
+                QPointF(12.5, 34.8), QPointF(18.2, 29.2),
+                QPointF(16.0, 42.5), QPointF(12.5, 42.5)
+            ])
+            poly_shoulder_r = QPolygonF([
+                QPointF(29.8, 29.2), QPointF(35.5, 34.8),
+                QPointF(35.5, 42.5), QPointF(32.0, 42.5)
+            ])
+
+            painter.setPen(torso_mesh_pen)
+            painter.setBrush(QBrush(QColor("#081D2E")))
+            painter.drawPolygon(poly_chest_center)
+            painter.setBrush(QBrush(QColor("#061624")))
+            painter.drawPolygon(poly_shoulder_l)
+            painter.setBrush(QBrush(QColor("#0A2438")))
+            painter.drawPolygon(poly_shoulder_r)
+
+            # Outer torso contour
             painter.setPen(main_pen)
-            painter.drawPath(torso_path)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawLine(QPointF(12.5, 42.5), QPointF(12.5, 34.8))
+            painter.drawLine(QPointF(12.5, 34.8), QPointF(18.2, 29.2))
+            painter.drawLine(QPointF(18.2, 29.2), QPointF(29.8, 29.2))
+            painter.drawLine(QPointF(29.8, 29.2), QPointF(35.5, 34.8))
+            painter.drawLine(QPointF(35.5, 34.8), QPointF(35.5, 42.5))
 
-            # Shoulder Trim
-            painter.setPen(thin_pen)
-            painter.drawLine(QPointF(12.5, 35.5), QPointF(15.5, 35.5))
-            painter.drawLine(QPointF(32.5, 35.5), QPointF(35.5, 35.5))
+            # Torso Vertex Nodes
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(QColor("#00E5FF")))
+            for vpt in [QPointF(12.5, 34.8), QPointF(18.2, 29.2), QPointF(29.8, 29.2), QPointF(35.5, 34.8), QPointF(16.0, 42.5), QPointF(32.0, 42.5)]:
+                painter.drawEllipse(vpt, 1.0, 1.0)
 
             # Chest Core / Equalizer
             painter.setBrush(Qt.NoBrush)
+            painter.setPen(thin_pen)
             painter.drawRoundedRect(QRectF(18.2, 32.5, 11.6, 7.6), 2.0, 2.0)
 
             if st == "speaking" or self.active_quirk == "hum_hop":
@@ -1116,39 +1211,120 @@ class DynamicIsland(QWidget):
             painter.drawLine(QPointF(21.0, 26.2), QPointF(21.0, 29.2))
             painter.drawLine(QPointF(27.0, 26.2), QPointF(27.0, 29.2))
 
-        # 2. Head Group (Rotates around neck 24, 25)
+        # 2. Faceted Poly-Head Group (Rotates around neck 24, 25)
         painter.save()
         painter.translate(24.0, 25.0 + head_bob_y)
         painter.rotate(math.degrees(head_tilt))
         painter.translate(-24.0, -25.0)
 
-        # Antenna
+        # Antenna with Diamond Crystal Tip
         painter.save()
         painter.translate(24.0, 8.2)
         painter.rotate(math.degrees(antenna_angle))
         painter.setPen(main_pen)
-        painter.drawLine(QPointF(0.0, 0.0), QPointF(0.0, -4.6))
+        painter.drawLine(QPointF(0.0, 0.0), QPointF(0.0, -4.2))
+
+        tip_scale = 1.25 if st == "listening" else 1.0
+        poly_crystal_tip = QPolygonF([
+            QPointF(0.0, -6.8 * tip_scale),
+            QPointF(2.1 * tip_scale, -4.9 * tip_scale),
+            QPointF(0.0, -3.0 * tip_scale),
+            QPointF(-2.1 * tip_scale, -4.9 * tip_scale),
+        ])
         painter.setBrush(QBrush(neon))
-        painter.setPen(Qt.NoPen)
-        tip_r = 1.85 if st == "listening" else 1.5
-        painter.drawEllipse(QPointF(0.0, -5.3), tip_r, tip_r)
+        painter.setPen(thin_pen)
+        painter.drawPolygon(poly_crystal_tip)
         painter.restore()
 
-        # Ear Pods
-        painter.setBrush(Qt.NoBrush)
+        # Prism Ear Pods
+        poly_ear_l = QPolygonF([
+            QPointF(11.4, 14.0), QPointF(8.4, 15.5),
+            QPointF(8.4, 20.0), QPointF(11.4, 21.5)
+        ])
+        poly_ear_r = QPolygonF([
+            QPointF(36.6, 14.0), QPointF(39.6, 15.5),
+            QPointF(39.6, 20.0), QPointF(36.6, 21.5)
+        ])
         painter.setPen(thin_pen)
-        painter.drawRoundedRect(QRectF(8.6, 13.8, 2.4, 7.2), 1.1, 1.1)
-        painter.drawRoundedRect(QRectF(37.0, 13.8, 2.4, 7.2), 1.1, 1.1)
+        painter.setBrush(QBrush(QColor("#071E2E")))
+        painter.drawPolygon(poly_ear_l)
+        painter.drawPolygon(poly_ear_r)
 
-        # Head Shell
-        painter.setBrush(QBrush(bg_tint))
+        # Faceted Poly-Head Shell (Forehead, Temples, Cheeks)
+        poly_forehead = QPolygonF([
+            QPointF(16.5, 8.2), QPointF(31.5, 8.2),
+            QPointF(34.5, 11.2), QPointF(24.0, 11.8),
+            QPointF(13.5, 11.2)
+        ])
+        poly_temple_l = QPolygonF([
+            QPointF(13.5, 11.2), QPointF(24.0, 11.8),
+            QPointF(24.0, 16.0), QPointF(11.4, 16.0),
+            QPointF(11.4, 14.0)
+        ])
+        poly_temple_r = QPolygonF([
+            QPointF(24.0, 11.8), QPointF(34.5, 11.2),
+            QPointF(36.6, 14.0), QPointF(36.6, 16.0),
+            QPointF(24.0, 16.0)
+        ])
+        poly_cheek_l = QPolygonF([
+            QPointF(11.4, 16.0), QPointF(24.0, 16.0),
+            QPointF(24.0, 26.2), QPointF(16.5, 26.2),
+            QPointF(11.4, 22.0)
+        ])
+        poly_cheek_r = QPolygonF([
+            QPointF(24.0, 16.0), QPointF(36.6, 16.0),
+            QPointF(36.6, 22.0), QPointF(31.5, 26.2),
+            QPointF(24.0, 26.2)
+        ])
+
+        mesh_head_pen = QPen(QColor(0, 229, 255, 95), 1.0)
+        mesh_head_pen.setCosmetic(True)
+
+        painter.setPen(mesh_head_pen)
+        painter.setBrush(QBrush(col_forehead))
+        painter.drawPolygon(poly_forehead)
+        painter.setBrush(QBrush(col_temple_l))
+        painter.drawPolygon(poly_temple_l)
+        painter.setBrush(QBrush(col_temple_r))
+        painter.drawPolygon(poly_temple_r)
+        painter.setBrush(QBrush(col_cheek_l))
+        painter.drawPolygon(poly_cheek_l)
+        painter.setBrush(QBrush(col_cheek_r))
+        painter.drawPolygon(poly_cheek_r)
+
+        # Outer Head Contour
         painter.setPen(main_pen)
-        painter.drawRoundedRect(QRectF(11.4, 8.2, 25.2, 18.0), 6.8, 6.8)
+        painter.setBrush(Qt.NoBrush)
+        head_outline = QPainterPath()
+        head_outline.moveTo(16.5, 8.2)
+        head_outline.lineTo(31.5, 8.2)
+        head_outline.lineTo(36.6, 14.0)
+        head_outline.lineTo(36.6, 22.0)
+        head_outline.lineTo(31.5, 26.2)
+        head_outline.lineTo(16.5, 26.2)
+        head_outline.lineTo(11.4, 22.0)
+        head_outline.lineTo(11.4, 14.0)
+        head_outline.closeSubpath()
+        painter.drawPath(head_outline)
 
-        # Inner Dark Visor
+        # Head Vertex Nodes
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor("#00E5FF")))
+        for hpt in [QPointF(16.5, 8.2), QPointF(31.5, 8.2), QPointF(36.6, 14.0), QPointF(36.6, 22.0), QPointF(31.5, 26.2), QPointF(16.5, 26.2), QPointF(11.4, 22.0), QPointF(11.4, 14.0)]:
+            painter.drawEllipse(hpt, 0.9, 0.9)
+
+        # Hexagonal Dark Visor (QPolygonF)
+        poly_visor = QPolygonF([
+            QPointF(14.2, 17.0),
+            QPointF(17.8, 11.2),
+            QPointF(30.2, 11.2),
+            QPointF(33.8, 17.0),
+            QPointF(30.2, 22.8),
+            QPointF(17.8, 22.8),
+        ])
         painter.setBrush(QBrush(visor_tint))
         painter.setPen(thin_pen)
-        painter.drawRoundedRect(QRectF(13.8, 10.6, 20.4, 13.2), 4.6, 4.6)
+        painter.drawPolygon(poly_visor)
 
         # 3. Eyes & Mouth Inside Visor
         painter.save()
@@ -1282,14 +1458,33 @@ class DynamicIsland(QWidget):
             painter.setFont(font_confused)
             painter.drawText(QPointF(39.0, 11.5 + q_float), "?")
 
-        # 4. Floating Paws (Hands)
+        # 4. Floating Crystal Paws (Hands)
         if not is_mini:
-            painter.setBrush(QBrush(bg_tint))
-            painter.setPen(main_pen)
-            # Left Paw
-            painter.drawRoundedRect(QRectF(7.2 + left_paw_x, 34.5 + left_paw_y, 3.6, 4.6), 1.8, 1.8)
-            # Right Paw
-            painter.drawRoundedRect(QRectF(37.2 + right_paw_x, 34.5 + right_paw_y, 3.6, 4.6), 1.8, 1.8)
+            paw_pen = QPen(neon, 1.2)
+            paw_pen.setCosmetic(True)
+            painter.setPen(paw_pen)
+            painter.setBrush(QBrush(QColor("#082033")))
+
+            poly_paw_l = QPolygonF([
+                QPointF(9.0 + left_paw_x, 34.0 + left_paw_y),
+                QPointF(11.4 + left_paw_x, 37.0 + left_paw_y),
+                QPointF(9.0 + left_paw_x, 40.0 + left_paw_y),
+                QPointF(6.6 + left_paw_x, 37.0 + left_paw_y)
+            ])
+            poly_paw_r = QPolygonF([
+                QPointF(39.0 + right_paw_x, 34.0 + right_paw_y),
+                QPointF(41.4 + right_paw_x, 37.0 + right_paw_y),
+                QPointF(39.0 + right_paw_x, 40.0 + right_paw_y),
+                QPointF(36.6 + right_paw_x, 37.0 + right_paw_y)
+            ])
+            painter.drawPolygon(poly_paw_l)
+            painter.drawPolygon(poly_paw_r)
+
+            # Crystal paw core nodes
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(QColor("#00E5FF")))
+            painter.drawEllipse(QPointF(9.0 + left_paw_x, 37.0 + left_paw_y), 0.8, 0.8)
+            painter.drawEllipse(QPointF(39.0 + right_paw_x, 37.0 + right_paw_y), 0.8, 0.8)
 
 
 # =============================================================================

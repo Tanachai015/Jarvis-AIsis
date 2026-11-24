@@ -43,6 +43,12 @@ class EventBus(QObject):
     show_overlay_signal = Signal()
     hide_overlay_signal = Signal()
 
+    # Fired when high-impact tool requires owner approval: dict with tool_name, tool_args, description
+    approval_requested = Signal(dict)
+
+    # Fired when owner approves or rejects pending tool execution: bool (True=Approve, False=Reject)
+    approval_resolved = Signal(bool)
+
     # Fired when Voice Mode / Wake Trigger is toggled at runtime ('wake_on', 'wake_off', 'push_to_talk')
     voice_mode_changed = Signal(str)
 
