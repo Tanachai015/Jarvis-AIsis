@@ -45,6 +45,14 @@ VOICE_TOGGLE_HOTKEY = os.getenv("VOICE_TOGGLE_HOTKEY", "<cmd>+<shift>+j")
 # Wake Trigger Enabled (Can be toggled via tray icon or voice_settings.json)
 WAKE_TRIGGER_ENABLED = os.getenv("WAKE_TRIGGER_ENABLED", "false").lower() in ("true", "1", "yes")
 
+# OpenWakeWord Sensitivity Threshold (0.20 - 0.60, default 0.35)
+_wake_score_raw = float(os.getenv("WAKE_SCORE_THRESHOLD", "0.35"))
+WAKE_SCORE_THRESHOLD = max(0.20, min(0.60, _wake_score_raw))
+
+# Microphone Input Pre-Amplification Gain for OpenWakeWord (1.0 - 3.5, default 1.6)
+_wake_gain_raw = float(os.getenv("WAKE_MIC_GAIN", "1.6"))
+WAKE_MIC_GAIN = max(1.0, min(3.5, _wake_gain_raw))
+
 # Speech-to-Text (STT) Settings: "groq" (default) or "local"
 STT_MODE = os.getenv("STT_MODE", "groq").lower().strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()

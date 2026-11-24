@@ -32,6 +32,7 @@ import queue
 import random
 import subprocess
 import threading
+from collections import deque
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union
 
@@ -82,6 +83,7 @@ class JarvisListener(threading.Thread):
         self._enabled = config.VOICE_INPUT_ENABLED
         self.wake_trigger_enabled = getattr(config, "WAKE_TRIGGER_ENABLED", False)
         self.wake_consecutive_hits = 0
+        self.recent_wake_scores: deque = deque(maxlen=4)
         self.last_vad_speech_time = 0.0
         self.stream_wake_event = threading.Event()
         self.speaker = speaker
@@ -843,43 +845,56 @@ class JarvisListener(threading.Thread):
                                                 if score >= 0.15:
                                                     print(f"[WakeWord Debug] 🎙️ OpenWakeWord '{self.wake_model_name}' Score: {score:.3f} (Threshold: {self.wake_score_threshold})")
 
-                                                if score >= self.wake_score_threshold:
+                                                self.recent_wake_scores.append(score)
+                                                max_recent = max(self.recent_wake_scores) if self.recent_wake_scores else score
+                                                avg_recent = (sum(self.recent_wake_scores) / len(self.recent_wake_scores)) if self.recent_wake_scores else score
+
+                                                has_recent_speech = (now - self.last_vad_speech_time) < 1.0
+
+                                                # Deterministic Adaptive Wake Trigger:
+                                                # 1. Strong Peak Trigger: Single chunk >= 0.38 (or >= 0.80 * threshold) with recent human speech (Silero VAD)
+                                                # 2. Confirmed Multi-Chunk: Chunk >= target_thresh (0.35) and rolling window support with recent human speech
+                                                target_thresh = getattr(config, "WAKE_SCORE_THRESHOLD", 0.35)
+                                                is_strong_hit = (score >= 0.38) or (score >= (self.wake_score_threshold * 0.80))
+                                                is_confirmed_hit = (score >= target_thresh and (self.wake_consecutive_hits >= 1 or avg_recent >= (target_thresh * 0.85)))
+
+                                                if is_strong_hit or is_confirmed_hit:
                                                     self.wake_consecutive_hits += 1
-                                                    print(f"[WakeWord Debug] 🎙️ Hit {self.wake_consecutive_hits}/2: Score {score:.3f} >= {self.wake_score_threshold}")
+                                                    print(f"[WakeWord Debug] 🎯 Hit #{self.wake_consecutive_hits}: Score {score:.3f} (Strong: {is_strong_hit}, Confirmed: {is_confirmed_hit}, VAD: {has_recent_speech})")
 
-                                                    has_recent_speech = (now - self.last_vad_speech_time) < 0.8
-                                                    # Gated: 2 consecutive hits (>=160ms) AND Silero VAD voice activity within 0.8s
-                                                    if self.wake_consecutive_hits >= 2:
-                                                        if has_recent_speech:
-                                                            print(f"[Listener] 🎯 Wake Word confirmed (2 hits + VAD)! Model: '{self.wake_model_name}', Score: {score:.3f} >= {self.wake_score_threshold}")
-                                                            event_bus.task_log_updated.emit(
-                                                                "Wake Word Detected",
-                                                                f"🎯 ตรวจพบคำปลุก '{self.wake_model_name}' (คะแนน: {score:.2f}) ด้วย OpenWakeWord"
-                                                            )
-                                                            # Reset wake model internal prediction buffer and accumulation queue
-                                                            self.wake_consecutive_hits = 0
-                                                            self.oww_model.reset()
-                                                            self.oww_audio_buffer = np.empty(0, dtype=np.int16)
+                                                    if has_recent_speech:
+                                                        print(f"[Listener] 🎯 Wake Word confirmed! Model: '{self.wake_model_name}', Score: {score:.3f} >= {self.wake_score_threshold}")
+                                                        event_bus.task_log_updated.emit(
+                                                            "Wake Word Detected",
+                                                            f"🎯 ตรวจพบคำปลุก '{self.wake_model_name}' (คะแนน: {score:.2f}) ด้วย OpenWakeWord"
+                                                        )
+                                                        # Reset wake model internal prediction buffer and accumulation queue
+                                                        self.wake_consecutive_hits = 0
+                                                        self.recent_wake_scores.clear()
+                                                        self.oww_model.reset()
+                                                        self.oww_audio_buffer = np.empty(0, dtype=np.int16)
 
-                                                            # Play acknowledgment phrase completely and cleanly before recording command
-                                                            self._play_random_wake_ack()
+                                                        # Play acknowledgment phrase completely and cleanly before recording command
+                                                        self._play_random_wake_ack()
 
-                                                            # Drain leftover queue
-                                                            while not self.audio_queue.empty():
-                                                                try:
-                                                                    self.audio_queue.get_nowait()
-                                                                except queue.Empty:
-                                                                    break
+                                                        # Drain leftover queue
+                                                        while not self.audio_queue.empty():
+                                                            try:
+                                                                self.audio_queue.get_nowait()
+                                                            except queue.Empty:
+                                                                break
 
-                                                            with self.state_lock:
-                                                                if not self.is_recording and not self.is_speaking and not self.is_processing:
-                                                                    self.current_state = self.STATE_ACTIVE_PTT
-                                                                    self._start_recording(is_followup=False)
-                                                            break
-                                                        else:
-                                                            print(f"[WakeWord Debug] ⚠️ Wake score high but rejected (no Silero VAD voice activity in last 0.8s; keyboard click rejected).")
+                                                        with self.state_lock:
+                                                            if not self.is_recording and not self.is_speaking and not self.is_processing:
+                                                                self.current_state = self.STATE_ACTIVE_PTT
+                                                                self._start_recording(is_followup=False)
+                                                        break
+                                                    else:
+                                                        print(f"[WakeWord Debug] ⚠️ Wake score high but waiting for Silero VAD voice activity within 1.0s.")
                                                 else:
-                                                    self.wake_consecutive_hits = 0
+                                                    # Only reset hits when score drops back down to background level
+                                                    if score < (self.wake_score_threshold * 0.7):
+                                                        self.wake_consecutive_hits = 0
                                             continue
                                         else:
                                             time.sleep(0.04)

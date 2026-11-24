@@ -175,11 +175,29 @@ class DynamicIsland(QWidget):
         self.anim = QPropertyAnimation(self, b"geometry", self)
         self.anim.setDuration(320)
         self.anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        self.anim.finished.connect(self._sync_child_widgets)
 
-        # 120 FPS / 30 FPS Adaptive Render Timer (v2.1.0)
+        # 60 FPS / 30 FPS Adaptive Render Timer (v2.1.0)
         self.render_timer = QTimer(self)
         self.render_timer.timeout.connect(self._on_animation_tick)
         self.render_timer.start(33)  # Start at 30 FPS for idle
+
+        # Performance-Optimized Cached System Fonts (Zero-latency fallback on macOS)
+        def _make_sys_font(size: int, weight: QFont.Weight = QFont.Normal) -> QFont:
+            f = QFont()
+            f.setStyleHint(QFont.SansSerif)
+            f.setPointSize(size)
+            f.setWeight(weight)
+            return f
+
+        self._font_bold_9 = _make_sys_font(9, QFont.Bold)
+        self._font_bold_8 = _make_sys_font(8, QFont.Bold)
+        self._font_bold_7 = _make_sys_font(7, QFont.Bold)
+        self._font_med_8 = _make_sys_font(8, QFont.Medium)
+        self._font_med_7 = _make_sys_font(7, QFont.Medium)
+        self._font_norm_8 = _make_sys_font(8, QFont.Normal)
+        self._font_norm_7 = _make_sys_font(7, QFont.Normal)
+        self._font_code_7 = QFont("Menlo", 7, QFont.Normal)
 
         # Setup macOS AppKit Window Level & Space behaviors
         self._setup_macos_window_level()
@@ -218,7 +236,6 @@ class DynamicIsland(QWidget):
                 border: 1px solid rgba(0, 229, 255, 0.4);
                 border-radius: 6px;
                 padding: 3px 8px;
-                font-family: -apple-system;
                 font-size: 11px;
             }
             QLineEdit:focus {
@@ -239,7 +256,6 @@ class DynamicIsland(QWidget):
                 border: 1px solid rgba(0, 255, 209, 0.4);
                 border-radius: 6px;
                 padding: 3px 8px;
-                font-family: -apple-system;
                 font-size: 11px;
             }
             QLineEdit:focus {
@@ -538,7 +554,7 @@ class DynamicIsland(QWidget):
     def expand_manually(self):
         """Manually pops out the island into expanded interactive mode (120 FPS)."""
         self._manually_expanded = True
-        self.render_timer.setInterval(8)  # 120 FPS
+        self.render_timer.setInterval(8)  # 120 FPS when expanded
         self.show()
         self.raise_()
         self._apply_geometry_for_state(animated=True)
@@ -823,7 +839,6 @@ class DynamicIsland(QWidget):
                 border: 1px solid rgba(0, 229, 255, 0.35);
                 border-radius: 10px;
                 padding: 6px;
-                font-family: -apple-system;
                 font-size: 11px;
             }
             QMenu::item {
@@ -1092,12 +1107,12 @@ class DynamicIsland(QWidget):
             self.update()
 
     def _on_animation_tick(self):
-        """120 FPS / 30 FPS tick updating 3D face, kinematics, quirks, and Chill Pixel Life standby."""
+        """60 FPS / 30 FPS tick updating 3D face, kinematics, quirks, and Chill Pixel Life standby."""
         now = time.time()
         t = now - self.start_time
 
-        # Update 3D Face Renderer (120 FPS dt ~ 0.008 when expanded)
-        dt = 0.008 if self.is_expanded else 0.033
+        # Update 3D Face Renderer (60 FPS dt ~ 0.016 when expanded)
+        dt = 0.016 if self.is_expanded else 0.033
         if hasattr(self, "face_renderer"):
             self.face_renderer.update(dt)
 
@@ -1124,7 +1139,7 @@ class DynamicIsland(QWidget):
     # =========================================================================
 
     def paintEvent(self, event):
-        """Renders 120 FPS Unified Cyber Command HUD and High-Poly 3D Face."""
+        """Renders 60 FPS Unified Cyber Command HUD and High-Poly 3D Face."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
@@ -1166,8 +1181,6 @@ class DynamicIsland(QWidget):
             return
 
         # 2. Expanded Mode: Unified Cyber Command HUD (820x430)
-        self._sync_child_widgets()
-
         # Capsule Background with Cyber Border
         rect = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
         radius = 18.0
@@ -1193,8 +1206,7 @@ class DynamicIsland(QWidget):
         painter.setBrush(QBrush(QColor(0, 229, 255, 45) if is_hov_wake else QColor(10, 20, 34, 180)))
         painter.setPen(QPen(QColor(0, 229, 255, 200) if is_hov_wake else QColor(0, 229, 255, 70), 1.0))
         painter.drawRoundedRect(b_wake, 6.0, 6.0)
-        font_hdr = QFont("-apple-system", 9, QFont.Bold)
-        painter.setFont(font_hdr)
+        painter.setFont(self._font_bold_9)
         painter.setPen(QPen(QColor("#00E5FF"), 1))
         painter.drawText(b_wake.adjusted(10, 0, -20, 0), Qt.AlignLeft | Qt.AlignVCenter, "◈ K.A.R.I.S. // JR.")
         # Wake LED
@@ -1215,7 +1227,7 @@ class DynamicIsland(QWidget):
         painter.setBrush(QBrush(todo_bg))
         painter.setPen(QPen(todo_bd, 1.0))
         painter.drawRoundedRect(b_todo, 6.0, 6.0)
-        painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+        painter.setFont(self._font_bold_8)
         painter.setPen(QPen(QColor("#FFFFFF") if (is_hov_todo or todo_active) else QColor("#00FFD1"), 1))
         painter.drawText(b_todo, Qt.AlignCenter, f"📝 LIVE TODO ({inc_count})")
         painter.restore()
@@ -1227,7 +1239,7 @@ class DynamicIsland(QWidget):
         painter.setBrush(QBrush(QColor(56, 189, 248, 55) if is_hov_chat else QColor(10, 24, 38, 180)))
         painter.setPen(QPen(QColor(56, 189, 248, 220) if is_hov_chat else QColor(56, 189, 248, 70), 1.0))
         painter.drawRoundedRect(b_chat, 6.0, 6.0)
-        painter.setFont(QFont("-apple-system", 8, QFont.Medium))
+        painter.setFont(self._font_med_8)
         painter.setPen(QPen(QColor("#F1F5F9"), 1))
         painter.drawText(b_chat, Qt.AlignCenter, "💬 Chat")
         painter.restore()
@@ -1242,14 +1254,14 @@ class DynamicIsland(QWidget):
         painter.setBrush(QBrush(v_bg))
         painter.setPen(QPen(v_bd, 1.0))
         painter.drawRoundedRect(b_voice, 6.0, 6.0)
-        painter.setFont(QFont("-apple-system", 8, QFont.Medium))
+        painter.setFont(self._font_med_8)
         painter.setPen(QPen(QColor("#FFFFFF") if (is_listen or is_hov_voice) else QColor("#E2E8F0"), 1))
         painter.drawText(b_voice, Qt.AlignCenter, "🎙️ Voice")
         painter.restore()
 
         # Status text & mini live wave
         painter.save()
-        painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+        painter.setFont(self._font_norm_8)
         painter.setPen(QPen(QColor("#94A3B8"), 1))
         sub_text = self._custom_subtext if self._custom_subtext else cfg["status"]
         painter.drawText(QRectF(510.0, 7.0, 210.0, 26.0), Qt.AlignLeft | Qt.AlignVCenter, f"• {sub_text}")
@@ -1274,7 +1286,7 @@ class DynamicIsland(QWidget):
         painter.setBrush(QBrush(QColor(148, 163, 184, 50) if is_hov_menu else QColor(15, 23, 42, 180)))
         painter.setPen(QPen(QColor(148, 163, 184, 200) if is_hov_menu else QColor(100, 116, 139, 70), 1.0))
         painter.drawRoundedRect(b_menu, 6.0, 6.0)
-        painter.setFont(QFont("-apple-system", 8, QFont.Medium))
+        painter.setFont(self._font_med_8)
         painter.setPen(QPen(QColor("#E2E8F0"), 1))
         painter.drawText(b_menu, Qt.AlignCenter, "⚙️ More")
         painter.restore()
@@ -1297,7 +1309,7 @@ class DynamicIsland(QWidget):
         painter.setBrush(QBrush(QColor(0, 229, 255, 55) if is_chat_tab else QColor(15, 23, 38, 180)))
         painter.setPen(QPen(QColor(0, 229, 255, 220) if is_chat_tab else QColor(255, 255, 255, 30), 1.0))
         painter.drawRoundedRect(b_tab_chat, 5.0, 5.0)
-        painter.setFont(QFont("-apple-system", 8, QFont.Bold if is_chat_tab else QFont.Medium))
+        painter.setFont(self._font_bold_8 if is_chat_tab else self._font_med_8)
         painter.setPen(QPen(QColor("#00E5FF") if is_chat_tab else QColor("#94A3B8"), 1))
         painter.drawText(b_tab_chat, Qt.AlignCenter, "💬 Live Chat")
 
@@ -1305,7 +1317,7 @@ class DynamicIsland(QWidget):
         painter.setBrush(QBrush(QColor(0, 229, 255, 55) if not is_chat_tab else QColor(15, 23, 38, 180)))
         painter.setPen(QPen(QColor(0, 229, 255, 220) if not is_chat_tab else QColor(255, 255, 255, 30), 1.0))
         painter.drawRoundedRect(b_tab_proc, 5.0, 5.0)
-        painter.setFont(QFont("-apple-system", 8, QFont.Bold if not is_chat_tab else QFont.Medium))
+        painter.setFont(self._font_bold_8 if not is_chat_tab else self._font_med_8)
         painter.setPen(QPen(QColor("#00E5FF") if not is_chat_tab else QColor("#94A3B8"), 1))
         painter.drawText(b_tab_proc, Qt.AlignCenter, "⚡ Process & Raw")
 
@@ -1336,11 +1348,11 @@ class DynamicIsland(QWidget):
                 painter.setPen(QPen(border_color, 1.0))
                 painter.drawRoundedRect(b_box, 6.0, 6.0)
 
-                painter.setFont(QFont("-apple-system", 7, QFont.Bold))
+                painter.setFont(self._font_bold_7)
                 painter.setPen(QPen(prefix_col, 1))
                 painter.drawText(QRectF(b_box.x() + 8, b_box.y() + 4, 180, 14), Qt.AlignLeft, f"{sender_name} • {msg.get('time', '')}")
 
-                painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+                painter.setFont(self._font_norm_8)
                 painter.setPen(QPen(QColor("#E2E8F0"), 1))
                 painter.drawText(QRectF(b_box.x() + 8, b_box.y() + 18, 238, 16), Qt.AlignLeft, text_content)
 
@@ -1355,7 +1367,7 @@ class DynamicIsland(QWidget):
             painter.setBrush(QBrush(QColor(0, 229, 255, 75) if is_hov_send else QColor(0, 229, 255, 40)))
             painter.setPen(QPen(QColor(0, 229, 255, 230) if is_hov_send else QColor(0, 229, 255, 120), 1.0))
             painter.drawRoundedRect(b_send, 6.0, 6.0)
-            painter.setFont(QFont("-apple-system", 9, QFont.Bold))
+            painter.setFont(self._font_bold_9)
             painter.setPen(QPen(QColor("#00E5FF"), 1))
             painter.drawText(b_send, Qt.AlignCenter, "🚀")
         else:
@@ -1365,7 +1377,7 @@ class DynamicIsland(QWidget):
             painter.setClipRect(log_stream_rect)
             recent_logs = self._process_logs[-11:]
             log_y = log_stream_rect.top() + 4.0
-            painter.setFont(QFont("Menlo", 7, QFont.Normal))
+            painter.setFont(self._font_code_7)
             for item in recent_logs:
                 painter.setPen(QPen(QColor("#00FFD1"), 1))
                 t_str = f"[{item.get('time', '')}]"
@@ -1431,11 +1443,11 @@ class DynamicIsland(QWidget):
             painter.setPen(QPen(b_bd, 1.2))
             painter.drawPath(bubble_path)
 
-            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setFont(self._font_bold_8)
             painter.setPen(QPen(QColor(b_col.red(), b_col.green(), b_col.blue(), int(255 * bubble_alpha)), 1))
             painter.drawText(QRectF(316.0, 54.0, 468.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, self._bubble_title)
 
-            painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+            painter.setFont(self._font_norm_8)
             painter.setPen(QPen(QColor(226, 232, 240, int(230 * bubble_alpha)), 1))
             painter.drawText(QRectF(316.0, 70.0, 468.0, 18.0), Qt.AlignLeft | Qt.AlignVCenter, self._bubble_subtext or "")
 
@@ -1447,7 +1459,7 @@ class DynamicIsland(QWidget):
             painter.setPen(QPen(QColor(251, 191, 36, 230), 1.4))
             painter.drawRoundedRect(card_rect, 10.0, 10.0)
 
-            painter.setFont(QFont("-apple-system", 9, QFont.Bold))
+            painter.setFont(self._font_bold_9)
             painter.setPen(QPen(QColor("#FBBF24"), 1))
             painter.drawText(QRectF(326.0, 278.0, 448.0, 18.0), Qt.AlignLeft | Qt.AlignVCenter, "◈ K.A.R.I.S. SMART AMBIGUITY CONFIRMATION")
 
@@ -1455,15 +1467,15 @@ class DynamicIsland(QWidget):
             q_txt = self._pending_confirmation_info.get("question_text", "")
             inferred = self._pending_confirmation_info.get("inferred_intent", "")
 
-            painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+            painter.setFont(self._font_norm_8)
             painter.setPen(QPen(QColor("#94A3B8"), 1))
             painter.drawText(QRectF(326.0, 300.0, 448.0, 16.0), Qt.AlignLeft, f"ตรวจพบเสียงรบกวน/ไม่ชัดเจน: \"{raw_txt}\"")
 
-            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setFont(self._font_bold_8)
             painter.setPen(QPen(QColor("#00FFD1"), 1))
             painter.drawText(QRectF(326.0, 320.0, 448.0, 18.0), Qt.AlignLeft, f"ยืนยันดำเนินการ: \"{inferred}\"")
 
-            painter.setFont(QFont("-apple-system", 8, QFont.Medium))
+            painter.setFont(self._font_med_8)
             painter.setPen(QPen(QColor("#F1F5F9"), 1))
             painter.drawText(QRectF(326.0, 342.0, 448.0, 18.0), Qt.AlignLeft, f"คำถาม: {q_txt}")
 
@@ -1476,14 +1488,14 @@ class DynamicIsland(QWidget):
             painter.setBrush(QBrush(QColor(0, 255, 209, 75) if is_hov_yes else QColor(10, 40, 35, 220)))
             painter.setPen(QPen(QColor(0, 255, 209, 240) if is_hov_yes else QColor(0, 255, 209, 120), 1.0))
             painter.drawRoundedRect(b_yes, 6.0, 6.0)
-            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setFont(self._font_bold_8)
             painter.setPen(QPen(QColor("#FFFFFF") if is_hov_yes else QColor("#00FFD1"), 1))
             painter.drawText(b_yes, Qt.AlignCenter, "✓ ใช่, ดำเนินการเลย")
 
             painter.setBrush(QBrush(QColor(251, 113, 133, 75) if is_hov_no else QColor(40, 15, 25, 220)))
             painter.setPen(QPen(QColor(251, 113, 133, 240) if is_hov_no else QColor(251, 113, 133, 120), 1.0))
             painter.drawRoundedRect(b_no, 6.0, 6.0)
-            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setFont(self._font_bold_8)
             painter.setPen(QPen(QColor("#FFFFFF") if is_hov_no else QColor("#FB7185"), 1))
             painter.drawText(b_no, Qt.AlignCenter, "✕ ไม่ใช่ / ยกเลิก")
 
@@ -1494,12 +1506,12 @@ class DynamicIsland(QWidget):
             painter.setPen(QPen(QColor(251, 113, 133, 230), 1.4))
             painter.drawRoundedRect(card_rect, 10.0, 10.0)
 
-            painter.setFont(QFont("-apple-system", 9, QFont.Bold))
+            painter.setFont(self._font_bold_9)
             painter.setPen(QPen(QColor("#FB7185"), 1))
             painter.drawText(QRectF(326.0, 282.0, 448.0, 18.0), Qt.AlignLeft | Qt.AlignVCenter, "⚠️ OWNER APPROVAL REQUIRED")
 
             prompt_str = self._pending_approval_info.get("prompt", "ระบบต้องการยืนยันก่อนรันคำสั่ง")
-            painter.setFont(QFont("-apple-system", 8, QFont.Medium))
+            painter.setFont(self._font_med_8)
             painter.setPen(QPen(QColor("#F1F5F9"), 1))
             painter.drawText(QRectF(326.0, 310.0, 448.0, 42.0), Qt.AlignLeft | Qt.TextWordWrap, prompt_str)
 
@@ -1512,14 +1524,14 @@ class DynamicIsland(QWidget):
             painter.setBrush(QBrush(QColor(0, 255, 209, 75) if is_hov_appr else QColor(10, 40, 35, 220)))
             painter.setPen(QPen(QColor(0, 255, 209, 240) if is_hov_appr else QColor(0, 255, 209, 120), 1.0))
             painter.drawRoundedRect(b_appr, 6.0, 6.0)
-            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setFont(self._font_bold_8)
             painter.setPen(QPen(QColor("#FFFFFF") if is_hov_appr else QColor("#00FFD1"), 1))
             painter.drawText(b_appr, Qt.AlignCenter, "✓ Approve")
 
             painter.setBrush(QBrush(QColor(251, 113, 133, 75) if is_hov_rej else QColor(40, 15, 25, 220)))
             painter.setPen(QPen(QColor(251, 113, 133, 240) if is_hov_rej else QColor(251, 113, 133, 120), 1.0))
             painter.drawRoundedRect(b_rej, 6.0, 6.0)
-            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setFont(self._font_bold_8)
             painter.setPen(QPen(QColor("#FFFFFF") if is_hov_rej else QColor("#FB7185"), 1))
             painter.drawText(b_rej, Qt.AlignCenter, "✕ Reject")
 
@@ -1536,7 +1548,7 @@ class DynamicIsland(QWidget):
             painter.drawRoundedRect(d_rect, 10.0, 10.0)
 
             # Drawer Title
-            painter.setFont(QFont("-apple-system", 9, QFont.Bold))
+            painter.setFont(self._font_bold_9)
             painter.setPen(QPen(QColor("#00FFD1"), 1))
             painter.drawText(QRectF(170.0, 42.0, 300.0, 20.0), Qt.AlignLeft | Qt.AlignVCenter, "📝 LIVE TODO & REMINDER ACCORDION DRAWER")
 
@@ -1546,14 +1558,14 @@ class DynamicIsland(QWidget):
             painter.setBrush(QBrush(QColor(0, 255, 209, 60) if is_hov_add else QColor(10, 34, 38, 200)))
             painter.setPen(QPen(QColor(0, 255, 209, 230) if is_hov_add else QColor(0, 255, 209, 100), 1.0))
             painter.drawRoundedRect(b_add, 5.0, 5.0)
-            painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+            painter.setFont(self._font_bold_8)
             painter.setPen(QPen(QColor("#FFFFFF") if is_hov_add else QColor("#00FFD1"), 1))
             painter.drawText(b_add, Qt.AlignCenter, "+ เพิ่ม")
 
             # Todo list items
             todos = self._todos_cache[:5]
             if not todos:
-                painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+                painter.setFont(self._font_norm_8)
                 painter.setPen(QPen(QColor("#94A3B8"), 1))
                 painter.drawText(QRectF(170.0, 108.0, 420.0, 24.0), Qt.AlignCenter, "ขณะนี้ไม่มีรายการ Todo ค้างอยู่ครับบอส")
             else:
@@ -1572,7 +1584,7 @@ class DynamicIsland(QWidget):
                     painter.setPen(QPen(QColor(0, 255, 209, 200) if is_done else QColor(100, 116, 139, 100), 1.0))
                     painter.drawRoundedRect(b_tgl, 4.0, 4.0)
                     if is_done:
-                        painter.setFont(QFont("-apple-system", 8, QFont.Bold))
+                        painter.setFont(self._font_bold_8)
                         painter.setPen(QPen(QColor("#00FFD1"), 1))
                         painter.drawText(b_tgl, Qt.AlignCenter, "✓")
 
@@ -1580,7 +1592,7 @@ class DynamicIsland(QWidget):
                     text_str = item.get("text", "")
                     if len(text_str) > 42:
                         text_str = text_str[:40] + "..."
-                    painter.setFont(QFont("-apple-system", 8, QFont.Normal))
+                    painter.setFont(self._font_norm_8)
                     painter.setPen(QPen(QColor("#64748B") if is_done else QColor("#F1F5F9"), 1))
                     painter.drawText(QRectF(198.0, item_y, 368.0, 22.0), Qt.AlignLeft | Qt.AlignVCenter, text_str)
 
@@ -1588,7 +1600,7 @@ class DynamicIsland(QWidget):
                     painter.setBrush(QBrush(QColor(251, 113, 133, 60) if is_hov_del else QColor(25, 15, 25, 180)))
                     painter.setPen(QPen(QColor(251, 113, 133, 200) if is_hov_del else QColor(251, 113, 133, 70), 1.0))
                     painter.drawRoundedRect(b_del, 4.0, 4.0)
-                    painter.setFont(QFont("-apple-system", 7, QFont.Bold))
+                    painter.setFont(self._font_bold_7)
                     painter.setPen(QPen(QColor("#FB7185"), 1))
                     painter.drawText(b_del, Qt.AlignCenter, "✕")
 
@@ -1601,14 +1613,14 @@ class DynamicIsland(QWidget):
             painter.setBrush(QBrush(QColor(251, 191, 36, 50) if is_hov_alert else QColor(20, 24, 35, 180)))
             painter.setPen(QPen(QColor(251, 191, 36, 200) if is_hov_alert else QColor(251, 191, 36, 80), 1.0))
             painter.drawRoundedRect(b_alert, 4.0, 4.0)
-            painter.setFont(QFont("-apple-system", 7, QFont.Bold))
+            painter.setFont(self._font_bold_7)
             painter.setPen(QPen(QColor("#FBBF24"), 1))
             painter.drawText(b_alert, Qt.AlignCenter, "🔔 ทดสอบแจ้งเตือน")
 
             painter.setBrush(QBrush(QColor(148, 163, 184, 50) if is_hov_close else QColor(20, 24, 35, 180)))
             painter.setPen(QPen(QColor(148, 163, 184, 180) if is_hov_close else QColor(100, 116, 139, 70), 1.0))
             painter.drawRoundedRect(b_close, 4.0, 4.0)
-            painter.setFont(QFont("-apple-system", 7, QFont.Medium))
+            painter.setFont(self._font_med_7)
             painter.setPen(QPen(QColor("#E2E8F0"), 1))
             painter.drawText(b_close, Qt.AlignCenter, "▲ ปิด")
 
@@ -2109,10 +2121,10 @@ class DynamicIslandManager:
         self._init_islands()
         self._init_native_status_item()
 
-        # 30 FPS Render Timer for Native NSStatusItem
+        # 20 FPS Render Timer for Native NSStatusItem (Low-CPU Pixel Animation)
         self._status_timer = QTimer()
         self._status_timer.timeout.connect(self._on_status_tick)
-        self._status_timer.start(33)
+        self._status_timer.start(50)
 
         if app:
             app.screenAdded.connect(self._on_screens_changed)
@@ -2195,10 +2207,10 @@ class DynamicIslandManager:
             )
             ba = QBuffer()
             ba.open(QIODevice.WriteOnly)
-            img.save(ba, "PNG")
-            png_bytes = ba.data().data()
+            img.save(ba, "TIFF")
+            tiff_bytes = ba.data().data()
 
-            ns_data = AppKit.NSData.dataWithBytes_length_(png_bytes, len(png_bytes))
+            ns_data = AppKit.NSData.dataWithBytes_length_(tiff_bytes, len(tiff_bytes))
             ns_img = AppKit.NSImage.alloc().initWithData_(ns_data)
             ns_img.setSize_(AppKit.NSMakeSize(88.0, 22.0))
             ns_img.setTemplate_(False)
