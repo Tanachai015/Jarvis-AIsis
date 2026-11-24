@@ -592,8 +592,8 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
         for key in required_keys:
             self.assertIn(key, data, f"Missing required voice_settings key: {key}")
 
-        self.assertEqual(data["wake_mic_gain"], 2.5)
-        self.assertEqual(data["wake_score_threshold"], 0.36)
+        self.assertEqual(data["wake_mic_gain"], 1.6)
+        self.assertEqual(data["wake_score_threshold"], 0.48)
         self.assertEqual(data["barge_in_vad_threshold"], 0.60)
         self.assertEqual(data["barge_in_rms_threshold"], 0.020)
         self.assertTrue(isinstance(data["interrupt_stop_phrases"], list))
@@ -860,6 +860,74 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
         finally:
             for isl in manager.islands:
                 isl.close()
+
+    def test_v193_standard_mode_bubble_and_single_screen_spec(self):
+        """Verifies v1.9.3: Standard Mode (Wake: OFF by default), Robot Speech Bubble, Single-Screen Pop-out, and 2-frame wake gate."""
+        import config
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QColor
+        from ui.dynamic_island import DynamicIsland, DynamicIslandManager
+        from voice.listener import JarvisListener
+
+        # 1. Verify Default Standard Mode in config (WAKE_TRIGGER_ENABLED == False)
+        self.assertFalse(config.WAKE_TRIGGER_ENABLED, "WAKE_TRIGGER_ENABLED must default to False (Standard Mode)")
+
+        # 2. Verify voice_settings.json parameters (wake_mic_gain 1.6, wake_score_threshold 0.48)
+        settings_path = config.PROJECT_ROOT / "voice_settings.json"
+        with open(settings_path, "r", encoding="utf-8") as f:
+            v_data = json.load(f)
+        self.assertEqual(v_data.get("wake_mic_gain"), 1.6, "wake_mic_gain must be 1.6 to prevent keyboard click spikes")
+        self.assertEqual(v_data.get("wake_score_threshold"), 0.48, "wake_score_threshold must be 0.48 for strict detection")
+
+        # 3. Verify DynamicIsland Robot Speech Bubble capabilities
+        app = QApplication.instance() or QApplication(sys.argv)
+        island = DynamicIsland()
+        try:
+            self.assertTrue(hasattr(island, "_show_robot_bubble"), "DynamicIsland must implement _show_robot_bubble")
+            island._show_robot_bubble(
+                title='Call me "Hey Jarvis"',
+                subtext="เปิดโหมด Wake Standby แล้วครับ พร้อมรับเสียงเรียก",
+                duration=3.0,
+                title_color=QColor("#00FFD1")
+            )
+            self.assertEqual(island._bubble_title, 'Call me "Hey Jarvis"')
+            self.assertIn("เปิดโหมด Wake Standby", island._bubble_subtext)
+            self.assertGreater(island._bubble_expire_time, time.time())
+            self.assertTrue(island._auto_fold_timer.isActive(), "Auto fold timer must be active and delayed")
+        finally:
+            island.close()
+
+        # 4. Verify Single-Screen Pop-out in DynamicIslandManager
+        manager = DynamicIslandManager()
+        try:
+            self.assertTrue(hasattr(manager, "_get_active_island"), "DynamicIslandManager must have _get_active_island")
+            self.assertTrue(hasattr(manager, "expand_active"), "DynamicIslandManager must have expand_active")
+
+            # expand_active must expand only the active island
+            active_isl = manager._get_active_island()
+            self.assertIsNotNone(active_isl)
+            manager.expand_active()
+            for isl in manager.islands:
+                if isl is active_isl:
+                    self.assertTrue(isl.is_expanded, "Active island must be expanded")
+                else:
+                    self.assertFalse(isl.is_expanded, "Non-active screen islands must remain folded/hidden")
+
+            # toggle_all folds when any is expanded
+            manager.toggle_all()
+            for isl in manager.islands:
+                self.assertFalse(isl.is_expanded, "toggle_all must fold all islands when one was expanded")
+        finally:
+            for isl in manager.islands:
+                isl.close()
+
+        # 5. Verify JarvisListener On-Demand Stream attributes and Consecutive Hit Gate
+        listener = JarvisListener(speaker=MagicMock())
+        self.assertFalse(listener.wake_trigger_enabled, "Listener wake_trigger_enabled must default to False")
+        self.assertEqual(listener.wake_score_threshold, 0.48, "Listener threshold must match settings (0.48)")
+        self.assertEqual(listener.wake_mic_gain, 1.6, "Listener gain must match settings (1.6)")
+        self.assertTrue(hasattr(listener, "wake_consecutive_hits"), "Listener must track wake_consecutive_hits for false positive rejection")
+        self.assertTrue(hasattr(listener, "stream_wake_event"), "Listener must have stream_wake_event for On-Demand audio stream control")
 
 
 # ============================================================================

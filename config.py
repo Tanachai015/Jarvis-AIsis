@@ -43,7 +43,7 @@ VOICE_INPUT_ENABLED = os.getenv("VOICE_INPUT_ENABLED", "true").lower() in ("true
 VOICE_TOGGLE_HOTKEY = os.getenv("VOICE_TOGGLE_HOTKEY", "<cmd>+<shift>+j")
 
 # Wake Trigger Enabled (Can be toggled via tray icon or voice_settings.json)
-WAKE_TRIGGER_ENABLED = os.getenv("WAKE_TRIGGER_ENABLED", "true").lower() in ("true", "1", "yes")
+WAKE_TRIGGER_ENABLED = os.getenv("WAKE_TRIGGER_ENABLED", "false").lower() in ("true", "1", "yes")
 
 # Speech-to-Text (STT) Settings: "groq" (default) or "local"
 STT_MODE = os.getenv("STT_MODE", "groq").lower().strip()

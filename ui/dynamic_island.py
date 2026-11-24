@@ -11,7 +11,7 @@ import random
 from typing import Optional, Dict, Any
 
 from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPoint, QPropertyAnimation, QEasingCurve, Property, QBuffer, QIODevice
-from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QPen, QBrush, QGuiApplication, QScreen
+from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QPen, QBrush, QGuiApplication, QScreen, QCursor
 from PySide6.QtWidgets import QWidget, QApplication, QMenu
 
 import config
@@ -138,6 +138,12 @@ class DynamicIsland(QWidget):
         self.expanded_w = 360
         self.expanded_h = 70
         self.menubar_offset_x = 0
+
+        # Robot Speech Bubble State (v1.9.3)
+        self._bubble_title: Optional[str] = None
+        self._bubble_subtext: Optional[str] = None
+        self._bubble_expire_time: float = 0.0
+        self._bubble_title_color: QColor = QColor("#00FFD1")
 
         # Chill Pixel Life Standby Engine
         self.pixel_engine = ChillPixelLifeEngine()
@@ -380,15 +386,17 @@ class DynamicIsland(QWidget):
                             item_w = int(round(wf.size.width))
                             item_h = int(round(wf.size.height))
 
-                            x = int(item_x + (item_w / 2.0) - (w / 2.0))
-                            y = int(item_y + item_h + 4)
-                            # Clamp within screen bounds
+                            # Only anchor to status item if its position falls within this screen
                             s_right = sx + screen_geo.width()
-                            if x < sx + 8:
-                                x = sx + 8
-                            elif x + w > s_right - 8:
-                                x = s_right - w - 8
-                            anchor_found = True
+                            if sx <= item_x < s_right:
+                                x = int(item_x + (item_w / 2.0) - (w / 2.0))
+                                y = int(item_y + item_h + 4)
+                                # Clamp within screen bounds
+                                if x < sx + 8:
+                                    x = sx + 8
+                                elif x + w > s_right - 8:
+                                    x = s_right - w - 8
+                                anchor_found = True
                 except Exception:
                     anchor_found = False
 
@@ -475,18 +483,47 @@ class DynamicIsland(QWidget):
         else:
             self.expand_manually()
 
+    def _show_robot_bubble(self, title: str, subtext: str, duration: float = 3.0, title_color: Optional[QColor] = None):
+        """Displays pure vector speech bubble pointing from robot's mouth with auto-fold delay."""
+        self._bubble_title = title
+        self._bubble_subtext = subtext
+        self._bubble_expire_time = time.time() + duration
+        self._bubble_title_color = title_color if title_color is not None else QColor("#00FFD1")
+        # Delay auto-fold timer so speech bubble completes before window folds
+        if self._auto_fold_timer.isActive():
+            self._auto_fold_timer.stop()
+        self._auto_fold_timer.start(int((duration + 3.5) * 1000))
+        self.update()
+
     def _on_toggle_wake_word(self, checked: bool = None):
-        """Toggles wake word detection and notifies event bus."""
+        """Toggles wake word detection and notifies event bus with speech bubble feedback."""
         if checked is None:
             config.WAKE_TRIGGER_ENABLED = not config.WAKE_TRIGGER_ENABLED
         else:
             config.WAKE_TRIGGER_ENABLED = checked
         status_text = "เปิดใช้งาน" if config.WAKE_TRIGGER_ENABLED else "ปิดชั่วคราว"
         print(f"[DynamicIsland] Wake word trigger changed to: {config.WAKE_TRIGGER_ENABLED}")
+        event_bus.voice_mode_changed.emit("wake_on" if config.WAKE_TRIGGER_ENABLED else "wake_off")
         event_bus.task_log_updated.emit(
             "Wake Trigger Updated",
             f"การตรวจจับคำปลุก 'Hey Jarvis' ถูก{status_text}แล้ว"
         )
+        if config.WAKE_TRIGGER_ENABLED:
+            self.trigger_quirk("hum_hop")
+            self._show_robot_bubble(
+                title='Call me "Hey Jarvis"',
+                subtext="เปิดโหมด Wake Standby แล้วครับ พร้อมรับเสียงเรียก",
+                duration=3.0,
+                title_color=QColor("#00FFD1")
+            )
+        else:
+            self.trigger_quirk("curious_nod")
+            self._show_robot_bubble(
+                title="กลับเข้าสู่โหมด Standard แล้วครับ",
+                subtext="สามารถกด Cmd + Shift + J เรียก เปิด-ปิด ใช้งานสั่งการด้วยเสียงได้นะครับ",
+                duration=3.8,
+                title_color=QColor("#38BDF8")
+            )
         self.update()
 
     def _get_buttons_map(self) -> Dict[str, QRectF]:
@@ -752,40 +789,91 @@ class DynamicIsland(QWidget):
             self._draw_cyber_robot(painter, t, cfg, is_mini=False)
             painter.restore()
 
-            # Status Texts (Top area)
+            # Status Texts or Robot Speech Bubble (Top area)
             text_x = 62.0
             text_w = w - text_x - 30.0
 
-            # Title
-            painter.setPen(QPen(neon_color, 1))
-            font_title = painter.font()
-            font_title.setStyleHint(QFont.Monospace)
-            font_title.setFamily("Menlo")
-            font_title.setPointSize(9)
-            font_title.setWeight(QFont.Bold)
-            painter.setFont(font_title)
-            painter.drawText(QRectF(text_x, 8.0, 75.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, "J.A.R.V.I.S.")
+            show_bubble = bool(self._bubble_title and time.time() < self._bubble_expire_time)
+            if show_bubble:
+                # Robot Speech Bubble (Pure Vector QPainterPath pointing to robot)
+                rem = self._bubble_expire_time - time.time()
+                bubble_alpha = min(1.0, rem / 0.35) if rem < 0.35 else 1.0
 
-            # Status Text
-            painter.setPen(QPen(QColor("#F1F5F9"), 1))
-            font_status = painter.font()
-            font_status.setStyleHint(QFont.SansSerif)
-            font_status.setFamily("-apple-system")
-            font_status.setPointSize(9)
-            font_status.setWeight(QFont.Medium)
-            painter.setFont(font_status)
-            painter.drawText(QRectF(text_x + 72.0, 8.0, text_w - 72.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, f"• {cfg['status']}")
+                bubble_rect = QRectF(text_x, 5.0, text_w, 33.0)
+                beak = QPainterPath()
+                beak.moveTo(text_x, 17.0)
+                beak.lineTo(text_x - 7.0, 21.0)
+                beak.lineTo(text_x, 25.0)
+                beak.closeSubpath()
 
-            # Subtext
-            subtext_str = self._custom_subtext if self._custom_subtext else cfg["subtext"]
-            painter.setPen(QPen(QColor("#94A3B8"), 1))
-            font_sub = painter.font()
-            font_sub.setStyleHint(QFont.SansSerif)
-            font_sub.setFamily("-apple-system")
-            font_sub.setPointSize(8)
-            font_sub.setWeight(QFont.Normal)
-            painter.setFont(font_sub)
-            painter.drawText(QRectF(text_x, 24.0, text_w, 14.0), Qt.AlignLeft | Qt.AlignVCenter, subtext_str)
+                bubble_path = QPainterPath()
+                bubble_path.addRoundedRect(bubble_rect, 6.0, 6.0)
+                bubble_path = bubble_path.united(beak)
+
+                bubble_bg = QColor(10, 16, 29, int(240 * bubble_alpha))
+                b_color = self._bubble_title_color
+                bubble_border = QColor(b_color.red(), b_color.green(), b_color.blue(), int(210 * bubble_alpha))
+
+                painter.save()
+                painter.setBrush(QBrush(bubble_bg))
+                b_pen = QPen(bubble_border, 1.2)
+                b_pen.setCosmetic(True)
+                painter.setPen(b_pen)
+                painter.drawPath(bubble_path)
+
+                # Bubble Title
+                font_b_title = painter.font()
+                font_b_title.setStyleHint(QFont.SansSerif)
+                font_b_title.setFamily("-apple-system")
+                font_b_title.setPointSize(8)
+                font_b_title.setWeight(QFont.Bold)
+                painter.setFont(font_b_title)
+                t_col = QColor(b_color.red(), b_color.green(), b_color.blue(), int(255 * bubble_alpha))
+                painter.setPen(QPen(t_col, 1))
+                painter.drawText(QRectF(text_x + 6.0, 7.0, text_w - 12.0, 14.0), Qt.AlignLeft | Qt.AlignVCenter, self._bubble_title)
+
+                # Bubble Subtext
+                font_b_sub = painter.font()
+                font_b_sub.setStyleHint(QFont.SansSerif)
+                font_b_sub.setFamily("-apple-system")
+                font_b_sub.setPointSize(7)
+                font_b_sub.setWeight(QFont.Medium)
+                painter.setFont(font_b_sub)
+                s_col = QColor(226, 232, 240, int(230 * bubble_alpha))
+                painter.setPen(QPen(s_col, 1))
+                painter.drawText(QRectF(text_x + 6.0, 21.0, text_w - 12.0, 14.0), Qt.AlignLeft | Qt.AlignVCenter, self._bubble_subtext or "")
+                painter.restore()
+            else:
+                # Title
+                painter.setPen(QPen(neon_color, 1))
+                font_title = painter.font()
+                font_title.setStyleHint(QFont.Monospace)
+                font_title.setFamily("Menlo")
+                font_title.setPointSize(9)
+                font_title.setWeight(QFont.Bold)
+                painter.setFont(font_title)
+                painter.drawText(QRectF(text_x, 8.0, 75.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, "J.A.R.V.I.S.")
+
+                # Status Text
+                painter.setPen(QPen(QColor("#F1F5F9"), 1))
+                font_status = painter.font()
+                font_status.setStyleHint(QFont.SansSerif)
+                font_status.setFamily("-apple-system")
+                font_status.setPointSize(9)
+                font_status.setWeight(QFont.Medium)
+                painter.setFont(font_status)
+                painter.drawText(QRectF(text_x + 72.0, 8.0, text_w - 72.0, 16.0), Qt.AlignLeft | Qt.AlignVCenter, f"• {cfg['status']}")
+
+                # Subtext
+                subtext_str = self._custom_subtext if self._custom_subtext else cfg["subtext"]
+                painter.setPen(QPen(QColor("#94A3B8"), 1))
+                font_sub = painter.font()
+                font_sub.setStyleHint(QFont.SansSerif)
+                font_sub.setFamily("-apple-system")
+                font_sub.setPointSize(8)
+                font_sub.setWeight(QFont.Normal)
+                painter.setFont(font_sub)
+                painter.drawText(QRectF(text_x, 24.0, text_w, 14.0), Qt.AlignLeft | Qt.AlignVCenter, subtext_str)
 
             # Mini Live Wave Indicator (Top right edge)
             wave_x = w - 24.0
@@ -818,9 +906,19 @@ class DynamicIsland(QWidget):
                 elif name == "wake":
                     is_wake_on = config.WAKE_TRIGGER_ENABLED
                     label = "⚡ Wake: ON" if is_wake_on else "⚡ Wake: OFF"
-                    accent = QColor("#22D3EE") if is_wake_on else QColor("#94A3B8")
-                    bg_col = QColor(34, 211, 238, 50) if is_hover else (QColor(10, 30, 40, 190) if is_wake_on else QColor(20, 24, 30, 190))
-                    bd_col = QColor(34, 211, 238, 220) if is_hover else (QColor(34, 211, 238, 90) if is_wake_on else QColor(100, 116, 139, 70))
+                    accent = QColor("#00FFD1") if is_wake_on else QColor("#94A3B8")
+                    if is_wake_on:
+                        bg_col = QColor(0, 255, 209, 55) if is_hover else QColor(10, 32, 38, 210)
+                        bd_col = QColor(0, 255, 209, 240) if is_hover else QColor(0, 255, 209, 140)
+                        # Outer Glow for Active Wake Standby
+                        glow_pen = QPen(QColor(0, 255, 209, 45), 2.2)
+                        glow_pen.setCosmetic(True)
+                        painter.setPen(glow_pen)
+                        painter.setBrush(Qt.NoBrush)
+                        painter.drawRoundedRect(b_rect.adjusted(-1.5, -1.5, 1.5, 1.5), 7.0, 7.0)
+                    else:
+                        bg_col = QColor(148, 163, 184, 40) if is_hover else QColor(20, 24, 30, 190)
+                        bd_col = QColor(148, 163, 184, 180) if is_hover else QColor(100, 116, 139, 70)
                 else:  # menu
                     label = "⚙️ More"
                     accent = QColor("#94A3B8")
@@ -840,6 +938,14 @@ class DynamicIsland(QWidget):
                 text_col = QColor("#FFFFFF") if is_hover else (accent if name == "wake" else QColor("#E2E8F0"))
                 painter.setPen(QPen(text_col, 1))
                 painter.drawText(b_rect, Qt.AlignCenter, label)
+
+                if name == "wake" and is_wake_on:
+                    # Draw mini mint status LED on top-right of wake button
+                    dot_x = b_rect.right() - 8.0
+                    dot_y = b_rect.top() + 6.0
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QBrush(QColor("#00FFD1")))
+                    painter.drawEllipse(QPointF(dot_x, dot_y), 2.0, 2.0)
 
                 painter.restore()
 
@@ -1289,12 +1395,12 @@ class DynamicIslandManager:
             pass
 
     def show_status_context_menu(self):
-        """Displays dark-theme cyber context menu under NSStatusItem."""
-        primary = self.primary_island
-        if not primary:
+        """Displays dark-theme cyber context menu under NSStatusItem on active display."""
+        active = self._get_active_island() or self.primary_island
+        if not active:
             return
         # Calculate menu position at status item bottom
-        pos = primary.mapToGlobal(QPoint(primary.width() - 40, primary.height()))
+        pos = active.mapToGlobal(QPoint(active.width() - 40, active.height()))
         if sys.platform == "darwin" and self.status_item:
             try:
                 import AppKit
@@ -1307,11 +1413,23 @@ class DynamicIslandManager:
                     pos = QPoint(item_x, item_y + 2)
             except Exception:
                 pass
-        primary._show_context_menu(pos)
+        active._show_context_menu(pos)
 
     @property
     def primary_island(self) -> Optional[DynamicIsland]:
         return self.islands[0] if self.islands else None
+
+    def _get_active_island(self) -> Optional[DynamicIsland]:
+        """Returns the DynamicIsland on the currently active display (where mouse cursor is located)."""
+        if not self.islands:
+            return None
+        cursor_pos = QCursor.pos()
+        active_screen = QGuiApplication.screenAt(cursor_pos)
+        if active_screen:
+            for island in self.islands:
+                if island.screen == active_screen:
+                    return island
+        return self.primary_island
 
     def _init_islands(self):
         """Creates an independent DynamicIsland widget docked in the menu bar of each screen."""
@@ -1337,12 +1455,21 @@ class DynamicIslandManager:
         self._init_islands()
 
     def toggle_all(self):
-        """Toggles between folded (hidden) and expanded (spring popout) modes."""
-        primary = self.primary_island
-        if primary and primary.is_expanded:
+        """Toggles between folded (hidden) and expanded (spring popout) modes on active screen."""
+        any_expanded = any(isl.is_expanded for isl in self.islands)
+        if any_expanded:
             self.fold_all()
         else:
-            self.expand_all()
+            self.expand_active()
+
+    def expand_active(self):
+        """Pops out ONLY the dynamic island on the active display; keeps other displays folded."""
+        active = self._get_active_island()
+        for island in self.islands:
+            if island is active:
+                island.expand_manually()
+            else:
+                island.fold_manually()
 
     def expand_all(self):
         """Pops out all dynamic islands into expanded mode."""

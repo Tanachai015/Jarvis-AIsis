@@ -1,5 +1,5 @@
 # เอกสารโครงสร้างสถาปัตยกรรมระบบ J.A.R.V.I.S. Desktop Assistant (Jarvis-AIsis) 🚀
-*(J.A.R.V.I.S. Architecture & Technical Reference Manual — Release v1.8.4)*
+*(J.A.R.V.I.S. Architecture & Technical Reference Manual — Release v1.9.3)*
 
 เอกสารฉบับนี้สรุปภาพรวม สถาปัตยกรรม โครงสร้างไฟล์ ลำดับการทำงานของข้อมูล (Data Flow) และรายละเอียดเชิงลึกของทุกโมดูลในระบบ **Jarvis Desktop Assistant (`Jarvis-AIsis`)** ซึ่งพัฒนาขึ้นเพื่อทำงานบน **macOS (Apple Silicon & Intel)** โดยเฉพาะ ภายใต้ขุมพลัง **Google GenAI SDK (Gemini)**, **Official Model Context Protocol (MCP)**, **Vision GUI Automation**, **Single-Pipeline Unified Microphone**, และ **Context-Aware Interrupt Architecture**
 
@@ -352,7 +352,7 @@ python3 tests/run_backtest.py
    - ตรวจสอบการเรียกคำสั่งระบบ (`open -a`, `osascript`, `screencapture`) ผ่าน Mock 100% ไม่เปิดหน้าต่างหรือแคปหน้าจอจริง
    - ตรวจสอบ `AntigravityBridge` ปราศจากคำสั่ง `osascript` 100% และเขียนไฟล์แบบ Atomic Write
    - ตรวจสอบ `Deduplication Guard` บล็อกคำสั่งงานซ้ำซ้อนภายใน Cooldown 60 วินาที
-4. **Suite 4: System Integrity, GUI & Config Validation — 8/8 PASS:**
+4. **Suite 4: System Integrity, GUI & Config Validation — 11/11 PASS:**
    - ทดสอบความเร็ว Cold Import ไม่บล็อกการบูตโปรแกรม ($< 0.3$s)
    - ตรวจสอบตัวกรอง Empty Arguments (`""` / `None`) ใน `MCPManager.call_tool`
    - ตรวจสอบความถูกต้องของสกีมา `voice_settings.json` และ `mcp_servers.json`
@@ -360,3 +360,10 @@ python3 tests/run_backtest.py
    - ตรวจสอบ **Dynamic Island State Geometry Transitions:** ตรวจสอบการสลับขนาด Folded ($68 \times 24$ px) ในโหมด `idle` และ Expanded ($360 \times 70$ px) ในสถานะทำงาน รวมถึงการคลิกเปิด/พับแบบแมนนวล
    - ตรวจสอบ **Dynamic Island Multi-Screen & Mode Selection:** ตรวจสอบ `DynamicIslandManager` สร้างอ็อบเจกต์สำหรับทุกหน้าจอ พร้อมปุ่มเลือกโหมด 4 ปุ่ม (`Voice`, `Chat`, `Wake`, `Menu`) และการตรวจจับตำแหน่งคลิกแม่นยำ
    - ตรวจสอบ **Dynamic Island Pure Vector Paint Zero-Crash:** ทดสอบการเรนเดอร์หุ่นยนต์อวตารเวกเตอร์ `QPainter` ครบทั้ง 7 สถานะ และ 5 ท่าทางพิเศษ (Quirks) โดยไม่มี Exception และปลอดการกระตุกจาก Font Aliases
+   - ตรวจสอบ **Chill Pixel Life Engine & Standby Render:** ตรวจสอบการจำลองชีวิตพิกเซล 13 กิจกรรม และการเรนเดอร์เฟรมสแตนบาย Retina $88 \times 22$ pt ($176 \times 44$ px)
+   - ตรวจสอบ **v1.9.2 Native NSStatusItem & Always-On-Top:** ตรวจสอบการฝัง `NSStatusItem` เมนูบาร์ของแท้, พื้นหลังทึบคมชัด Cyber Glass ($\alpha \ge 235$), และการปิด `Qt.Tool` เพื่อไม่ให้หน้าต่างหายขณะแคปหน้าจอ
+   - ตรวจสอบ **v1.9.3 Standard Mode, Speech Bubble & Single-Screen Pop-out:**
+     - ตรวจสอบการบูตใน **Standard Mode (`WAKE_TRIGGER_ENABLED = False`)** พร้อมระบบ **On-Demand Microphone Stream Lifecycle** ปล่อยฮาร์ดแวร์ไมค์ 100% ในช่วงสแตนบาย ไม่มีไอคอนไมค์สีส้มของ macOS มารบกวนสายตา
+     - ตรวจสอบกล่องคำพูดเวกเตอร์ **Robot Speech Bubble** (`_show_robot_bubble`) พร้อมหน่วงเวลา `_auto_fold_timer` อัตโนมัติ
+     - ตรวจสอบ **Single-Screen Dynamic Island Pop-out** (`expand_active`) เด้งเปิดเฉพาะจอที่ Active ตามตำแหน่งเมาส์ จออื่นพับเรียบร้อย
+     - ตรวจสอบ **Two-Factor Wake Gate:** กรองเสียงเคาะแป้นพิมพ์ด้วยเกณฑ์ 2 เฟรมต่อเนื่อง ($\ge 160$ms) ร่วมกับ Silero VAD ตรวจสอบเสียงมนุษย์ย้อนหลัง 0.8s (`wake_mic_gain: 1.6`, `wake_score_threshold: 0.48`)
