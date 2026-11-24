@@ -64,7 +64,7 @@ WHISPER_MODEL = os.getenv("WHISPER_MODEL", os.getenv("WHISPER_MODEL_SIZE", "smal
 WHISPER_MODEL_SIZE = WHISPER_MODEL  # Backward compatibility alias
 WHISPER_INITIAL_PROMPT = os.getenv(
     "WHISPER_INITIAL_PROMPT",
-    "จาร์วิส, เปิดเบราว์เซอร์ Firefox, Google Chrome, Safari, YouTube, Spotify, Terminal, VS Code, Finder, ค้นหาเพลง, ปิดแท็บ"
+    "บทสนทนาภาษาไทยและภาษาอังกฤษ"
 )
 _wake_words_raw = os.getenv("WAKE_WORDS", "hi jarvis,jarvis,จาร์วิส,จาวิส,ไฮ จาร์วิส")
 WAKE_WORDS = [w.strip().lower() for w in _wake_words_raw.split(",") if w.strip()]
