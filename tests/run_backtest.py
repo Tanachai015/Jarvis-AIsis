@@ -941,11 +941,13 @@ class TestSystemIntegrityAndLazyLoading(unittest.TestCase):
         try:
             self.assertTrue(hasattr(manager, "handle_status_click"), "DynamicIslandManager must implement handle_status_click")
 
-            # 1. Test Chat click (38 <= x < 54) -> emits toggle_overlay_signal
-            chat_emitted = []
-            event_bus.toggle_overlay_signal.connect(lambda: chat_emitted.append(True))
+            # 1. Test Chat click (38 <= x < 54) -> expands active HUD to Chat tab
+            active_chat_isl = manager._get_active_island()
+            active_chat_isl.fold_manually()
             manager.handle_status_click(46.0)
-            self.assertEqual(len(chat_emitted), 1, "Clicking Chat zone (x=46) must emit toggle_overlay_signal")
+            self.assertTrue(active_chat_isl.is_expanded, "Clicking Chat zone (x=46) must expand active HUD")
+            self.assertEqual(active_chat_isl._active_console_view, "chat", "Clicking Chat zone must open Chat tab")
+            manager.fold_all()
 
             # 2. Test Voice click (54 <= x < 70) -> emits toggle_voice_record_signal
             voice_emitted = []

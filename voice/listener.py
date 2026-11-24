@@ -481,6 +481,24 @@ class JarvisListener(threading.Thread):
                 self._cancel_recording_to_standby("เสียงสั้นเกินไป")
                 return
 
+            # Pre-STT Energy & Silero VAD Gate (active when Silero VAD is loaded in production)
+            # Prevents Whisper hallucinations on silence/noise without breaking mocked unit tests.
+            audio_rms = float(np.sqrt(np.mean(audio_data ** 2)))
+            audio_peak = float(np.max(np.abs(audio_data)))
+            if self.vad_model is not None:
+                vad_speech_frames = 0
+                for i in range(0, len(audio_data) - 511, 512):
+                    if self._is_human_speech(audio_data[i:i + 512], threshold=self.vad_speech_threshold):
+                        vad_speech_frames += 1
+                        if vad_speech_frames >= 2:
+                            break
+
+                if (audio_rms < 0.004 and audio_peak < 0.025) or vad_speech_frames == 0:
+                    print(f"[Listener] 🔇 Silence/noise rejected pre-STT (RMS={audio_rms:.5f}, Peak={audio_peak:.4f}, VAD={vad_speech_frames}).")
+                    event_bus.task_log_updated.emit("Voice Input", "ไม่พบเสียงพูดที่ชัดเจน (ตัดเสียงรบกวน)")
+                    self._cancel_recording_to_standby("ไม่พบเสียงพูด")
+                    return
+
             transcribed_text = None
             used_engine = "local"
 
@@ -502,6 +520,17 @@ class JarvisListener(threading.Thread):
             if transcribed_text:
                 clean_text = transcribed_text.strip()
                 norm_text = re.sub(r'[\s\.,!_?\'"\-:;()\[\]{}—–~`*#]', '', clean_text.lower())
+
+                # Post-STT Hallucination Guard on low-energy audio
+                hallucination_norms = {
+                    "สวัสดี", "สวัสดีครับ", "สวัสดีค่ะ", "ขอบคุณ", "ขอบคุณครับ", "ขอบคุณค่ะ",
+                    "จริงปิดแท็บสวัสดี", "ซับไทยโดย", "โปรดติดตาม", "thankyou", "thanksforwatching",
+                    "you", "bye", "mbc"
+                }
+                if self.vad_model is not None and audio_rms < 0.012 and (norm_text in hallucination_norms or len(norm_text) <= 2):
+                    print(f"[Listener] 🛡️ Whisper hallucination rejected (RMS={audio_rms:.5f}): \"{clean_text}\"")
+                    self._cancel_recording_to_standby("ตัดข้อความหลอนจากความเงียบ")
+                    return
 
                 # Check for conversation exit phrases ("ขอบคุณครับ", "พอแค่นี้", "พักก่อน")
                 is_exit_phrase = False

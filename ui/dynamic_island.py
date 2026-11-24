@@ -11,7 +11,7 @@ import random
 import json
 from typing import Optional, Dict, Any, List
 
-from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPoint, QPropertyAnimation, QEasingCurve, Property, QBuffer, QIODevice
+from PySide6.QtCore import Qt, QEvent, QTimer, QRectF, QPointF, QPoint, QPropertyAnimation, QEasingCurve, Property, QBuffer, QIODevice
 from PySide6.QtGui import QPainter, QPainterPath, QColor, QFont, QFontMetrics, QPen, QBrush, QGuiApplication, QScreen, QCursor, QPolygonF
 from PySide6.QtWidgets import QWidget, QApplication, QMenu, QLineEdit
 
@@ -109,6 +109,7 @@ class DynamicIsland(QWidget):
 
     def __init__(self, parent=None, screen: Optional[Any] = None, on_clear_history=None):
         super().__init__(parent)
+        self._enforce_active_screen_guard: bool = (screen is not None)
         self.screen = screen
         if not self.screen:
             app = QGuiApplication.instance()
@@ -130,6 +131,8 @@ class DynamicIsland(QWidget):
         self._manually_expanded = False
         self._hovered_btn: Optional[str] = None
         self._hovered_capsule: bool = False
+        self._context_menu_open: bool = False
+        self._last_expand_time: float = 0.0
 
         # Geometry & Dimension Settings (v2.1.0 Unified Cyber Command HUD: 820x430 px)
         self.edge = "top"
@@ -289,6 +292,45 @@ class DynamicIsland(QWidget):
 
         # In standby idle state, Expanded Island window starts hidden
         self.hide()
+
+        # Install application-level event filter for click-outside-to-close
+        app_inst = QApplication.instance()
+        if app_inst:
+            app_inst.installEventFilter(self)
+
+    def _is_on_active_screen(self) -> bool:
+        """Returns True if this island is on the display currently containing the cursor."""
+        if not getattr(self, "_enforce_active_screen_guard", False):
+            return True
+        cursor_pos = QCursor.pos()
+        active_scr = QGuiApplication.screenAt(cursor_pos) or (QApplication.instance().primaryScreen() if QApplication.instance() else None)
+        my_scr = self.screen or (self.window().screen() if hasattr(self, 'window') else None)
+        if active_scr and my_scr and (my_scr != active_scr):
+            return False
+        return True
+
+    def eventFilter(self, obj, event):
+        """Closes expanded HUD when clicking outside its bounds or switching to another app."""
+        if not self.is_expanded or not self.isVisible():
+            return False
+        if getattr(self, "_context_menu_open", False):
+            return False
+        if getattr(self, "_pending_approval_active", False) or getattr(self, "_pending_confirmation_active", False):
+            return False
+        if (time.time() - getattr(self, "_last_expand_time", 0.0)) < 0.35:
+            return False
+
+        etype = event.type()
+        if etype == QEvent.ApplicationDeactivate:
+            if self.current_state == "idle":
+                self.fold_manually()
+            return False
+        elif etype == QEvent.MouseButtonPress:
+            global_pos = QCursor.pos()
+            if not self.geometry().contains(global_pos):
+                if self.current_state == "idle":
+                    self.fold_manually()
+        return False
 
     @property
     def is_expanded(self) -> bool:
@@ -554,9 +596,11 @@ class DynamicIsland(QWidget):
     def expand_manually(self):
         """Manually pops out the island into expanded interactive mode (120 FPS)."""
         self._manually_expanded = True
+        self._last_expand_time = time.time()
         self.render_timer.setInterval(8)  # 120 FPS when expanded
         self.show()
         self.raise_()
+        self.activateWindow()
         self._apply_geometry_for_state(animated=True)
         self._sync_child_widgets()
         self._reset_auto_fold_timer()
@@ -625,7 +669,9 @@ class DynamicIsland(QWidget):
         self.update()
 
     def _on_todo_alert_triggered(self, todo_text: str):
-        """Displays prominent reminder alert bubble and plays alert ping."""
+        """Displays prominent reminder alert bubble and plays alert ping on active screen only."""
+        if not self._is_on_active_screen():
+            return
         self.expand_manually()
         self._show_robot_bubble(
             title="⏰ Todo Reminder Alert!",
@@ -642,7 +688,9 @@ class DynamicIsland(QWidget):
         self.update()
 
     def _on_confirmation_requested(self, raw_stt: str, inferred_intent: str, question_text: str):
-        """Displays ambiguity clarification confirmation card on Dynamic Island HUD."""
+        """Displays ambiguity clarification confirmation card on Dynamic Island HUD (active screen only)."""
+        if not self._is_on_active_screen():
+            return
         self._pending_confirmation_active = True
         self._pending_confirmation_info = {
             "raw_stt": raw_stt,
@@ -762,7 +810,9 @@ class DynamicIsland(QWidget):
         self.update()
 
     def _on_approval_requested(self, payload: dict):
-        """Displays approval prompt in Dynamic Island when a high-impact action is requested."""
+        """Displays approval prompt in Dynamic Island when a high-impact action is requested (active screen only)."""
+        if not self._is_on_active_screen():
+            return
         self._pending_approval_active = True
         self._pending_approval_info = payload or {}
         prompt_msg = payload.get("prompt") or f"ต้องการยืนยันรัน {payload.get('tool_name', 'คำสั่ง')} หรือไม่ครับ?"
@@ -856,9 +906,15 @@ class DynamicIsland(QWidget):
             }
         """)
 
-        # 1. Toggle Overlay Chat
-        act_chat = menu.addAction("💬 Toggle Overlay Chat (Alt+Space)")
-        act_chat.triggered.connect(lambda: event_bus.toggle_overlay_signal.emit())
+        # 1. Open HUD Chat Tab
+        def _open_hud_chat():
+            self._active_console_view = "chat"
+            self.expand_manually()
+            self._sync_child_widgets()
+            self.chat_input.setFocus()
+
+        act_chat = menu.addAction("💬 Open K.A.R.I.S. Chat HUD")
+        act_chat.triggered.connect(_open_hud_chat)
 
         # 2. Toggle Voice Input
         act_voice = menu.addAction("🎙️ Toggle Voice Input (Cmd+Shift+J)")
@@ -889,7 +945,11 @@ class DynamicIsland(QWidget):
         act_quit = menu.addAction("🚪 Quit Jarvis")
         act_quit.triggered.connect(QApplication.instance().quit)
 
-        menu.exec(global_pos)
+        self._context_menu_open = True
+        try:
+            menu.exec(global_pos)
+        finally:
+            self._context_menu_open = False
 
     def mouseMoveEvent(self, event):
         pos = event.position()
@@ -934,7 +994,10 @@ class DynamicIsland(QWidget):
                 # User clicked on the folded pill -> Hit-test Robot, Chat, Voice, or Wake
                 click_x = pos.x()
                 if 38.0 <= click_x < 54.0:
-                    event_bus.toggle_overlay_signal.emit()
+                    self._active_console_view = "chat"
+                    self.expand_manually()
+                    self._sync_child_widgets()
+                    self.chat_input.setFocus()
                     return
                 elif 54.0 <= click_x < 70.0:
                     event_bus.toggle_voice_record_signal.emit()
@@ -1041,7 +1104,8 @@ class DynamicIsland(QWidget):
                 global_pos = self.mapToGlobal(QPoint(int(754), int(36)))
                 self._show_context_menu(global_pos)
             else:
-                # Clicked outside buttons: if click was outside the todo drawer when open, close drawer
+                # Clicked outside buttons inside HUD: close Todo drawer if click was outside drawer,
+                # NEVER fold the HUD itself when clicking inside HUD bounds.
                 if self._todo_drawer_open:
                     drawer_rect = QRectF(158, 36, 460, 266)
                     if not drawer_rect.contains(pos):
@@ -1049,9 +1113,6 @@ class DynamicIsland(QWidget):
                         self._sync_child_widgets()
                         self.update()
                         return
-                # If idle and clicked on background, fold back
-                if self.current_state == "idle" and not self._pending_approval_active and not self._pending_confirmation_active:
-                    self.fold_manually()
 
     def on_state_changed(self, new_state: str):
         """Slot for state_changed signal from event_bus."""
@@ -1418,8 +1479,11 @@ class DynamicIsland(QWidget):
         painter.setPen(QPen(QColor(0, 229, 255, 45), 1.0))
         painter.drawRoundedRect(stage_rect, 8.0, 8.0)
 
-        # Render 3D High-Poly Face HUD (120 FPS Perspective & Orbital Rings)
+        # Render 3D High-Poly Face HUD (120 FPS Perspective, Digital World & Live Telemetry)
         if hasattr(self, "face_renderer"):
+            live_tele = self._custom_subtext or (
+                self._process_logs[-1]["title"] if self._process_logs else None
+            )
             self.face_renderer.render(
                 painter,
                 width=512,
@@ -1428,7 +1492,8 @@ class DynamicIsland(QWidget):
                 now=time.time(),
                 cx=550.0,
                 cy=218.0,
-                scale=20.0
+                scale=20.0,
+                live_telemetry=live_tele
             )
 
         # Speech Bubble pointing from 3D Face
@@ -2328,6 +2393,19 @@ class DynamicIslandManager:
             if hasattr(island, "pixel_engine"):
                 island.pixel_engine.set_action(action_name)
 
+    def expand_active_to_chat(self):
+        """Expands the active screen's HUD directly into the Chat tab and focuses input."""
+        active = self._get_active_island()
+        for isl in self.islands:
+            if isl is active:
+                isl._active_console_view = "chat"
+                isl.expand_manually()
+                isl._sync_child_widgets()
+                isl.chat_input.setFocus()
+            else:
+                if isl.current_state == "idle":
+                    isl.fold_manually()
+
     def handle_status_click(self, click_x: float):
         """Dispatches click on native NSStatusItem to Robot, Chat, Voice, or Wake based on x-coordinate."""
         print(f"[DynamicIslandManager] 🖱️ Menu Bar Dynamic Island clicked at x={click_x:.1f} pt")
@@ -2335,8 +2413,8 @@ class DynamicIslandManager:
             # 1. Robot Zone -> Toggle Expanded Island Pop-out window
             self.toggle_all()
         elif 38.0 <= click_x < 54.0:
-            # 2. Chat Zone (💬) -> Toggle Overlay Chat (Alt+Space)
-            event_bus.toggle_overlay_signal.emit()
+            # 2. Chat Zone (💬) -> Expand HUD directly into Chat tab on active screen
+            self.expand_active_to_chat()
         elif 54.0 <= click_x < 70.0:
             # 3. Voice Zone (🎙️) -> Toggle Voice Recording (Cmd+Shift+J)
             event_bus.toggle_voice_record_signal.emit()
