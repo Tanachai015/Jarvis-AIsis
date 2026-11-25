@@ -129,6 +129,8 @@ class DynamicIsland(QWidget):
         self.current_state = "idle"
         self._custom_subtext = ""
         self._manually_expanded = False
+        self._user_dismissed_hud: bool = False
+        self._manager: Optional[Any] = None
         self._hovered_btn: Optional[str] = None
         self._hovered_capsule: bool = False
         self._context_menu_open: bool = False
@@ -299,43 +301,46 @@ class DynamicIsland(QWidget):
             app_inst.installEventFilter(self)
 
     def _is_on_active_screen(self) -> bool:
-        """Returns True if this island is on the display currently containing the cursor."""
+        """Returns True if this island owns the active HUD or is on the active cursor screen."""
+        if self._manager is not None and getattr(self._manager, "islands", None):
+            visible_siblings = [isl for isl in self._manager.islands if isl.isVisible()]
+            if visible_siblings:
+                return self is visible_siblings[0]
+
         if not getattr(self, "_enforce_active_screen_guard", False):
             return True
+
         cursor_pos = QCursor.pos()
-        active_scr = QGuiApplication.screenAt(cursor_pos) or (QApplication.instance().primaryScreen() if QApplication.instance() else None)
+        app_inst = QGuiApplication.instance()
+        active_scr = QGuiApplication.screenAt(cursor_pos) or (app_inst.primaryScreen() if app_inst else None)
         my_scr = self.screen or (self.window().screen() if hasattr(self, 'window') else None)
         if active_scr and my_scr and (my_scr != active_scr):
             return False
         return True
 
     def eventFilter(self, obj, event):
-        """Closes expanded HUD when clicking outside its bounds or switching to another app."""
+        """Closes expanded HUD when clicking outside its bounds or switching to another app in ANY mode."""
         if not self.is_expanded or not self.isVisible():
             return False
         if getattr(self, "_context_menu_open", False):
-            return False
-        if getattr(self, "_pending_approval_active", False) or getattr(self, "_pending_confirmation_active", False):
             return False
         if (time.time() - getattr(self, "_last_expand_time", 0.0)) < 0.35:
             return False
 
         etype = event.type()
         if etype == QEvent.ApplicationDeactivate:
-            if self.current_state == "idle":
-                self.fold_manually()
+            self.fold_manually()
             return False
         elif etype == QEvent.MouseButtonPress:
             global_pos = QCursor.pos()
             if not self.geometry().contains(global_pos):
-                if self.current_state == "idle":
-                    self.fold_manually()
+                self.fold_manually()
         return False
 
     @property
     def is_expanded(self) -> bool:
-        """True if island is in expanded mode (either active AI state or manually expanded)."""
-        return (self.current_state != "idle") or self._manually_expanded
+        """True if island is in expanded mode (manually expanded or active non-dismissed state)."""
+        return self._manually_expanded or ((self.current_state != "idle") and not self._user_dismissed_hud)
 
     def _load_settings(self):
         """Loads optional menubar_offset_x from voice_settings.json."""
@@ -595,7 +600,13 @@ class DynamicIsland(QWidget):
 
     def expand_manually(self):
         """Manually pops out the island into expanded interactive mode (120 FPS)."""
+        if self._manager is not None and getattr(self._manager, "islands", None):
+            for isl in self._manager.islands:
+                if isl is not self and isl.isVisible():
+                    isl.fold_manually()
+
         self._manually_expanded = True
+        self._user_dismissed_hud = False
         self._last_expand_time = time.time()
         self.render_timer.setInterval(8)  # 120 FPS when expanded
         self.show()
@@ -607,10 +618,9 @@ class DynamicIsland(QWidget):
         self.update()
 
     def fold_manually(self):
-        """Folds the island back into compact menu bar pill (hidden in idle)."""
-        if self.current_state != "idle":
-            return
+        """Folds/dismisses the HUD window back to the menu bar in ANY mode."""
         self._manually_expanded = False
+        self._user_dismissed_hud = (self.current_state != "idle")
         self._hovered_btn = None
         self._todo_drawer_open = False
         self.render_timer.setInterval(33)  # 30 FPS
@@ -1134,6 +1144,7 @@ class DynamicIsland(QWidget):
 
         # Adaptive FPS: 120 FPS for active states / expanded mode, 30 FPS for folded idle
         if self.current_state == "idle":
+            self._user_dismissed_hud = False
             self.render_timer.setInterval(33)  # 30 FPS
             self._custom_subtext = ""
             if not self._manually_expanded:
@@ -1142,15 +1153,19 @@ class DynamicIsland(QWidget):
                 self.render_timer.setInterval(8)  # 120 FPS when expanded
                 self._reset_auto_fold_timer()
         else:
-            self.render_timer.setInterval(8)  # 120 FPS
-            # Single-Screen State Guard: only show island on the active cursor screen
-            cursor_pos = QCursor.pos()
-            active_scr = QGuiApplication.screenAt(cursor_pos) or (QApplication.instance().primaryScreen() if QApplication.instance() else None)
-            my_scr = self.screen or (self.window().screen() if hasattr(self, 'window') else None)
-            if active_scr and my_scr and (my_scr != active_scr):
+            if self._user_dismissed_hud:
                 self.hide()
+                self._sync_child_widgets()
                 return
 
+            self.render_timer.setInterval(8)  # 120 FPS
+            # Single-Screen State Guard: only show island on the active owner/cursor screen
+            if not self._is_on_active_screen():
+                self.hide()
+                self._sync_child_widgets()
+                return
+
+            self._last_expand_time = time.time()
             self.show()
             self.raise_()
             self._apply_geometry_for_state(animated=True)
@@ -1188,12 +1203,9 @@ class DynamicIsland(QWidget):
             self.quirk_duration = 1.9 if self.active_quirk == "mini_yawn" else 1.5
             self.next_auto_quirk_time = t + random.uniform(3.0, 5.5)
 
-        # Always-On-Top Guard: Ensure window stays visible if expanded mode is active
-        if self.is_expanded and not self.isVisible():
-            self.show()
-            self.raise_()
-
-        self.update()
+        # Note: Do NOT force self.show() in animation tick so dismissed HUD stays hidden
+        if self.isVisible():
+            self.update()
 
     # =========================================================================
     # Pure Vector Graphics (QPainter Cyber Mini-Robot Avatar & Unified HUD)
@@ -2263,9 +2275,37 @@ class DynamicIslandManager:
 
             # Initial render
             self._on_status_tick()
+
+            # Install macOS Global Mouse Monitor so clicking outside HUD on Desktop/other apps
+            # closes HUD immediately in EVERY mode (even if Qt is not the active app)
+            try:
+                NSEventMaskGlobalClick = (1 << 1) | (1 << 3)  # NSLeftMouseDownMask | NSRightMouseDownMask
+                def _global_click_handler(_event):
+                    QTimer.singleShot(0, self._on_global_mouse_click_outside)
+                self._global_mouse_monitor = AppKit.NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
+                    NSEventMaskGlobalClick, _global_click_handler
+                )
+            except Exception:
+                self._global_mouse_monitor = None
         except Exception as e:
             # Safe fallback for environments without Cocoa WindowServer
             self.status_item = None
+
+    def _on_global_mouse_click_outside(self):
+        """Folds any expanded HUD if a global macOS click occurred outside its geometry."""
+        try:
+            gpos = QCursor.pos()
+            now = time.time()
+            for isl in self.islands:
+                if isl.isVisible() and isl.is_expanded:
+                    if getattr(isl, "_context_menu_open", False):
+                        continue
+                    if (now - getattr(isl, "_last_expand_time", 0.0)) < 0.35:
+                        continue
+                    if not isl.geometry().contains(gpos):
+                        isl.fold_manually()
+        except Exception:
+            pass
 
     def _on_status_tick(self):
         """Updates Chill Pixel Life animation and pushes Retina NSImage to NSStatusItem."""
@@ -2348,10 +2388,13 @@ class DynamicIslandManager:
 
         screens = QGuiApplication.screens()
         if not screens:
-            self.islands.append(DynamicIsland(screen=None, on_clear_history=self.on_clear_history))
+            isl = DynamicIsland(screen=None, on_clear_history=self.on_clear_history)
+            isl._manager = self
+            self.islands.append(isl)
         else:
             for s in screens:
                 island = DynamicIsland(screen=s, on_clear_history=self.on_clear_history)
+                island._manager = self
                 self.islands.append(island)
 
     def _on_screens_changed(self, screen=None):
